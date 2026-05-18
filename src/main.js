@@ -77,12 +77,16 @@ function renderItem(dl) {
 
 const KEYS = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files"];
 let activeFilter = "all";
+let nameFilter   = "";
 
 function applyFilter(listEl, emptyEl) {
   const items = listEl.querySelectorAll(".dl-item");
+  const needle = nameFilter.toLowerCase();
   let visible = 0;
   for (const li of items) {
-    const match = activeFilter === "all" || li.dataset.status === activeFilter;
+    const statusMatch = activeFilter === "all" || li.dataset.status === activeFilter;
+    const nameMatch   = !needle || li.dataset.name.toLowerCase().includes(needle);
+    const match = statusMatch && nameMatch;
     li.classList.toggle("hidden", !match);
     if (match) visible++;
   }
@@ -116,6 +120,7 @@ async function poll(listEl, emptyEl, badge) {
         listEl.prepend(li);
       }
       li.dataset.status = dl.status;
+      li.dataset.name   = fileName(dl);
       li.innerHTML = renderItem(dl);
     }
     applyFilter(listEl, emptyEl);
@@ -130,8 +135,9 @@ window.addEventListener("DOMContentLoaded", () => {
   const errorEl = document.getElementById("error-msg");
   const listEl  = document.getElementById("download-list");
   const emptyEl = document.getElementById("empty-state");
-  const badge     = document.getElementById("conn-badge");
-  const filterBar = document.getElementById("filter-bar");
+  const badge      = document.getElementById("conn-badge");
+  const filterBar  = document.getElementById("filter-bar");
+  const nameSearch = document.getElementById("name-filter");
 
   filterBar.addEventListener("click", (e) => {
     const btn = e.target.closest(".filter-btn");
@@ -139,6 +145,11 @@ window.addEventListener("DOMContentLoaded", () => {
     filterBar.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     activeFilter = btn.dataset.filter;
+    applyFilter(listEl, emptyEl);
+  });
+
+  nameSearch.addEventListener("input", () => {
+    nameFilter = nameSearch.value.trim();
     applyFilter(listEl, emptyEl);
   });
 

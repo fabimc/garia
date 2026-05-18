@@ -33,7 +33,7 @@
         <p id="error-msg" class="error hidden"></p>
       </section>
 
-      <section class="downloads">
+      <div class="toolbar">
         <div class="filter-bar" id="filter-bar">
           <button class="filter-btn active" data-filter="all">All</button>
           <button class="filter-btn" data-filter="active">Downloading</button>
@@ -41,6 +41,10 @@
           <button class="filter-btn" data-filter="complete">Complete</button>
           <button class="filter-btn" data-filter="error">Error</button>
         </div>
+        <input id="name-filter" class="name-filter" type="search" placeholder="Filter by name…" />
+      </div>
+
+      <section class="downloads">
         <p id="empty-state" class="empty-state">No downloads yet.</p>
         <ul id="download-list"></ul>
       </section>
