@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Garia</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="header-row">
+          <div>
+            <h1>Garia</h1>
+            <p class="subtitle">aria2 download manager</p>
+          </div>
+          <span id="conn-badge" class="conn-badge conn-waiting">Connecting…</span>
+        </div>
+      </header>
+
+      <section class="add-download">
+        <form id="download-form">
+          <input
+            id="url-input"
+            type="url"
+            placeholder="Paste a URL to download…"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          />
+          <button type="submit">Add URL</button>
+        </form>
+        <p id="error-msg" class="error hidden"></p>
+      </section>
+
+      <section class="downloads">
+        <div class="filter-bar" id="filter-bar">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="active">Downloading</button>
+          <button class="filter-btn" data-filter="paused">Paused</button>
+          <button class="filter-btn" data-filter="complete">Complete</button>
+          <button class="filter-btn" data-filter="error">Error</button>
+        </div>
+        <p id="empty-state" class="empty-state">No downloads yet.</p>
+        <ul id="download-list"></ul>
+      </section>
+    </div>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
