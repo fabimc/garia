@@ -88,7 +88,11 @@ function applyFilter(listEl, emptyEl) {
     const nameMatch   = !needle || li.dataset.name.toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     li.classList.toggle("hidden", !match);
-    if (match) visible++;
+    if (match) {
+      li.classList.toggle("zebra-odd",  visible % 2 === 0);
+      li.classList.toggle("zebra-even", visible % 2 === 1);
+      visible++;
+    }
   }
   emptyEl.classList.toggle("hidden", visible > 0);
 }
