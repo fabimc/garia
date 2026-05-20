@@ -54,10 +54,10 @@ function renderItem(dl) {
 
   const actions = [];
   if (dl.status === "active" || dl.status === "waiting") {
-    actions.push(`<button class="dl-btn stop-btn" data-gid="${dl.gid}" data-action="stop">Stop</button>`);
+    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="stop" title="Pause">⏸</button>`);
   }
   if (dl.status === "paused") {
-    actions.push(`<button class="dl-btn resume-btn" data-gid="${dl.gid}" data-action="resume">Resume</button>`);
+    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="resume" title="Resume">▶</button>`);
   }
 
   const isIndeterminate = dl.status === "active" && total === 0;
@@ -65,11 +65,13 @@ function renderItem(dl) {
   const barStyle = isIndeterminate ? "" : `style="width:${pct}%"`;
 
   return `
-    <div class="dl-name" title="${fileName(dl)}">${fileName(dl)}</div>
-    <div class="dl-bar-track"><div class="${barClass}" ${barStyle}></div></div>
-    <div class="dl-row">
-      <span class="dl-meta">${sizeInfo}${speed ? " · " + speed : ""}${total > 0 ? " · " + pct + "%" : ""}</span>
-      <span class="dl-status ${statusClass}">${statusLabel(dl.status)}</span>
+    <div class="dl-content">
+      <div class="dl-name" title="${fileName(dl)}">${fileName(dl)}</div>
+      <div class="dl-bar-track"><div class="${barClass}" ${barStyle}></div></div>
+      <div class="dl-row">
+        <span class="dl-meta">${sizeInfo}${speed ? " · " + speed : ""}${total > 0 ? " · " + pct + "%" : ""}</span>
+        <span class="dl-status ${statusClass}">${statusLabel(dl.status)}</span>
+      </div>
     </div>
     ${actions.length ? `<div class="dl-actions">${actions.join("")}</div>` : ""}
   `;
