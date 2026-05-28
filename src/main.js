@@ -52,12 +52,16 @@ function renderItem(dl) {
     ? `${formatBytes(done)} / ${formatBytes(total)}`
     : done > 0 ? formatBytes(done) : "";
 
+  const filePath = dl.files?.[0]?.path || "";
   const actions = [];
   if (dl.status === "active" || dl.status === "waiting") {
     actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="stop" title="Pause">⏸</button>`);
   }
   if (dl.status === "paused") {
-    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="resume" title="Resume">▶</button>`);
+    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="resume" title="Resume">↻</button>`);
+  }
+  if (filePath) {
+    actions.push(`<button class="dl-btn" data-action="reveal" data-path="${filePath}" title="Show in Finder"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>`);
   }
 
   const isIndeterminate = dl.status === "active" && total === 0;
@@ -127,6 +131,7 @@ async function poll(listEl, emptyEl, badge) {
       }
       li.dataset.status = dl.status;
       li.dataset.name   = fileName(dl);
+
       li.innerHTML = renderItem(dl);
     }
     applyFilter(listEl, emptyEl);
@@ -175,17 +180,37 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Per-row buttons and row selection
   listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const { gid, action } = btn.dataset;
-    try {
-      if (action === "stop")   await rpc("aria2.pause",   [gid]);
-      if (action === "resume") await rpc("aria2.unpause", [gid]);
-      await poll(listEl, emptyEl);
-    } catch (err) {
-      console.error(err);
+    if (btn) {
+      // Per-row pause / resume button
+      const { gid, action, path } = btn.dataset;
+      try {
+        if (action === "stop")   await rpc("aria2.pause",   [gid]);
+        if (action === "resume") await rpc("aria2.unpause", [gid]);
+        if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
+        if (action !== "reveal") await poll(listEl, emptyEl, badge);
+      } catch (err) { console.error(err); }
+      return;
     }
+
+  });
+
+  // Bulk action helpers
+  async function bulkAction(gids, action) {
+    const method = action === "pause" ? "aria2.pause" : "aria2.unpause";
+    await Promise.allSettled(gids.map(gid => rpc(method, [gid])));
+    await poll(listEl, emptyEl, badge);
+  }
+
+  document.getElementById("pause-all").addEventListener("click", () => {
+    const gids = [...listEl.querySelectorAll(".dl-item[data-status='active']")].map(li => li.dataset.gid);
+    bulkAction(gids, "pause");
+  });
+  document.getElementById("resume-all").addEventListener("click", () => {
+    const gids = [...listEl.querySelectorAll(".dl-item[data-status='paused']")].map(li => li.dataset.gid);
+    bulkAction(gids, "resume");
   });
 
   poll(listEl, emptyEl, badge);
