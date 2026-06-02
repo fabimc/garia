@@ -1,7 +1,16 @@
-const RPC_URL = "http://localhost:6800/jsonrpc";
+const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
 async function rpc(method, params = []) {
+  // Prefer native IPC (Tauri command) to avoid WebView restrictions around
+  // http://localhost fetches (mixed-content/CORS quirks).
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker === "function") {
+    const json = await invoker("aria2_rpc", { method, params });
+    if (json?.error) throw new Error(json.error.message || "aria2 RPC error");
+    return json?.result;
+  }
+
   const res = await fetch(RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -106,6 +115,11 @@ function applyFilter(listEl, emptyEl) {
 function setBadge(badge, state) {
   badge.className = `conn-badge conn-${state}`;
   badge.textContent = state === "ok" ? "Connected" : state === "error" ? "Disconnected" : "Connecting…";
+  badge.title = state === "ok"
+    ? "Connected to aria2"
+    : state === "error"
+      ? `Cannot reach aria2 JSON-RPC at ${RPC_URL}`
+      : "Connecting to aria2…";
 }
 
 async function poll(listEl, emptyEl, badge) {
@@ -135,15 +149,14 @@ async function poll(listEl, emptyEl, badge) {
       li.innerHTML = renderItem(dl);
     }
     applyFilter(listEl, emptyEl);
-  } catch {
+  } catch (err) {
+    console.error(err);
     setBadge(badge, "error");
+    if (err?.message) badge.title = `${badge.title} — ${err.message}`;
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  const form    = document.getElementById("download-form");
-  const input   = document.getElementById("url-input");
-  const errorEl = document.getElementById("error-msg");
   const listEl  = document.getElementById("download-list");
   const emptyEl = document.getElementById("empty-state");
   const badge      = document.getElementById("conn-badge");
@@ -164,21 +177,70 @@ window.addEventListener("DOMContentLoaded", () => {
     applyFilter(listEl, emptyEl);
   });
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorEl.classList.add("hidden");
-    const url = input.value.trim();
+  // ── Modal ────────────────────────────────────────────────────────────────
+  const overlay       = document.getElementById("modal-overlay");
+  const modalUrlInput = document.getElementById("modal-url-input");
+  const modalError    = document.getElementById("modal-error");
+  const torrentInput  = document.getElementById("torrent-file-input");
+
+  function openModal() {
+    modalUrlInput.value = "";
+    torrentInput.value  = "";
+    modalError.classList.add("hidden");
+    overlay.classList.remove("hidden");
+    setTimeout(() => modalUrlInput.focus(), 50);
+  }
+  function closeModal() { overlay.classList.add("hidden"); }
+
+  document.getElementById("open-modal-btn").addEventListener("click", openModal);
+  document.getElementById("modal-close").addEventListener("click", closeModal);
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  // Browse → open native file picker for .torrent
+  document.getElementById("browse-btn").addEventListener("click", () => torrentInput.click());
+
+  // When a torrent file is chosen, submit immediately
+  torrentInput.addEventListener("change", async () => {
+    const file = torrentInput.files[0];
+    if (!file) return;
+    await submitTorrent(file);
+  });
+
+  async function submitTorrent(file) {
+    modalError.classList.add("hidden");
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      await rpc("aria2.addTorrent", [b64]);
+      closeModal();
+      await pollAndSync();
+    } catch (err) {
+      modalError.textContent = err.message;
+      modalError.classList.remove("hidden");
+    }
+  }
+
+  async function submitUrl() {
+    const url = modalUrlInput.value.trim();
+    if (!url) return;
+    modalError.classList.add("hidden");
     try {
       await rpc("aria2.addUri", [[url]]);
-      input.value = "";
+      closeModal();
+      await pollAndSync();
     } catch (err) {
       const unreachable = err.message.includes("Failed to fetch") || err.message.includes("Load failed");
-      errorEl.textContent = unreachable
-        ? "aria2 is not ready yet — is it installed? Try: brew install aria2"
+      modalError.textContent = unreachable
+        ? "aria2 is not ready yet — is it running? Try: brew install aria2"
         : err.message;
-      errorEl.classList.remove("hidden");
+      modalError.classList.remove("hidden");
     }
-  });
+  }
+
+  document.getElementById("modal-ok").addEventListener("click", submitUrl);
+  modalUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitUrl(); });
 
   // Per-row buttons and row selection
   listEl.addEventListener("click", async (e) => {
@@ -190,7 +252,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (action === "stop")   await rpc("aria2.pause",   [gid]);
         if (action === "resume") await rpc("aria2.unpause", [gid]);
         if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
-        if (action !== "reveal") await poll(listEl, emptyEl, badge);
+        if (action !== "reveal") await pollAndSync();
       } catch (err) { console.error(err); }
       return;
     }
@@ -201,7 +263,7 @@ window.addEventListener("DOMContentLoaded", () => {
   async function bulkAction(gids, action) {
     const method = action === "pause" ? "aria2.pause" : "aria2.unpause";
     await Promise.allSettled(gids.map(gid => rpc(method, [gid])));
-    await poll(listEl, emptyEl, badge);
+    await pollAndSync();
   }
 
   document.getElementById("pause-all").addEventListener("click", () => {
@@ -213,6 +275,44 @@ window.addEventListener("DOMContentLoaded", () => {
     bulkAction(gids, "resume");
   });
 
-  poll(listEl, emptyEl, badge);
-  setInterval(() => poll(listEl, emptyEl, badge), 1000);
+  // Drop zone
+  const dropZone = document.getElementById("drop-zone");
+
+  async function pollAndSync() {
+    await poll(listEl, emptyEl, badge);
+  }
+
+  let dragCounter = 0;
+  document.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragCounter++;
+    dropZone.classList.add("drag-over");
+  });
+  document.addEventListener("dragleave", () => {
+    dragCounter--;
+    if (dragCounter <= 0) { dragCounter = 0; dropZone.classList.remove("drag-over"); }
+  });
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dropZone.classList.remove("drag-over");
+
+    const file = e.dataTransfer.files[0];
+    if (file && (file.name.endsWith(".torrent") || file.type === "application/x-bittorrent")) {
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      try { await rpc("aria2.addTorrent", [b64]); } catch (err) { console.error(err); }
+    } else {
+      const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
+      const urls = text.split(/\s+/).map(u => u.trim()).filter(u => u.startsWith("http"));
+      for (const url of urls) {
+        try { await rpc("aria2.addUri", [[url]]); } catch (err) { console.error(err); }
+      }
+    }
+    await pollAndSync();
+  });
+
+  pollAndSync();
+  setInterval(pollAndSync, 1000);
 });
