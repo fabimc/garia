@@ -7,34 +7,53 @@
         <link rel="stylesheet" href="styles.css" />
     </head>
     <body>
+        <div id="titlebar" data-tauri-drag-region>
+            <span id="conn-badge" class="conn-badge conn-waiting"
+                >Connecting…</span
+            >
+        </div>
         <div id="app">
-            <header>
-                <div class="header-row">
-                    <div>
-                        <h1>Garia</h1>
-                        <p class="subtitle">aria2 download manager</p>
-                    </div>
-                    <span id="conn-badge" class="conn-badge conn-waiting">Connecting…</span>
-                </div>
-            </header>
-
             <section class="add-download">
-                <button id="open-modal-btn" class="btn-primary">+ Add download</button>
+                <button id="open-modal-btn" class="btn-primary">
+                    + Add download
+                </button>
                 <div class="add-download-actions">
-                    <button class="action-btn" id="pause-all" title="Pause All">⏸</button>
-                    <button class="action-btn" id="resume-all" title="Resume All">↻</button>
+                    <button class="action-btn" id="pause-all" title="Pause All">
+                        ⏸
+                    </button>
+                    <button
+                        class="action-btn"
+                        id="resume-all"
+                        title="Resume All"
+                    >
+                        ↻
+                    </button>
                 </div>
             </section>
 
             <!-- Add download modal -->
-            <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div
+                id="modal-overlay"
+                class="modal-overlay hidden"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-title"
+            >
                 <div class="modal">
                     <div class="modal-header">
                         <h2 id="modal-title">Add download</h2>
-                        <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+                        <button
+                            class="modal-close"
+                            id="modal-close"
+                            aria-label="Close"
+                        >
+                            ✕
+                        </button>
                     </div>
                     <div class="modal-body">
-                        <label class="modal-label" for="modal-url-input">Enter URL or choose torrent file</label>
+                        <label class="modal-label" for="modal-url-input"
+                            >Enter URL or choose torrent file</label
+                        >
                         <div class="modal-input-row">
                             <input
                                 id="modal-url-input"
@@ -44,16 +63,37 @@
                                 spellcheck="false"
                             />
                             <button class="btn-secondary" id="browse-btn">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path
+                                        d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+                                    />
+                                </svg>
                                 Browse…
                             </button>
                             <!-- hidden file input for torrent picker -->
-                            <input id="torrent-file-input" type="file" accept=".torrent" class="hidden" />
+                            <input
+                                id="torrent-file-input"
+                                type="file"
+                                accept=".torrent"
+                                class="hidden"
+                            />
                         </div>
                         <p id="modal-error" class="error hidden"></p>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn-secondary" id="modal-cancel">Cancel</button>
+                        <button class="btn-secondary" id="modal-cancel">
+                            Cancel
+                        </button>
                         <button class="btn-primary" id="modal-ok">OK</button>
                     </div>
                 </div>
@@ -61,11 +101,21 @@
 
             <div class="toolbar">
                 <div class="filter-bar" id="filter-bar">
-                    <button class="filter-btn active" data-filter="all">All</button>
-                    <button class="filter-btn" data-filter="active">Downloading</button>
-                    <button class="filter-btn" data-filter="paused">Paused</button>
-                    <button class="filter-btn" data-filter="complete">Complete</button>
-                    <button class="filter-btn" data-filter="error">Error</button>
+                    <button class="filter-btn active" data-filter="all">
+                        All
+                    </button>
+                    <button class="filter-btn" data-filter="active">
+                        Downloading
+                    </button>
+                    <button class="filter-btn" data-filter="paused">
+                        Paused
+                    </button>
+                    <button class="filter-btn" data-filter="complete">
+                        Complete
+                    </button>
+                    <button class="filter-btn" data-filter="error">
+                        Error
+                    </button>
                 </div>
                 <input
                     id="name-filter"
@@ -80,7 +130,21 @@
                 <p id="empty-state" class="empty-state hidden"></p>
                 <ul id="download-list"></ul>
                 <div id="drop-zone" class="drop-zone">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="28"
+                        height="28"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
                     <span>Drag-and-drop URL or torrent file</span>
                 </div>
             </section>

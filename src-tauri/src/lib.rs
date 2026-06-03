@@ -57,7 +57,6 @@ fn spawn_aria2() -> Option<Child> {
                 "--enable-rpc",
                 "--rpc-allow-origin-all",
                 "--rpc-listen-all=false",
-                "--rpc-listen-host=127.0.0.1",
                 "--rpc-listen-port=6800",
                 "--quiet=true",
                 &format!("--dir={}", download_dir.display()),
