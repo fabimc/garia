@@ -24,14 +24,25 @@ async function rpc(method, params = []) {
 function formatBytes(bytes) {
   const b = Number(bytes);
   if (!b) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(b) / Math.log(1024));
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
   return (b / 1024 ** i).toFixed(1) + " " + units[i];
 }
 
 function formatSpeed(bytesPerSec) {
   const b = Number(bytesPerSec);
   return b > 0 ? formatBytes(b) + "/s" : "";
+}
+
+function formatEta(remaining, bytesPerSec) {
+  const speed = Number(bytesPerSec);
+  if (!(speed > 0) || !(remaining > 0)) return "";
+  const secs = Math.round(remaining / speed);
+  if (secs < 60) return `${secs}s left`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m left`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m left`;
 }
 
 function fileName(download) {
@@ -46,135 +57,390 @@ function statusLabel(status) {
   return map[status] || status;
 }
 
-function renderItem(dl) {
-  const total = Number(dl.totalLength);
-  const done  = Number(dl.completedLength);
-  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
-  const speed = formatSpeed(dl.downloadSpeed);
-  const statusClass = dl.status === "complete" ? "complete"
-    : dl.status === "error"   ? "error"
-    : dl.status === "active"  ? "active"
-    : dl.status === "paused"  ? "paused"
-    : "waiting";
-
-  const sizeInfo = total > 0
-    ? `${formatBytes(done)} / ${formatBytes(total)}`
-    : done > 0 ? formatBytes(done) : "";
-
-  const filePath = dl.files?.[0]?.path || "";
-  const actions = [];
-  if (dl.status === "active" || dl.status === "waiting") {
-    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="stop" title="Pause">⏸</button>`);
-  }
-  if (dl.status === "paused") {
-    actions.push(`<button class="dl-btn" data-gid="${dl.gid}" data-action="resume" title="Resume">↻</button>`);
-  }
-  if (filePath) {
-    actions.push(`<button class="dl-btn" data-action="reveal" data-path="${filePath}" title="Show in Finder"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>`);
-  }
-
-  const isIndeterminate = dl.status === "active" && total === 0;
-  const barClass = isIndeterminate ? "dl-bar-fill indeterminate" : "dl-bar-fill";
-  const barStyle = isIndeterminate ? "" : `style="width:${pct}%"`;
-
-  return `
-    <div class="dl-content">
-      <div class="dl-name" title="${fileName(dl)}">${fileName(dl)}</div>
-      <div class="dl-bar-track"><div class="${barClass}" ${barStyle}></div></div>
-      <div class="dl-row">
-        <span class="dl-meta">${sizeInfo}${speed ? " · " + speed : ""}${total > 0 ? " · " + pct + "%" : ""}</span>
-        <span class="dl-status ${statusClass}">${statusLabel(dl.status)}</span>
-      </div>
-    </div>
-    ${actions.length ? `<div class="dl-actions">${actions.join("")}</div>` : ""}
-  `;
+function statusClass(status) {
+  return ["complete", "error", "active", "paused"].includes(status) ? status : "waiting";
 }
 
-const KEYS = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files"];
-let activeFilter = "all";
-let nameFilter   = "";
+// Row order: what's moving first, what's finished last.
+const STATUS_RANK = { active: 0, waiting: 1, paused: 2, error: 3, complete: 4, removed: 5 };
 
-function applyFilter(listEl, emptyEl) {
-  const items = listEl.querySelectorAll(".dl-item");
-  const needle = nameFilter.toLowerCase();
-  let visible = 0;
-  for (const li of items) {
-    const statusMatch = activeFilter === "all" || li.dataset.status === activeFilter;
-    const nameMatch   = !needle || li.dataset.name.toLowerCase().includes(needle);
-    const match = statusMatch && nameMatch;
-    li.classList.toggle("hidden", !match);
-    if (match) {
-      li.classList.toggle("zebra-odd",  visible % 2 === 0);
-      li.classList.toggle("zebra-even", visible % 2 === 1);
-      visible++;
+function statusRank(status) {
+  const r = STATUS_RANK[status];
+  return r === undefined ? 9 : r;
+}
+
+// ── Inline icons ─────────────────────────────────────────────────────────
+const SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">';
+
+const STATUS_ICONS = {
+  active:   SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>',
+  waiting:  SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
+  paused:   SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>',
+  complete: SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8.5 12.5 11 15 15.5 9.5"/></svg>',
+  error:    SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>',
+};
+
+const BTN_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+
+const ACTION_ICONS = {
+  stop:   BTN_OPEN + '<line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>',
+  resume: BTN_OPEN + '<polygon points="6 4 20 12 6 20 6 4"/></svg>',
+  reveal: BTN_OPEN + '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+};
+
+const ACTION_TITLES = { stop: "Pause", resume: "Resume", reveal: "Show in Finder" };
+
+// Each row gets one primary pill (the verb you'd reach for) and, when the file
+// exists on disk and isn't already the pill, a secondary reveal icon.
+function actionsFor(dl) {
+  const out = [];
+  const path = dl.files?.[0]?.path || "";
+  if (dl.status === "active" || dl.status === "waiting") {
+    out.push({ action: "stop", kind: "pill", tone: "accent", label: "Pause" });
+  } else if (dl.status === "paused") {
+    out.push({ action: "resume", kind: "pill", tone: "accent", label: "Resume" });
+  } else if (dl.status === "complete" && path) {
+    out.push({ action: "reveal", kind: "pill", tone: "success", label: "Reveal" });
+  }
+  if (path && !out.some(a => a.action === "reveal")) {
+    out.push({ action: "reveal", kind: "icon" });
+  }
+  return out;
+}
+
+// ── Row rendering ────────────────────────────────────────────────────────
+// Rows are built once and then updated field-by-field. A full innerHTML
+// rewrite on every poll tick would kill hover state, transitions and focus.
+function createItemEl(dl) {
+  const li = document.createElement("li");
+  li.className = "dl-item";
+  li.dataset.gid = dl.gid;
+  li.innerHTML = `
+    <div class="dl-icon"></div>
+    <div class="dl-content">
+      <div class="dl-head">
+        <span class="dl-name"></span>
+        <span class="dl-status-pill"></span>
+      </div>
+      <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
+      <div class="dl-meta"></div>
+    </div>
+    <div class="dl-actions"></div>
+  `;
+  return li;
+}
+
+function updateItemEl(li, dl) {
+  const total = Number(dl.totalLength);
+  const done = Number(dl.completedLength);
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const cls = statusClass(dl.status);
+  const name = fileName(dl);
+
+  li.dataset.status = dl.status;
+  li.dataset.name = name;
+
+  const iconEl = li.querySelector(".dl-icon");
+  if (iconEl.dataset.status !== cls) {
+    iconEl.dataset.status = cls;
+    iconEl.innerHTML = STATUS_ICONS[cls] || STATUS_ICONS.waiting;
+  }
+
+  const nameEl = li.querySelector(".dl-name");
+  if (nameEl.textContent !== name) {
+    nameEl.textContent = name;
+    nameEl.title = name;
+  }
+
+  // Downloading rows already say it twice over — the moving bar, the speed, and
+  // the Pause button. The chip only earns its place on the other statuses.
+  const pill = li.querySelector(".dl-status-pill");
+  const showChip = dl.status !== "active";
+  pill.className = showChip ? `dl-status-pill ${cls}` : "dl-status-pill hidden";
+  if (showChip) pill.textContent = statusLabel(dl.status);
+
+  // Progress bar
+  const isIndeterminate = dl.status === "active" && total === 0;
+  const fill = li.querySelector(".dl-bar-fill");
+  fill.classList.toggle("indeterminate", isIndeterminate);
+  fill.style.width = isIndeterminate ? "" : `${pct}%`;
+
+  // Meta line: size · speed · percent · eta
+  const parts = [];
+  if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
+  else if (done > 0) parts.push(formatBytes(done));
+  const speed = formatSpeed(dl.downloadSpeed);
+  if (speed) parts.push(speed);
+  if (total > 0) parts.push(`${pct}%`);
+  if (dl.status === "active" && total > 0) {
+    const eta = formatEta(total - done, dl.downloadSpeed);
+    if (eta) parts.push(eta);
+  }
+  li.querySelector(".dl-meta").textContent = parts.join(" · ");
+
+  // Action buttons — rebuilt only when the available set actually changes
+  const actions = actionsFor(dl);
+  const key = actions.map(a => `${a.action}:${a.kind}`).join("|");
+  if (li.dataset.actionKey !== key) {
+    li.dataset.actionKey = key;
+    const box = li.querySelector(".dl-actions");
+    box.textContent = "";
+    for (const a of actions) {
+      const btn = document.createElement("button");
+      btn.dataset.action = a.action;
+      btn.dataset.gid = dl.gid;
+      btn.title = ACTION_TITLES[a.action];
+      btn.setAttribute("aria-label", ACTION_TITLES[a.action]);
+      if (a.kind === "pill") {
+        btn.className = `dl-action-pill tone-${a.tone}`;
+        btn.innerHTML = ACTION_ICONS[a.action];
+        btn.appendChild(document.createTextNode(a.label));
+      } else {
+        btn.className = "dl-btn";
+        btn.innerHTML = ACTION_ICONS[a.action];
+      }
+      box.appendChild(btn);
     }
   }
-  emptyEl.classList.toggle("hidden", visible > 0);
+  // Path can change between ticks even when the action set doesn't
+  const reveal = li.querySelector('[data-action="reveal"]');
+  if (reveal) reveal.dataset.path = dl.files?.[0]?.path || "";
 }
 
-function setBadge(badge, state) {
-  badge.className = `conn-badge conn-${state}`;
-  badge.textContent = state === "ok" ? "Connected" : state === "error" ? "Disconnected" : "Connecting…";
-  badge.title = state === "ok"
+// ── Section headers ──────────────────────────────────────────────────────
+const SECTION_LABELS = {
+  active: "Downloading",
+  waiting: "Queued",
+  paused: "Paused",
+  error: "Failed",
+  complete: "Completed",
+};
+
+// Reused across polls so a re-sort moves the same nodes rather than rebuilding.
+const sectionEls = new Map();
+
+function sectionEl(status) {
+  let el = sectionEls.get(status);
+  if (!el) {
+    el = document.createElement("li");
+    el.className = "dl-section";
+    el.dataset.section = status;
+    el.innerHTML = `
+      <span class="dl-section-label"></span>
+      <span class="dl-section-count"></span>
+      <button class="dl-section-link" type="button">View all</button>
+    `;
+    el.querySelector(".dl-section-label").textContent = SECTION_LABELS[status] || status;
+    el.querySelector(".dl-section-link").dataset.filter = status;
+    sectionEls.set(status, el);
+  }
+  return el;
+}
+
+// ── Filtering / view state ───────────────────────────────────────────────
+const KEYS = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files"];
+
+const VIEW_TITLES = {
+  all: "All Downloads",
+  active: "Downloading",
+  waiting: "Queued",
+  paused: "Paused",
+  complete: "Completed",
+  error: "Failed",
+};
+
+let activeFilter = "all";
+let nameFilter = "";
+let connState = "waiting";
+
+function applyFilter(listEl) {
+  const items = listEl.querySelectorAll(".dl-item");
+  const needle = nameFilter.toLowerCase();
+  // Headers only earn their keep in the combined view; a single-status filter
+  // would just repeat its own name.
+  const showSections = activeFilter === "all";
+  let visible = 0;
+  let header = null;
+  let inSection = 0;
+
+  let lastShown = null;   // last visible row of the section being walked
+
+  const closeSection = () => {
+    if (header) {
+      header.classList.toggle("hidden", !showSections || inSection === 0);
+      header.querySelector(".dl-section-count").textContent = inSection;
+    }
+    // CSS alone can't find the last *visible* row once search hides some, so
+    // the divider on it is turned off here instead.
+    if (lastShown) lastShown.classList.add("is-last-shown");
+    lastShown = null;
+  };
+
+  for (const el of listEl.children) {
+    if (el.classList.contains("dl-section")) {
+      closeSection();
+      header = el;
+      inSection = 0;
+      continue;
+    }
+    const statusMatch = activeFilter === "all" || el.dataset.status === activeFilter;
+    const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
+    const match = statusMatch && nameMatch;
+    el.classList.toggle("hidden", !match);
+    el.classList.remove("is-last-shown");
+    if (match) { visible++; inSection++; lastShown = el; }
+  }
+  closeSection();
+
+  document.getElementById("view-count").textContent =
+    visible === 1 ? "1 item" : `${visible} items`;
+
+  const empty = document.getElementById("empty-state");
+  empty.classList.toggle("hidden", visible > 0);
+  if (visible === 0) {
+    let title, sub;
+    if (items.length > 0) {
+      title = "Nothing matches this view";
+      sub = "Try a different filter or clear the search field";
+    } else if (connState === "error") {
+      title = "Can't reach aria2";
+      sub = "Start aria2 and garia will reconnect on its own";
+    } else {
+      title = "No downloads yet";
+      sub = "Drag a URL or .torrent file anywhere, or hit Add download";
+    }
+    document.getElementById("empty-title").textContent = title;
+    document.getElementById("empty-sub").textContent = sub;
+  }
+}
+
+function renderCounts(tally) {
+  for (const el of document.querySelectorAll(".nav-count")) {
+    const n = tally[el.dataset.count] || 0;
+    el.textContent = n;
+    el.classList.toggle("hidden", n === 0);
+  }
+
+  const bits = [];
+  if (tally.active) bits.push(`${tally.active} downloading`);
+  if (tally.waiting) bits.push(`${tally.waiting} queued`);
+  if (tally.paused) bits.push(`${tally.paused} paused`);
+  if (tally.complete) bits.push(`${tally.complete} done`);
+  if (tally.error) bits.push(`${tally.error} failed`);
+  document.getElementById("stat-counts").textContent =
+    bits.length ? bits.join(" · ") : "no downloads";
+
+  const speed = formatSpeed(tally.speed);
+  document.getElementById("stat-speed").textContent = speed ? `↓ ${speed}` : "";
+}
+
+function setConn(state) {
+  connState = state;
+  const dot = document.getElementById("conn-dot");
+  const text = document.getElementById("conn-text");
+  dot.className = `conn-dot conn-${state}`;
+  text.textContent = state === "ok"
+    ? "aria2 · 127.0.0.1:6800"
+    : state === "error"
+      ? "aria2 unreachable"
+      : "connecting…";
+  text.title = state === "ok"
     ? "Connected to aria2"
     : state === "error"
       ? `Cannot reach aria2 JSON-RPC at ${RPC_URL}`
       : "Connecting to aria2…";
+  return text;
 }
 
-async function poll(listEl, emptyEl, badge) {
+async function poll(listEl) {
   try {
     const [active, waiting, stopped] = await Promise.all([
-      rpc("aria2.tellActive",  [KEYS]),
+      rpc("aria2.tellActive", [KEYS]),
       rpc("aria2.tellWaiting", [0, 100, KEYS]),
       rpc("aria2.tellStopped", [0, 100, KEYS]),
     ]);
 
-    setBadge(badge, "ok");
+    setConn("ok");
 
     const all = [...active, ...waiting, ...stopped];
-    emptyEl.classList.toggle("hidden", all.length > 0);
+    const tally = { all: all.length, active: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0 };
+    const seen = new Set();
 
     for (const dl of all) {
+      seen.add(dl.gid);
+      if (tally[dl.status] !== undefined) tally[dl.status]++;
+      if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
+
       let li = listEl.querySelector(`[data-gid="${dl.gid}"]`);
       if (!li) {
-        li = document.createElement("li");
-        li.className = "dl-item";
-        li.dataset.gid = dl.gid;
-        listEl.prepend(li);
+        li = createItemEl(dl);
+        listEl.appendChild(li);
       }
-      li.dataset.status = dl.status;
-      li.dataset.name   = fileName(dl);
-
-      li.innerHTML = renderItem(dl);
+      updateItemEl(li, dl);
     }
-    applyFilter(listEl, emptyEl);
+
+    // Drop rows for downloads aria2 no longer reports
+    for (const li of [...listEl.querySelectorAll(".dl-item")]) {
+      if (!seen.has(li.dataset.gid)) li.remove();
+    }
+
+    // Reorder by status, stable within each group so aria2's own ordering shows
+    // through, inserting a section header whenever the status changes. Only
+    // touch the DOM when the sequence really changed — moving nodes every tick
+    // would cancel hover state and in-flight transitions.
+    const ordered = all.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
+    const desired = [];
+    let lastStatus = null;
+    for (const dl of ordered) {
+      if (dl.status !== lastStatus) {
+        lastStatus = dl.status;
+        desired.push(sectionEl(dl.status));
+      }
+      const li = listEl.querySelector(`[data-gid="${dl.gid}"]`);
+      if (li) desired.push(li);
+    }
+
+    const current = [...listEl.children];
+    if (current.length !== desired.length || desired.some((n, i) => current[i] !== n)) {
+      const frag = document.createDocumentFragment();
+      for (const node of desired) frag.appendChild(node);
+      listEl.textContent = "";   // drops headers for groups that no longer exist
+      listEl.appendChild(frag);
+    }
+
+    renderCounts(tally);
   } catch (err) {
     console.error(err);
-    setBadge(badge, "error");
-    if (err?.message) badge.title = `${badge.title} — ${err.message}`;
+    const text = setConn("error");
+    if (err?.message) text.title = `${text.title} — ${err.message}`;
+  } finally {
+    applyFilter(listEl);
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  const listEl  = document.getElementById("download-list");
-  const emptyEl = document.getElementById("empty-state");
-  const badge      = document.getElementById("conn-badge");
-  const filterBar  = document.getElementById("filter-bar");
+  const listEl = document.getElementById("download-list");
+  const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
 
+  function setFilter(value) {
+    activeFilter = value;
+    for (const b of filterBar.querySelectorAll(".nav-item")) {
+      b.classList.toggle("active", b.dataset.filter === value);
+    }
+    document.getElementById("view-title").textContent =
+      VIEW_TITLES[value] || "Downloads";
+    applyFilter(listEl);
+  }
+
   filterBar.addEventListener("click", (e) => {
-    const btn = e.target.closest(".filter-btn");
-    if (!btn) return;
-    filterBar.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    activeFilter = btn.dataset.filter;
-    applyFilter(listEl, emptyEl);
+    const btn = e.target.closest(".nav-item");
+    if (btn) setFilter(btn.dataset.filter);
   });
 
   nameSearch.addEventListener("input", () => {
     nameFilter = nameSearch.value.trim();
-    applyFilter(listEl, emptyEl);
+    applyFilter(listEl);
   });
 
   // ── Modal ────────────────────────────────────────────────────────────────
@@ -242,21 +508,20 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-ok").addEventListener("click", submitUrl);
   modalUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitUrl(); });
 
-  // Per-row buttons and row selection
+  // Per-row buttons and section "View all" links
   listEl.addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (btn) {
-      // Per-row pause / resume button
-      const { gid, action, path } = btn.dataset;
-      try {
-        if (action === "stop")   await rpc("aria2.pause",   [gid]);
-        if (action === "resume") await rpc("aria2.unpause", [gid]);
-        if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
-        if (action !== "reveal") await pollAndSync();
-      } catch (err) { console.error(err); }
-      return;
-    }
+    const link = e.target.closest(".dl-section-link");
+    if (link) { setFilter(link.dataset.filter); return; }
 
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const { gid, action, path } = btn.dataset;
+    try {
+      if (action === "stop")   await rpc("aria2.pause",   [gid]);
+      if (action === "resume") await rpc("aria2.unpause", [gid]);
+      if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
+      if (action !== "reveal") await pollAndSync();
+    } catch (err) { console.error(err); }
   });
 
   // Bulk action helpers
@@ -275,28 +540,51 @@ window.addEventListener("DOMContentLoaded", () => {
     bulkAction(gids, "resume");
   });
 
-  // Drop zone
-  const dropZone = document.getElementById("drop-zone");
+  // ── Sidebar collapse ─────────────────────────────────────────────────────
+  const shell = document.querySelector(".app-shell");
+  const SIDEBAR_KEY = "garia:sidebar-collapsed";
 
-  async function pollAndSync() {
-    await poll(listEl, emptyEl, badge);
+  function setSidebar(collapsed) {
+    shell.classList.toggle("sidebar-collapsed", collapsed);
+    try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0"); } catch {}
   }
 
+  try { setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1"); } catch {}
+
+  document.getElementById("sidebar-toggle").addEventListener("click", () => setSidebar(true));
+  document.getElementById("sidebar-show").addEventListener("click", () => setSidebar(false));
+
+  // ⌘F / Ctrl-F focuses the search field
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      nameSearch.focus();
+      nameSearch.select();
+    }
+  });
+
+  async function pollAndSync() {
+    await poll(listEl);
+  }
+
+  // ── Drag & drop ──────────────────────────────────────────────────────────
+  const dropOverlay = document.getElementById("drop-overlay");
   let dragCounter = 0;
+
   document.addEventListener("dragenter", (e) => {
     e.preventDefault();
     dragCounter++;
-    dropZone.classList.add("drag-over");
+    dropOverlay.classList.remove("hidden");
   });
   document.addEventListener("dragleave", () => {
     dragCounter--;
-    if (dragCounter <= 0) { dragCounter = 0; dropZone.classList.remove("drag-over"); }
+    if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.add("hidden"); }
   });
   document.addEventListener("dragover", (e) => e.preventDefault());
   document.addEventListener("drop", async (e) => {
     e.preventDefault();
     dragCounter = 0;
-    dropZone.classList.remove("drag-over");
+    dropOverlay.classList.add("hidden");
 
     const file = e.dataTransfer.files[0];
     if (file && (file.name.endsWith(".torrent") || file.type === "application/x-bittorrent")) {
