@@ -18,6 +18,9 @@
     --text: #2b2520;
     --muted: #8b8075;
 
+    /* Brand — the deep teal of the app icon */
+    --brand: #0d4a61;
+
     /* Accent */
     --accent: #cf6a3a;
     --accent-dk: #b2542b;
@@ -108,17 +111,10 @@ body {
     gap: 0.55rem;
 }
 
-.logo-tile {
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-    background: linear-gradient(150deg, var(--accent), #e08a52);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow-sm);
+.logo-mark {
+    display: block;
     flex-shrink: 0;
+    color: var(--brand);
 }
 
 .wordmark {

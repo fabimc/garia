@@ -11,23 +11,30 @@
             <!-- ── Sidebar ──────────────────────────────────────────────── -->
             <aside class="sidebar">
                 <div class="sidebar-header" data-tauri-drag-region>
-                    <div class="logo-tile">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="17"
-                            height="17"
-                            viewBox="0 0 24 24"
+                    <svg
+                        class="logo-mark"
+                        viewBox="0 0 24 24"
+                        width="26"
+                        height="26"
+                        aria-hidden="true"
+                    >
+                        <!-- crest spike -->
+                        <path d="M14.9 4.9 L12.5 2.2 L11.9 5.9 Z" fill="var(--accent)" />
+                        <!-- serpent body: neck sweeps left, belly right, tail curls back -->
+                        <path
+                            d="M15.2 6.9 C10.2 6.6 7.8 10.1 10.8 12.2 C13.8 14.3 16.1 15.1 15.5 17.5 C14.9 19.9 10.5 21 7.8 19.1 C6.6 18.3 6.4 17.1 7.1 16.3"
                             fill="none"
                             stroke="currentColor"
-                            stroke-width="2.25"
+                            stroke-width="2.6"
                             stroke-linecap="round"
-                            stroke-linejoin="round"
-                        >
-                            <path d="M12 3v12" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <path d="M4 19h16" />
-                        </svg>
-                    </div>
+                        />
+                        <!-- head: sloped skull, snout, jaw notch, eye cut out -->
+                        <path
+                            d="M14.6 4.6 C17.4 4.2 19.6 5.5 21.3 7.2 C22.2 8.1 22.6 8.7 21.4 8.7 L18.4 8.5 L19.5 9.9 L15.6 9.2 C14.2 9 13.6 7.7 13.9 6.4 Z M17 6.6 a.6.6 0 1 0 .01 0 Z"
+                            fill="currentColor"
+                            fill-rule="evenodd"
+                        />
+                    </svg>
                     <div class="wordmark">
                         <span class="wordmark-a">gar</span><span
                             class="wordmark-b"
