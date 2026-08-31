@@ -10,6 +10,8 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
 - Pause and resume downloads
+- Delete a download, and optionally move the file it wrote to the Trash
+- Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
 - Status badges: Downloading, Queued, Paused, Complete, Error
 

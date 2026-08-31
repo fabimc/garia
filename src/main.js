@@ -90,12 +90,71 @@ const ACTION_ICONS = {
   stop:   BTN_OPEN + '<line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>',
   resume: BTN_OPEN + '<polygon points="6 4 20 12 6 20 6 4"/></svg>',
   reveal: BTN_OPEN + '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  retry:  BTN_OPEN + '<polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg>',
+  remove: BTN_OPEN + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
 };
 
-const ACTION_TITLES = { stop: "Pause", resume: "Resume", reveal: "Show in Finder" };
+const ACTION_TITLES = {
+  stop: "Pause",
+  resume: "Resume",
+  reveal: "Show in Finder",
+  retry: "Retry download",
+  remove: "Delete download",
+};
 
-// Each row gets one primary pill (the verb you'd reach for) and, when the file
-// exists on disk and isn't already the pill, a secondary reveal icon.
+// Every URI aria2 still has on record for a download. A failed HTTP download
+// keeps the one it was added with; a torrent's files carry none, which is
+// exactly when there is nothing to retry from.
+function retryUris(dl) {
+  const uris = [];
+  for (const f of dl.files || []) {
+    for (const u of f.uris || []) {
+      if (u.uri && !uris.includes(u.uri)) uris.push(u.uri);
+    }
+  }
+  return uris;
+}
+
+// aria2 numbers the common failures and only sometimes writes a message, so
+// the row would otherwise say "Failed" and stop there.
+const ERROR_REASONS = {
+  1: "Unknown error",
+  2: "Timed out",
+  3: "Not found on the server (404)",
+  4: "Server returned 404 too many times",
+  5: "Too slow — aria2 gave up",
+  6: "Network problem",
+  8: "Server does not support resuming",
+  9: "Not enough disk space",
+  10: "Piece length differs from the control file",
+  11: "Already downloading this file",
+  12: "Already downloading this torrent",
+  13: "File already exists",
+  14: "Could not rename the file",
+  15: "Could not open the file",
+  16: "Could not create the file",
+  17: "Disk read/write error",
+  18: "Could not create the folder",
+  19: "Could not resolve the host name",
+  22: "Bad response from the server",
+  23: "Too many redirects",
+  24: "Login required",
+  26: "Torrent file is corrupt",
+  27: "Bad magnet link",
+  29: "Server is overloaded — try again later",
+};
+
+function errorReason(dl) {
+  const message = (dl.errorMessage || "").trim();
+  if (message) return message;
+  const code = Number(dl.errorCode);
+  if (code) return ERROR_REASONS[code] || `Failed with error ${code}`;
+  return "Download failed";
+}
+
+// Each row gets one primary pill (the verb you'd reach for), a secondary reveal
+// icon when the file exists on disk and isn't already the pill, and delete —
+// which every row gets, because every row has to be removable.
 function actionsFor(dl) {
   const out = [];
   const path = dl.files?.[0]?.path || "";
@@ -103,12 +162,15 @@ function actionsFor(dl) {
     out.push({ action: "stop", kind: "pill", tone: "accent", label: "Pause" });
   } else if (dl.status === "paused") {
     out.push({ action: "resume", kind: "pill", tone: "accent", label: "Resume" });
+  } else if (dl.status === "error" && retryUris(dl).length) {
+    out.push({ action: "retry", kind: "pill", tone: "accent", label: "Retry" });
   } else if (dl.status === "complete" && path) {
     out.push({ action: "reveal", kind: "pill", tone: "success", label: "Reveal" });
   }
   if (path && !out.some(a => a.action === "reveal")) {
     out.push({ action: "reveal", kind: "icon" });
   }
+  out.push({ action: "remove", kind: "icon" });
   return out;
 }
 
@@ -128,6 +190,7 @@ function createItemEl(dl) {
       </div>
       <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
       <div class="dl-meta"></div>
+      <div class="dl-error hidden"></div>
     </div>
     <div class="dl-actions"></div>
   `;
@@ -181,6 +244,15 @@ function updateItemEl(li, dl) {
     if (eta) parts.push(eta);
   }
   li.querySelector(".dl-meta").textContent = parts.join(" · ");
+
+  // "Failed" on its own is a dead end — say what aria2 actually reported.
+  const errEl = li.querySelector(".dl-error");
+  const reason = dl.status === "error" ? errorReason(dl) : "";
+  errEl.classList.toggle("hidden", !reason);
+  if (reason && errEl.textContent !== reason) {
+    errEl.textContent = reason;
+    errEl.title = reason;
+  }
 
   // Action buttons — rebuilt only when the available set actually changes
   const actions = actionsFor(dl);
@@ -242,7 +314,11 @@ function sectionEl(status) {
 }
 
 // ── Filtering / view state ───────────────────────────────────────────────
-const KEYS = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files"];
+const KEYS = [
+  "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files",
+  // dir survives a retry; the error pair is what lets a failed row say why.
+  "dir", "errorCode", "errorMessage",
+];
 
 const VIEW_TITLES = {
   all: "All Downloads",
@@ -252,6 +328,11 @@ const VIEW_TITLES = {
   complete: "Completed",
   error: "Failed",
 };
+
+// The last payload for each gid. Retry needs its URIs and folder, delete needs
+// its file paths — more than fits in a data- attribute, and all of it stale by
+// the time the click lands unless it comes from the most recent poll.
+const snapshot = new Map();
 
 let activeFilter = "all";
 let nameFilter = "";
@@ -372,6 +453,7 @@ async function poll(listEl) {
 
     for (const dl of all) {
       seen.add(dl.gid);
+      snapshot.set(dl.gid, dl);
       if (tally[dl.status] !== undefined) tally[dl.status]++;
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
 
@@ -386,6 +468,9 @@ async function poll(listEl) {
     // Drop rows for downloads aria2 no longer reports
     for (const li of [...listEl.querySelectorAll(".dl-item")]) {
       if (!seen.has(li.dataset.gid)) li.remove();
+    }
+    for (const gid of snapshot.keys()) {
+      if (!seen.has(gid)) snapshot.delete(gid);
     }
 
     // Reorder by status, stable within each group so aria2's own ordering shows
@@ -471,7 +556,9 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeModal(); closeConfirm(); }
+  });
 
   // Browse → open native file picker for .torrent
   document.getElementById("browse-btn").addEventListener("click", () => torrentInput.click());
@@ -525,12 +612,96 @@ window.addEventListener("DOMContentLoaded", () => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const { gid, action, path } = btn.dataset;
+    // Delete opens a dialog rather than acting, so it returns before the poll.
+    if (action === "remove") { openConfirm(gid); return; }
+
     try {
       if (action === "stop")   await rpc("aria2.pause",   [gid]);
       if (action === "resume") await rpc("aria2.unpause", [gid]);
+      if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
       if (action !== "reveal") await pollAndSync();
     } catch (err) { console.error(err); }
+  });
+
+  // ── Retry and delete ─────────────────────────────────────────────────────
+  // A stopped download sticks around in aria2's lists until its result is
+  // purged, and a running one has to be stopped before it has a result at all.
+  // The purge can lose a race with aria2 filing that result, hence the retries.
+  async function purgeResult(gid) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await rpc("aria2.removeDownloadResult", [gid]);
+        return;
+      } catch (err) {
+        if (attempt === 2) { console.error(err); return; }
+        await new Promise(r => setTimeout(r, 120));
+      }
+    }
+  }
+
+  // aria2 has no retry — a failed attempt is a finished record. So the URIs it
+  // was added with are queued again, into the same folder, and the dead record
+  // is dropped so the list doesn't show the same file twice.
+  async function retryDownload(gid) {
+    const dl = snapshot.get(gid);
+    const uris = dl ? retryUris(dl) : [];
+    if (!uris.length) return;
+    await rpc("aria2.addUri", [uris, dl.dir ? { dir: dl.dir } : {}]);
+    await purgeResult(gid);
+  }
+
+  async function removeDownload(gid, alsoTrash) {
+    const dl = snapshot.get(gid);
+    if (dl && ["active", "waiting", "paused"].includes(dl.status)) {
+      try { await rpc("aria2.remove", [gid]); } catch (err) { console.error(err); }
+    }
+    await purgeResult(gid);
+
+    if (alsoTrash) {
+      const paths = (dl?.files || []).map(f => f.path).filter(Boolean);
+      const invoker = window.__TAURI__?.core?.invoke;
+      if (paths.length && typeof invoker === "function") {
+        try { await invoker("trash_files", { paths }); } catch (err) { console.error(err); }
+      }
+    }
+    await pollAndSync();
+  }
+
+  const confirmOverlay = document.getElementById("confirm-overlay");
+  const confirmName    = document.getElementById("confirm-name");
+  const confirmFileRow = document.getElementById("confirm-file-row");
+  const confirmTrash   = document.getElementById("confirm-trash");
+  const confirmCancel  = document.getElementById("confirm-cancel");
+  let confirmGid = null;
+
+  function openConfirm(gid) {
+    const dl = snapshot.get(gid);
+    if (!dl) return;
+    confirmGid = gid;
+    confirmName.textContent = fileName(dl);
+    // Nothing to offer when the download never wrote a byte.
+    const onDisk = Number(dl.completedLength) > 0 && (dl.files || []).some(f => f.path);
+    confirmFileRow.classList.toggle("hidden", !onDisk);
+    confirmTrash.checked = false;
+    confirmOverlay.classList.remove("hidden");
+    setTimeout(() => confirmCancel.focus(), 50);
+  }
+
+  function closeConfirm() {
+    confirmOverlay.classList.add("hidden");
+    confirmGid = null;
+  }
+
+  confirmCancel.addEventListener("click", closeConfirm);
+  confirmOverlay.addEventListener("click", (e) => {
+    if (e.target === confirmOverlay) closeConfirm();
+  });
+  document.getElementById("confirm-delete").addEventListener("click", async () => {
+    const gid = confirmGid;
+    const alsoTrash = confirmTrash.checked && !confirmFileRow.classList.contains("hidden");
+    closeConfirm();
+    if (gid) await removeDownload(gid, alsoTrash);
   });
 
   // Bulk action helpers

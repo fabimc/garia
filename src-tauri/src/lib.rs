@@ -68,6 +68,31 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
 }
 
+/// Deleting a row can take the downloaded file with it. Trash, not unlink: a
+/// mis-click then costs a trip to the Finder rather than the download itself.
+/// aria2's `.aria2` control file rides along — it is meaningless without the
+/// partial file it describes.
+#[tauri::command]
+fn trash_files(paths: Vec<String>) -> Result<(), String> {
+    for p in paths {
+        let path = Path::new(&p);
+        // aria2 reports a path for downloads that never wrote a byte, and names
+        // the directory among the entries of a multi-file torrent. Only ever
+        // trash something that is on disk and is a file.
+        if !path.is_file() {
+            continue;
+        }
+
+        trash::delete(path).map_err(|e| format!("could not move {p} to the Trash: {e}"))?;
+
+        let control = PathBuf::from(format!("{p}.aria2"));
+        if control.is_file() {
+            let _ = trash::delete(&control);
+        }
+    }
+    Ok(())
+}
+
 /// Where to look for aria2c, best first. The sidecar sits next to the app
 /// binary and is what a fresh install runs — no `brew install aria2` first.
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
@@ -231,7 +256,11 @@ fn session_path(dir: &Path) -> PathBuf {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![aria2_rpc, aria2_endpoint])
+        .invoke_handler(tauri::generate_handler![
+            aria2_rpc,
+            aria2_endpoint,
+            trash_files
+        ])
         .setup(|app| {
             let dir = app
                 .path()

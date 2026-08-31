@@ -437,6 +437,24 @@ body {
     cursor: default;
 }
 
+.btn-danger {
+    padding: 0.55rem 1.1rem;
+    border-radius: var(--radius);
+    border: none;
+    background: var(--danger);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+    box-shadow: var(--shadow-sm);
+}
+.btn-danger:hover {
+    background: #8f1e17;
+}
+
 .btn-secondary {
     display: inline-flex;
     align-items: center;
@@ -676,6 +694,16 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Why a download failed — the line that turns "Failed" into something you can
+   act on. Full text lives in the title attribute when it overflows. */
+.dl-error {
+    font-size: 0.74rem;
+    color: var(--danger);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .dl-actions {
     display: flex;
     align-items: center;
@@ -747,6 +775,11 @@ body {
     background: var(--tint-strong);
     color: var(--text);
 }
+.dl-btn[data-action="remove"]:hover {
+    background: rgba(179, 38, 30, 0.12);
+    color: var(--danger);
+}
+
 .dl-btn svg {
     display: block;
 }
@@ -887,6 +920,10 @@ body {
     flex-direction: column;
 }
 
+.modal.modal-sm {
+    width: min(390px, 90vw);
+}
+
 .modal-header {
     display: flex;
     align-items: center;
@@ -961,4 +998,35 @@ body {
     gap: 0.5rem;
     padding: 0.9rem 1.4rem 1.1rem;
     border-top: 1px solid var(--border);
+}
+
+/* ── Delete confirmation ─────────────────────────────────────────────── */
+.confirm-text {
+    font-size: 0.9rem;
+}
+
+.confirm-name {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    word-break: break-all;
+}
+
+.confirm-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+}
+.confirm-check input {
+    accent-color: var(--danger);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+.confirm-check:hover {
+    color: var(--text);
 }

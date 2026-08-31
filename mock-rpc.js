@@ -6,14 +6,25 @@ import { createServer } from "node:http";
 const MB = 1024 * 1024;
 const started = Date.now();
 
-const item = (gid, status, path, total, done, speed) => ({
-  gid,
-  status,
-  totalLength: String(total),
-  completedLength: String(done),
-  downloadSpeed: String(speed),
-  files: [{ path, uris: [{ uri: "https://example.com/" + path.split("/").pop() }] }],
-});
+// `extra` carries whatever the row needs beyond the basics — errorCode and
+// errorMessage for a failed download, or `uris: []` for a torrent, which has
+// no source URI and so nothing to retry from.
+const item = (gid, status, path, total, done, speed, extra = {}) => {
+  const { uris, ...rest } = extra;
+  return {
+    gid,
+    status,
+    totalLength: String(total),
+    completedLength: String(done),
+    downloadSpeed: String(speed),
+    dir: path.slice(0, path.lastIndexOf("/")),
+    files: [{
+      path,
+      uris: uris ?? [{ uri: "https://example.com/" + path.split("/").pop() }],
+    }],
+    ...rest,
+  };
+};
 
 function snapshot() {
   // Let the two active downloads creep forward so progress bars animate.
@@ -34,7 +45,15 @@ function snapshot() {
     item("cccc2222", "complete", "/Users/me/Downloads/annual-report.pdf", 18 * MB, 18 * MB, 0),
     // quotes + angle brackets: proves filenames are no longer injected as HTML
     item("cccc3333", "complete", '/Users/me/Downloads/quote"and<angle>brackets.zip', 3 * MB, 3 * MB, 0),
-    item("cccc4444", "error", "/Users/me/Downloads/broken-mirror.tar.xz", 96 * MB, 12 * MB, 0),
+    // aria2 reports the reason two ways: a message when it has one…
+    item("cccc4444", "error", "/Users/me/Downloads/broken-mirror.tar.xz", 96 * MB, 12 * MB, 0,
+      { errorCode: "3", errorMessage: "Resource not found" }),
+    // …and a bare code when it doesn't, which the UI has to translate
+    item("cccc5555", "error", "/Users/me/Downloads/half-written.iso", 1400 * MB, 640 * MB, 0,
+      { errorCode: "9" }),
+    // No source URI — a torrent can't be retried by re-adding a URL
+    item("cccc6666", "error", "/Users/me/Downloads/some-collection.torrent", 0, 0, 0,
+      { errorCode: "26", uris: [] }),
   ];
   return { active, waiting, stopped };
 }

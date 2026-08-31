@@ -423,6 +423,38 @@
             </div>
         </div>
 
+        <!-- ── Delete confirmation ──────────────────────────────────────── -->
+        <div
+            id="confirm-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-title"
+        >
+            <div class="modal modal-sm">
+                <div class="modal-header">
+                    <h2 id="confirm-title">Delete download</h2>
+                </div>
+                <div class="modal-body">
+                    <p class="confirm-text">
+                        Remove
+                        <span id="confirm-name" class="confirm-name"></span>
+                        from the list?
+                    </p>
+                    <label class="confirm-check hidden" id="confirm-file-row">
+                        <input type="checkbox" id="confirm-trash" />
+                        <span>Move the downloaded file to the Trash</span>
+                    </label>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" id="confirm-cancel">
+                        Cancel
+                    </button>
+                    <button class="btn-danger" id="confirm-delete">Delete</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ── Full-window drag overlay ─────────────────────────────────── -->
         <div id="drop-overlay" class="drop-overlay hidden">
             <div class="drop-frame">
