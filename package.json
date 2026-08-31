@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "mock": "lsof -ti :6800 | xargs kill -9 2>/dev/null; node mock-rpc.js"
+    "mock": "lsof -ti :6800 | xargs kill -9 2>/dev/null; node mock-rpc.js",
+    "sidecar": "./scripts/build-aria2-sidecar.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

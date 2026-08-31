@@ -29,3 +29,6 @@ src-tauri/gen/
 *.njsproj
 *.sln
 *.sw?
+
+# aria2c sidecar — built by scripts/build-aria2-sidecar.sh
+src-tauri/binaries/

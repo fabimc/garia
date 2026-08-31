@@ -68,21 +68,37 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
 }
 
-fn aria2c_candidates() -> Vec<&'static str> {
-    let mut c = vec!["aria2c"];
+/// Where to look for aria2c, best first. The sidecar sits next to the app
+/// binary and is what a fresh install runs — no `brew install aria2` first.
+/// The system copies stay as a fallback: they keep `tauri dev` working, and
+/// they rescue a bundle whose sidecar went missing.
+fn aria2c_candidates() -> Vec<String> {
+    let mut c = Vec::new();
+
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        c.push(dir.join("aria2c").display().to_string());
+    }
+
+    c.push("aria2c".to_string());
 
     // macOS GUI apps (launched via Finder) often don't inherit Homebrew PATH.
     // Try common Homebrew install locations explicitly.
     #[cfg(target_os = "macos")]
-    {
-        c.extend(["/opt/homebrew/bin/aria2c", "/usr/local/bin/aria2c"]);
-    }
+    c.extend([
+        "/opt/homebrew/bin/aria2c".to_string(),
+        "/usr/local/bin/aria2c".to_string(),
+    ]);
 
     // Common Linux locations.
     #[cfg(target_os = "linux")]
-    {
-        c.extend(["/usr/bin/aria2c", "/bin/aria2c", "/snap/bin/aria2c"]);
-    }
+    c.extend([
+        "/usr/bin/aria2c".to_string(),
+        "/bin/aria2c".to_string(),
+        "/snap/bin/aria2c".to_string(),
+    ]);
 
     c
 }
@@ -92,11 +108,11 @@ fn spawn_aria2(port: u16, secret: &str, session_file: &Path) -> Option<Child> {
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"));
 
     for bin in aria2c_candidates() {
-        if bin.contains('/') && !Path::new(bin).exists() {
+        if bin.contains('/') && !Path::new(&bin).exists() {
             continue;
         }
 
-        let child = Command::new(bin)
+        let child = Command::new(&bin)
             .args([
                 "--enable-rpc",
                 "--rpc-listen-all=false",
@@ -239,7 +255,10 @@ pub fn run() {
                         eprintln!("[garia] Could not record the aria2c pid: {e}");
                     }
                 }
-                None => eprintln!("[garia] aria2c not found — install it with: brew install aria2"),
+                None => eprintln!(
+                    "[garia] No aria2c found — the bundled one is missing and none is installed. \
+                 Build it with: npm run sidecar"
+                ),
             }
 
             app.manage(Aria2 {
@@ -262,8 +281,7 @@ pub fn run() {
                         &state.secret,
                         "aria2.saveSession",
                         serde_json::json!([]),
-                    )
-                    {
+                    ) {
                         eprintln!("[garia] Could not save the aria2 session: {e}");
                     }
                     if let Ok(mut guard) = state.child.lock() {

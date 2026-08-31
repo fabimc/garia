@@ -2,7 +2,7 @@
 
 A lightweight desktop download manager built on top of [aria2](https://aria2.github.io/), wrapped in a [Tauri](https://tauri.app/) native app.
 
-Garia manages aria2 automatically — it starts and stops the aria2 process alongside the app, so you never have to touch the command line to download a file.
+Garia manages aria2 automatically — it ships its own copy inside the app and starts and stops it alongside the window, so you never have to touch the command line to download a file.
 
 ## Features
 
@@ -17,9 +17,10 @@ Garia manages aria2 automatically — it starts and stops the aria2 process alon
 
 | Tool | Version | Install |
 |------|---------|---------|
-| [aria2](https://aria2.github.io/) | any | `brew install aria2` |
 | [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
 | [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
+
+aria2 isn't on that list. Garia builds its own and bundles it — see below.
 
 ## Development
 
@@ -35,7 +36,23 @@ Start the app in development mode (hot-reloads the frontend, recompiles Rust on 
 npm run tauri dev
 ```
 
-> The first run takes a few minutes while Cargo compiles the Tauri runtime. Subsequent runs are fast.
+> The first run takes a few minutes while Cargo compiles the Tauri runtime and `scripts/build-aria2-sidecar.sh` builds aria2. Subsequent runs are fast — the script is a no-op once the binary exists.
+
+## The bundled aria2
+
+`npm run sidecar` (run for you before every dev run and build) compiles aria2 from the upstream 1.37.0 release into `src-tauri/binaries/`, and Tauri copies it into the app bundle.
+
+Homebrew's `aria2c` links six Homebrew dylibs, so it stops working the moment it leaves the machine that installed it. The bundled build links nothing but the OS — AppleTLS for HTTPS, CommonCrypto for hashing, the system zlib — which is what makes it safe to ship. The script refuses to install a binary that links anything else.
+
+Trimming those dependencies drops Metalink, SFTP, Firefox cookie import, and async DNS. Garia uses none of them. HTTP, HTTPS, and BitTorrent are all in.
+
+To build for the other Mac architecture, pass a target triple:
+
+```sh
+npm run sidecar -- x86_64-apple-darwin
+```
+
+At runtime the bundled binary wins, and a system `aria2c` on `PATH` is the fallback.
 
 ## Build
 
@@ -53,7 +70,9 @@ garia/
 │   ├── index.html        # App shell
 │   ├── styles.css        # Styles and animations
 │   └── main.js           # aria2 JSON-RPC client + UI logic
+├── scripts/              # aria2 sidecar build script
 └── src-tauri/            # Tauri / Rust backend
+    ├── binaries/         # Bundled aria2c (built, not committed)
     ├── src/
     │   ├── lib.rs        # App setup — spawns and stops aria2
     │   └── main.rs       # Binary entry point
