@@ -6,9 +6,11 @@ Garia manages aria2 automatically — it starts and stops the aria2 process alon
 
 ## Features
 
-- Add downloads by URL
+- Add downloads by URL, magnet link, or `.torrent` file
+- Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
 - Pause and resume downloads
+- Queued and unfinished downloads survive a restart
 - Status badges: Downloading, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -61,7 +63,9 @@ garia/
 
 ## How It Works
 
-Garia communicates with aria2 via its built-in JSON-RPC interface on `localhost:6800`. The Rust backend spawns `aria2c` when the app opens and kills it cleanly on exit. The frontend polls aria2 every second to refresh download progress.
+Garia communicates with aria2 via its built-in JSON-RPC interface on `localhost:6800`, falling back to a free port when something else already holds that one. The Rust backend spawns `aria2c` when the app opens and stops it on exit; if a crash ever leaves one running, the next launch recognises it by the pid it recorded and shuts it down before starting fresh. The frontend polls aria2 every second to refresh download progress.
+
+Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 
 ## Test Downloads
 Here are some sample files you can use to test Garia:

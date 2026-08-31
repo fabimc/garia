@@ -1,6 +1,10 @@
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
+// aria2 usually gets port 6800, but the backend falls back to a free one when
+// something else already holds it — so the endpoint is asked for, not assumed.
+let endpoint = "127.0.0.1:6800";
+
 async function rpc(method, params = []) {
   // Prefer native IPC (Tauri command) to avoid WebView restrictions around
   // http://localhost fetches (mixed-content/CORS quirks).
@@ -340,14 +344,14 @@ function setConn(state) {
   const text = document.getElementById("conn-text");
   dot.className = `conn-dot conn-${state}`;
   text.textContent = state === "ok"
-    ? "aria2 · 127.0.0.1:6800"
+    ? `aria2 · ${endpoint}`
     : state === "error"
       ? "aria2 unreachable"
       : "connecting…";
   text.title = state === "ok"
     ? "Connected to aria2"
     : state === "error"
-      ? `Cannot reach aria2 JSON-RPC at ${RPC_URL}`
+      ? `Cannot reach aria2 JSON-RPC at ${endpoint}`
       : "Connecting to aria2…";
   return text;
 }
@@ -419,6 +423,11 @@ async function poll(listEl) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  window.__TAURI__?.core
+    ?.invoke("aria2_endpoint")
+    .then((value) => { endpoint = value; })
+    .catch(() => {});
+
   const listEl = document.getElementById("download-list");
   const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
