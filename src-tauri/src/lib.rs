@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 /// The aria2c child process plus the RPC secret it was started with.
@@ -12,6 +13,61 @@ struct Aria2 {
     secret: String,
     port: u16,
     pid_file: PathBuf,
+}
+
+/// What the user gets to decide. Kept here rather than read back out of aria2
+/// because these have to survive a restart, and aria2 forgets everything that
+/// isn't an unfinished download.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default, rename_all = "camelCase")]
+struct Settings {
+    download_dir: String,
+    max_concurrent_downloads: u32,
+    /// Bytes per second across every download. 0 is aria2's own "no limit".
+    max_overall_download_limit: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            download_dir: default_download_dir().display().to_string(),
+            // aria2's own default, and a sane one: five files at a time.
+            max_concurrent_downloads: 5,
+            max_overall_download_limit: 0,
+        }
+    }
+}
+
+impl Settings {
+    /// Settings arrive from a JSON file the user can edit and from the
+    /// frontend, so nothing is trusted: a zero concurrency stalls every
+    /// download, and an empty folder makes aria2 refuse to start.
+    fn normalised(mut self) -> Self {
+        self.max_concurrent_downloads = self.max_concurrent_downloads.clamp(1, 16);
+        if self.download_dir.trim().is_empty() {
+            self.download_dir = default_download_dir().display().to_string();
+        }
+        self
+    }
+}
+
+/// The settings file, plus the values currently in force.
+struct SettingsState {
+    file: PathBuf,
+    current: Mutex<Settings>,
+}
+
+fn default_download_dir() -> PathBuf {
+    dirs::download_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"))
+}
+
+/// A missing or unreadable file is not an error — it is a first launch.
+fn read_settings(file: &Path) -> Settings {
+    fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Settings>(&text).ok())
+        .unwrap_or_default()
+        .normalised()
 }
 
 /// aria2 binds to 127.0.0.1, but any process on the machine — including a web
@@ -66,6 +122,58 @@ fn aria2_rpc(
 #[tauri::command]
 fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
+}
+
+#[tauri::command]
+fn get_settings(state: tauri::State<SettingsState>) -> Settings {
+    state.current.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+/// Saving is three steps: normalise, persist, and push into the running aria2
+/// so nothing needs a restart. All three options are live-changeable — measured
+/// against aria2 1.37, not assumed. The frontend also sends `dir` with each
+/// download it adds, which is what will let smart folders route by file type
+/// without touching this global.
+#[tauri::command]
+fn save_settings(
+    aria2: tauri::State<Aria2>,
+    state: tauri::State<SettingsState>,
+    settings: Settings,
+) -> Result<Settings, String> {
+    let settings = settings.normalised();
+
+    // The folder is the one setting that can be wrong in a way the user has to
+    // fix: everything else is clamped into range above.
+    let dir = Path::new(&settings.download_dir);
+    fs::create_dir_all(dir).map_err(|e| format!("Cannot use {}: {e}", settings.download_dir))?;
+    if !dir.is_dir() {
+        return Err(format!("{} is not a folder", settings.download_dir));
+    }
+
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("could not encode the settings: {e}"))?;
+    fs::write(&state.file, json)
+        .map_err(|e| format!("could not write {}: {e}", state.file.display()))?;
+
+    // Best-effort: the file on disk is the source of truth, and an aria2 that
+    // cannot be reached is already saying so in the status bar.
+    if let Err(e) = aria2_request(
+        aria2.port,
+        &aria2.secret,
+        "aria2.changeGlobalOption",
+        serde_json::json!([{
+            "dir": settings.download_dir,
+            "max-concurrent-downloads": settings.max_concurrent_downloads.to_string(),
+            "max-overall-download-limit": settings.max_overall_download_limit.to_string(),
+        }]),
+    ) {
+        eprintln!("[garia] Settings saved, but aria2 did not take them now: {e}");
+    }
+
+    if let Ok(mut guard) = state.current.lock() {
+        *guard = settings.clone();
+    }
+    Ok(settings)
 }
 
 /// Deleting a row can take the downloaded file with it. Trash, not unlink: a
@@ -128,10 +236,7 @@ fn aria2c_candidates() -> Vec<String> {
     c
 }
 
-fn spawn_aria2(port: u16, secret: &str, session_file: &Path) -> Option<Child> {
-    let download_dir = dirs::download_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"));
-
+fn spawn_aria2(port: u16, secret: &str, session_file: &Path, settings: &Settings) -> Option<Child> {
     for bin in aria2c_candidates() {
         if bin.contains('/') && !Path::new(&bin).exists() {
             continue;
@@ -144,7 +249,17 @@ fn spawn_aria2(port: u16, secret: &str, session_file: &Path) -> Option<Child> {
                 &format!("--rpc-listen-port={port}"),
                 &format!("--rpc-secret={secret}"),
                 "--quiet=true",
-                &format!("--dir={}", download_dir.display()),
+                &format!("--dir={}", settings.download_dir),
+                // The user's settings, applied from the first second. Both are
+                // also pushed into a running aria2 by save_settings.
+                &format!(
+                    "--max-concurrent-downloads={}",
+                    settings.max_concurrent_downloads
+                ),
+                &format!(
+                    "--max-overall-download-limit={}",
+                    settings.max_overall_download_limit
+                ),
                 // Without these, aria2 opens a single connection per download —
                 // the multi-segment speed-up people install a download manager
                 // for never happens.
@@ -256,10 +371,13 @@ fn session_path(dir: &Path) -> PathBuf {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
-            trash_files
+            trash_files,
+            get_settings,
+            save_settings
         ])
         .setup(|app| {
             let dir = app
@@ -273,10 +391,13 @@ pub fn run() {
             let pid_file = dir.join("aria2.pid");
             reap_orphan(&pid_file);
 
+            let settings_file = dir.join("settings.json");
+            let settings = read_settings(&settings_file);
+
             let secret = random_secret();
             let session = session_path(&dir);
             let port = pick_port();
-            let child = spawn_aria2(port, &secret, &session);
+            let child = spawn_aria2(port, &secret, &session, &settings);
 
             match &child {
                 Some(c) => {
@@ -295,6 +416,10 @@ pub fn run() {
                 secret,
                 port,
                 pid_file,
+            });
+            app.manage(SettingsState {
+                file: settings_file,
+                current: Mutex::new(settings),
             });
             Ok(())
         })

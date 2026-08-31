@@ -25,6 +25,33 @@ async function rpc(method, params = []) {
   return json.result;
 }
 
+// The user's settings, mirrored from the Rust side, which owns the file they
+// live in and pushes all three into aria2. The folder is sent again with every
+// download added here: aria2's global dir is a default, and naming it per
+// download is what smart folders will need to route by file type later.
+let settings = {
+  downloadDir: "",
+  maxConcurrentDownloads: 5,
+  maxOverallDownloadLimit: 0,
+};
+
+async function loadSettings() {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") return;   // browser dev mode: aria2's own defaults
+  try {
+    settings = await invoker("get_settings");
+    renderLimitBadge();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// Options every new download is added with. Retry passes the folder the failed
+// download already had, so it isn't routed through here.
+function addOptions() {
+  return settings.downloadDir ? { dir: settings.downloadDir } : {};
+}
+
 function formatBytes(bytes) {
   const b = Number(bytes);
   if (!b) return "0 B";
@@ -419,6 +446,16 @@ function renderCounts(tally) {
   document.getElementById("stat-speed").textContent = speed ? `↓ ${speed}` : "";
 }
 
+// A cap explains a slow download, so it has to be visible without opening
+// Settings to remember it's there.
+function renderLimitBadge() {
+  const el = document.getElementById("stat-limit");
+  if (!el) return;
+  const bytes = Number(settings.maxOverallDownloadLimit) || 0;
+  el.classList.toggle("hidden", bytes <= 0);
+  if (bytes > 0) el.textContent = `· capped at ${formatSpeed(bytes)}`;
+}
+
 function setConn(state) {
   connState = state;
   const dot = document.getElementById("conn-dot");
@@ -557,7 +594,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModal(); closeConfirm(); }
+    if (e.key === "Escape") { closeModal(); closeConfirm(); closeSettings(); }
   });
 
   // Browse → open native file picker for .torrent
@@ -575,7 +612,7 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       const buf = await file.arrayBuffer();
       const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      await rpc("aria2.addTorrent", [b64]);
+      await rpc("aria2.addTorrent", [b64, [], addOptions()]);
       closeModal();
       await pollAndSync();
     } catch (err) {
@@ -589,13 +626,13 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!url) return;
     modalError.classList.add("hidden");
     try {
-      await rpc("aria2.addUri", [[url]]);
+      await rpc("aria2.addUri", [[url], addOptions()]);
       closeModal();
       await pollAndSync();
     } catch (err) {
       const unreachable = err.message.includes("Failed to fetch") || err.message.includes("Load failed");
       modalError.textContent = unreachable
-        ? "aria2 is not ready yet — is it running? Try: brew install aria2"
+        ? "aria2 isn't answering yet — give it a moment and try again"
         : err.message;
       modalError.classList.remove("hidden");
     }
@@ -720,6 +757,92 @@ window.addEventListener("DOMContentLoaded", () => {
     bulkAction(gids, "resume");
   });
 
+  // ── Settings ─────────────────────────────────────────────────────────────
+  const settingsOverlay = document.getElementById("settings-overlay");
+  const settingsDir     = document.getElementById("settings-dir");
+  const settingsLimit   = document.getElementById("settings-limit");
+  const settingsConc    = document.getElementById("settings-concurrency");
+  const settingsError   = document.getElementById("settings-error");
+
+  const MB = 1024 * 1024;
+
+  function openSettings() {
+    settingsError.classList.add("hidden");
+    settingsDir.value = settings.downloadDir || "";
+    const bytes = Number(settings.maxOverallDownloadLimit) || 0;
+    // Bytes per second is what aria2 wants; MB/s is what a person thinks in.
+    settingsLimit.value = bytes ? String(Math.round((bytes / MB) * 100) / 100) : "0";
+    settingsConc.value = String(settings.maxConcurrentDownloads || 5);
+    settingsOverlay.classList.remove("hidden");
+    setTimeout(() => settingsDir.focus(), 50);
+  }
+
+  function closeSettings() { settingsOverlay.classList.add("hidden"); }
+
+  async function saveSettings() {
+    settingsError.classList.add("hidden");
+    const mb    = parseFloat(settingsLimit.value);
+    const files = parseInt(settingsConc.value, 10);
+    const next = {
+      downloadDir: settingsDir.value.trim(),
+      maxConcurrentDownloads: Number.isFinite(files) ? Math.min(Math.max(files, 1), 16) : 5,
+      maxOverallDownloadLimit: Number.isFinite(mb) && mb > 0 ? Math.round(mb * MB) : 0,
+    };
+
+    const invoker = window.__TAURI__?.core?.invoke;
+    if (typeof invoker !== "function") {
+      // Browser dev mode — nothing to persist to, but the dialog still behaves.
+      settings = next;
+      renderLimitBadge();
+      closeSettings();
+      return;
+    }
+
+    try {
+      // Rust returns the settings as they were actually stored, clamped.
+      settings = await invoker("save_settings", { settings: next });
+      renderLimitBadge();
+      closeSettings();
+    } catch (err) {
+      settingsError.textContent = String(err?.message || err);
+      settingsError.classList.remove("hidden");
+    }
+  }
+
+  document.getElementById("open-settings-btn").addEventListener("click", openSettings);
+  document.getElementById("settings-close").addEventListener("click", closeSettings);
+  document.getElementById("settings-cancel").addEventListener("click", closeSettings);
+  document.getElementById("settings-save").addEventListener("click", saveSettings);
+  settingsOverlay.addEventListener("click", (e) => {
+    if (e.target === settingsOverlay) closeSettings();
+  });
+  settingsOverlay.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveSettings();
+  });
+
+  // The path stays typeable — the picker is the convenience, not the only way in.
+  document.getElementById("settings-browse").addEventListener("click", async () => {
+    const pick = window.__TAURI__?.dialog?.open;
+    if (typeof pick !== "function") {
+      // Only reachable outside the app (browser dev mode) — say so rather
+      // than letting the button do nothing.
+      settingsError.textContent = "No folder picker here — type the path instead.";
+      settingsError.classList.remove("hidden");
+      return;
+    }
+    try {
+      const chosen = await pick({
+        directory: true,
+        multiple: false,
+        title: "Choose a download folder",
+        defaultPath: settingsDir.value.trim() || undefined,
+      });
+      if (typeof chosen === "string" && chosen) settingsDir.value = chosen;
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
   // ── Sidebar collapse ─────────────────────────────────────────────────────
   const shell = document.querySelector(".app-shell");
   const SIDEBAR_KEY = "garia:sidebar-collapsed";
@@ -770,17 +893,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (file && (file.name.endsWith(".torrent") || file.type === "application/x-bittorrent")) {
       const buf = await file.arrayBuffer();
       const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      try { await rpc("aria2.addTorrent", [b64]); } catch (err) { console.error(err); }
+      try { await rpc("aria2.addTorrent", [b64, [], addOptions()]); } catch (err) { console.error(err); }
     } else {
       const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
-      const urls = text.split(/\s+/).map(u => u.trim()).filter(u => u.startsWith("http"));
+      // A dropped magnet link used to be dropped on the floor — the modal took
+      // it, the drop zone didn't.
+      const urls = text.split(/\s+/).map(u => u.trim())
+        .filter(u => u.startsWith("http") || u.startsWith("magnet:"));
       for (const url of urls) {
-        try { await rpc("aria2.addUri", [[url]]); } catch (err) { console.error(err); }
+        try { await rpc("aria2.addUri", [[url], addOptions()]); } catch (err) { console.error(err); }
       }
     }
     await pollAndSync();
   });
 
+  loadSettings();
   pollAndSync();
   setInterval(pollAndSync, 1000);
 });

@@ -246,6 +246,13 @@ body {
     color: var(--accent);
 }
 
+/* Settings is not a filter, so it lives below them, pinned to the bottom. */
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+}
+
 /* ── Main content ────────────────────────────────────────────────────── */
 .content {
     grid-area: main;
@@ -846,6 +853,10 @@ body {
     opacity: 0.5;
 }
 
+.stat-limit {
+    color: var(--accent);
+}
+
 .status-right {
     margin-left: auto;
     color: var(--text);
@@ -998,6 +1009,90 @@ body {
     gap: 0.5rem;
     padding: 0.9rem 1.4rem 1.1rem;
     border-top: 1px solid var(--border);
+}
+
+/* ── Form fields ─────────────────────────────────────────────────────── */
+/* Fields carry a label, a control and a hint, so they need more air between
+   them than the add dialog's single row does. */
+.modal-body.stack {
+    gap: 1.15rem;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+/* Two numbers, side by side — they're read together. */
+.field-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.field-input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.85rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.field-input:focus {
+    border-color: var(--accent);
+}
+.field-input.is-path {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+}
+
+/* The unit belongs to the number, so it sits inside the field's border. */
+.field-unit {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding-right: 0.7rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    transition: border-color 0.15s;
+}
+.field-unit:focus-within {
+    border-color: var(--accent);
+}
+.field-unit .field-input {
+    border: none;
+    background: transparent;
+    padding-right: 0;
+}
+.field-unit .field-input:focus {
+    border: none;
+}
+
+/* The native stepper crowds the unit label, and these are typed, not nudged. */
+.field-unit .field-input::-webkit-outer-spin-button,
+.field-unit .field-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.field-suffix {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.field-hint {
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: var(--muted);
 }
 
 /* ── Delete confirmation ─────────────────────────────────────────────── */
