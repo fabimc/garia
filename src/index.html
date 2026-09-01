@@ -432,9 +432,46 @@
                             class="hidden"
                         />
                     </div>
+
+                    <!-- Shown while yt-dlp is reading the page. It can take a
+                         few seconds, and a dialog that just sits there looks
+                         broken. -->
+                    <div id="modal-busy" class="modal-busy hidden">
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span id="modal-busy-text">Looking for video…</span>
+                    </div>
+
+                    <!-- The quality picker, filled in once yt-dlp answers. -->
+                    <div id="video-panel" class="video-panel hidden">
+                        <div class="video-head">
+                            <img
+                                id="video-thumb"
+                                class="video-thumb hidden"
+                                alt=""
+                            />
+                            <div class="video-titles">
+                                <div id="video-title" class="video-title"></div>
+                                <div id="video-sub" class="video-sub"></div>
+                            </div>
+                        </div>
+                        <div class="modal-label">Quality</div>
+                        <div
+                            id="video-choices"
+                            class="video-choices"
+                            role="radiogroup"
+                            aria-label="Quality"
+                        ></div>
+                        <p id="video-note" class="field-hint hidden"></p>
+                    </div>
+
                     <p id="modal-error" class="error hidden"></p>
                 </div>
                 <div class="modal-footer">
+                    <!-- The escape hatch when yt-dlp finds nothing: the URL
+                         may still be a perfectly good file. -->
+                    <button class="btn-secondary hidden" id="modal-plain">
+                        Download the URL as-is
+                    </button>
                     <button class="btn-secondary" id="modal-cancel">
                         Cancel
                     </button>
@@ -601,6 +638,11 @@
                             lands in the folder itself. Nothing already
                             downloaded moves.
                         </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Video downloads</div>
+                        <p id="settings-video" class="field-hint">Checking…</p>
                     </div>
 
                     <p id="settings-error" class="error hidden"></p>

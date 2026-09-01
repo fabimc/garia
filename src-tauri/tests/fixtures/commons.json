@@ -1,0 +1,82 @@
+{
+ "_type": "video",
+ "title": "Physicsworks",
+ "uploader": "Sj",
+ "duration": 203.33333333333334,
+ "webpage_url": "https://commons.wikimedia.org/wiki/File:Physicsworks.ogv",
+ "extractor_key": "Wikimedia",
+ "formats": [
+  {
+   "format_id": "0",
+   "ext": "mov",
+   "protocol": "https",
+   "height": 240,
+   "tbr": 467,
+   "vbr": null,
+   "abr": null,
+   "filesize_approx": 11869583,
+   "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c4/Physicsworks.ogv/Physicsworks.ogv.360p.mpeg4.mo",
+   "http_headers": {
+    "User-Agent": "yt-dlp/2026.08.19 (https://github.com/yt-dlp/yt-dlp)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-us,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate"
+   }
+  },
+  {
+   "format_id": "1",
+   "ext": "ogv",
+   "protocol": "https",
+   "vcodec": "theora",
+   "acodec": "vorbis",
+   "height": 240,
+   "tbr": 260,
+   "vbr": null,
+   "abr": null,
+   "filesize_approx": 6608333,
+   "url": "https://upload.wikimedia.org/wikipedia/commons/c/c4/Physicsworks.ogv",
+   "http_headers": {
+    "User-Agent": "yt-dlp/2026.08.19 (https://github.com/yt-dlp/yt-dlp)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-us,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate"
+   }
+  },
+  {
+   "format_id": "2",
+   "ext": "webm",
+   "protocol": "https",
+   "vcodec": "vp9",
+   "acodec": "opus",
+   "height": 240,
+   "tbr": 186,
+   "vbr": null,
+   "abr": null,
+   "filesize_approx": 4727500,
+   "url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c4/Physicsworks.ogv/Physicsworks.ogv.240p.vp9.webm",
+   "http_headers": {
+    "User-Agent": "yt-dlp/2026.08.19 (https://github.com/yt-dlp/yt-dlp)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-us,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate"
+   }
+  },
+  {
+   "format_id": "source",
+   "ext": "ogv",
+   "protocol": "https",
+   "height": 240,
+   "tbr": null,
+   "vbr": null,
+   "abr": null,
+   "filesize": 6608442,
+   "url": "https://upload.wikimedia.org/wikipedia/commons/c/c4/Physicsworks.ogv",
+   "http_headers": {
+    "User-Agent": "yt-dlp/2026.08.19 (https://github.com/yt-dlp/yt-dlp)",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-us,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate"
+   }
+  }
+ ]
+}

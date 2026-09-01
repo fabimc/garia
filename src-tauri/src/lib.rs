@@ -225,6 +225,503 @@ fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
         .map_err(|e| format!("could not set the dock badge: {e}"))
 }
 
+
+// ── Video (yt-dlp) ───────────────────────────────────────────────────────
+// aria2 downloads files; a video page is not a file. yt-dlp is what turns one
+// into the other — it resolves a page into the actual media URLs, which aria2
+// can then fetch in parallel like anything else.
+
+/// How garia gets to yt-dlp, resolved once per launch.
+struct Video {
+    /// The 3 MB zipapp shipped in the bundle, if it made it there.
+    zipapp: Option<PathBuf>,
+    /// The command that actually runs — `None` until first asked. A failed
+    /// resolution is never cached, so installing yt-dlp and asking again works
+    /// without a relaunch.
+    resolved: Mutex<Option<Vec<String>>>,
+    /// What the last successful look around found. Working it out costs three
+    /// process launches, and Settings asks every time it opens.
+    tools: Mutex<Option<VideoTools>>,
+}
+
+/// What the frontend needs to know before it offers a video download at all.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct VideoTools {
+    /// yt-dlp's version string, or empty when there is no yt-dlp.
+    version: String,
+    /// "system" or "bundled" — worth saying, because a stale bundled copy is
+    /// the likeliest reason a site stops working.
+    source: String,
+    /// Whether an ffmpeg was found. Without one, the qualities that arrive as
+    /// separate video and audio streams cannot be offered.
+    ffmpeg: bool,
+}
+
+/// One downloadable stream, trimmed to what the picker shows and what aria2
+/// needs. yt-dlp's own JSON runs to 150 KB for a single YouTube video; almost
+/// none of it survives this.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct VideoFormat {
+    id: String,
+    ext: String,
+    /// "complete" — one file with both streams; "video" / "audio" — one half,
+    /// which only means something paired with the other and an ffmpeg.
+    kind: String,
+    height: u64,
+    fps: f64,
+    /// Bitrate in kbit/s: total for video, audio-only for audio.
+    bitrate: f64,
+    /// Bytes, exact when the server said so and yt-dlp's estimate otherwise.
+    filesize: u64,
+    note: String,
+    url: String,
+    /// Ready for aria2's `header` option: "Name: Value" per entry. Some sites
+    /// hand out URLs that only answer to the User-Agent they were minted for.
+    headers: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct VideoInfo {
+    title: String,
+    uploader: String,
+    /// Seconds. Zero for a live stream or when the site doesn't say.
+    duration: f64,
+    thumbnail: String,
+    webpage_url: String,
+    extractor: String,
+    formats: Vec<VideoFormat>,
+}
+
+fn is_executable(path: &str) -> bool {
+    Path::new(path).is_file()
+}
+
+/// Runs a command, killing it if it outstays `secs`. `Command` has no timeout
+/// of its own, and a yt-dlp waiting on a site that never answers would
+/// otherwise hang the probe until the app quits.
+fn run_capped(
+    program: &str,
+    args: &[String],
+    secs: u64,
+) -> Result<std::process::Output, String> {
+    let child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run {program}: {e}"))?;
+
+    let pid = child.id();
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+
+    // The watchdog waits to be told the process finished. Being told is what
+    // stops it — so a run that ends on time can never have its pid killed
+    // after the fact, when the number may belong to something else.
+    std::thread::spawn(move || {
+        if done_rx
+            .recv_timeout(std::time::Duration::from_secs(secs))
+            .is_err()
+        {
+            #[cfg(unix)]
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+        }
+    });
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("{program} failed: {e}"));
+    let _ = done_tx.send(());
+    output
+}
+
+/// A yt-dlp the user installed themselves, newest-first in the sense that
+/// matters: theirs is the one that gets updated when a site breaks.
+fn system_ytdlp() -> Option<Vec<String>> {
+    let mut candidates = vec!["yt-dlp".to_string()];
+
+    #[cfg(target_os = "macos")]
+    candidates.extend([
+        "/opt/homebrew/bin/yt-dlp".to_string(),
+        "/usr/local/bin/yt-dlp".to_string(),
+    ]);
+
+    #[cfg(target_os = "linux")]
+    candidates.extend([
+        "/usr/bin/yt-dlp".to_string(),
+        "/usr/local/bin/yt-dlp".to_string(),
+    ]);
+
+    for bin in candidates {
+        if bin.contains('/') && !is_executable(&bin) {
+            continue;
+        }
+        if ytdlp_version(std::slice::from_ref(&bin)).is_some() {
+            return Some(vec![bin]);
+        }
+    }
+    None
+}
+
+/// The bundled copy is a zipapp, so it needs an interpreter — and not just any
+/// one: macOS ships `/usr/bin/python3` as 3.9, which yt-dlp dropped. The
+/// version test is why this looks past the first python3 it finds.
+fn python_for(zipapp: &Path) -> Option<Vec<String>> {
+    let mut candidates = vec!["python3".to_string()];
+
+    #[cfg(target_os = "macos")]
+    candidates.extend([
+        "/opt/homebrew/bin/python3".to_string(),
+        "/usr/local/bin/python3".to_string(),
+    ]);
+
+    // python.org installs land here, newest last in the sort, so walk it back.
+    #[cfg(target_os = "macos")]
+    if let Ok(entries) = fs::read_dir("/Library/Frameworks/Python.framework/Versions") {
+        let mut versions: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        versions.sort();
+        for v in versions.into_iter().rev() {
+            candidates.push(v.join("bin/python3").display().to_string());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    candidates.extend([
+        "/usr/bin/python3".to_string(),
+        "/usr/local/bin/python3".to_string(),
+    ]);
+
+    for python in candidates {
+        if python.contains('/') && !is_executable(&python) {
+            continue;
+        }
+        let ok = run_capped(
+            &python,
+            &["-c".to_string(), "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)".to_string()],
+            10,
+        )
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+        if !ok {
+            continue;
+        }
+        let cmd = vec![python, zipapp.display().to_string()];
+        if ytdlp_version(&cmd).is_some() {
+            return Some(cmd);
+        }
+    }
+    None
+}
+
+/// Doubles as the "does this actually work" test: a yt-dlp that cannot print
+/// its own version is not one we should hand a URL to.
+fn ytdlp_version(cmd: &[String]) -> Option<String> {
+    let mut args: Vec<String> = cmd[1..].to_vec();
+    args.push("--version".to_string());
+    let out = run_capped(&cmd[0], &args, 20).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// Resolution is cached, but only when it succeeded: a user who installs
+/// yt-dlp and presses the button again should not have to relaunch.
+fn resolve_ytdlp(video: &Video) -> Option<Vec<String>> {
+    if let Ok(guard) = video.resolved.lock() {
+        if let Some(cmd) = guard.as_ref() {
+            return Some(cmd.clone());
+        }
+    }
+
+    let found = system_ytdlp().or_else(|| video.zipapp.as_deref().and_then(python_for));
+
+    if let (Some(cmd), Ok(mut guard)) = (found.as_ref(), video.resolved.lock()) {
+        *guard = Some(cmd.clone());
+    }
+    found
+}
+
+fn ffmpeg_path() -> Option<String> {
+    let mut candidates = vec!["ffmpeg".to_string()];
+
+    #[cfg(target_os = "macos")]
+    candidates.extend([
+        "/opt/homebrew/bin/ffmpeg".to_string(),
+        "/usr/local/bin/ffmpeg".to_string(),
+    ]);
+
+    #[cfg(target_os = "linux")]
+    candidates.extend(["/usr/bin/ffmpeg".to_string(), "/usr/local/bin/ffmpeg".to_string()]);
+
+    for bin in candidates {
+        if bin.contains('/') && !is_executable(&bin) {
+            continue;
+        }
+        let ok = run_capped(&bin, &["-version".to_string()], 10)
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            return Some(bin);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn video_tools(video: tauri::State<Video>) -> VideoTools {
+    if let Ok(guard) = video.tools.lock() {
+        if let Some(tools) = guard.as_ref() {
+            return tools.clone();
+        }
+    }
+
+    let cmd = resolve_ytdlp(&video);
+    // Resolution already proved the command works by asking it its version;
+    // this is the same answer, kept rather than asked for twice.
+    let bundled = cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
+    let tools = VideoTools {
+        version: cmd.as_deref().and_then(ytdlp_version).unwrap_or_default(),
+        source: if bundled { "bundled" } else { "system" }.to_string(),
+        ffmpeg: ffmpeg_path().is_some(),
+    };
+
+    // A machine with neither tool is one `brew install` away from having them,
+    // and Settings is where that message is read — so don't cache a "no".
+    if !tools.version.is_empty() && tools.ffmpeg {
+        if let Ok(mut guard) = video.tools.lock() {
+            *guard = Some(tools.clone());
+        }
+    }
+    tools
+}
+
+fn as_str(v: &serde_json::Value, key: &str) -> String {
+    v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
+}
+
+fn as_num(v: &serde_json::Value, key: &str) -> f64 {
+    v.get(key).and_then(|x| x.as_f64()).unwrap_or(0.0)
+}
+
+/// aria2 wants headers as "Name: Value" lines. yt-dlp hands them over as an
+/// object, and for some sites they are not optional — a URL minted for one
+/// User-Agent is a 403 for any other.
+fn header_lines(f: &serde_json::Value) -> Vec<String> {
+    let Some(map) = f.get("http_headers").and_then(|h| h.as_object()) else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(k, v)| v.as_str().map(|v| format!("{k}: {v}")))
+        .collect()
+}
+
+/// Which of the three kinds a format is — and the reason a missing codec field
+/// counts as "complete" rather than as a half: plenty of extractors simply
+/// don't report codecs for a plain file, and dropping those would throw away
+/// the one format the site offers.
+fn format_kind(f: &serde_json::Value) -> &'static str {
+    let vcodec = f.get("vcodec").and_then(|x| x.as_str());
+    let acodec = f.get("acodec").and_then(|x| x.as_str());
+    match (vcodec, acodec) {
+        (Some("none"), Some("none")) => "none",
+        (Some("none"), _) => "audio",
+        (_, Some("none")) => "video",
+        _ => "complete",
+    }
+}
+
+#[tauri::command]
+fn video_probe(video: tauri::State<Video>, url: String) -> Result<VideoInfo, String> {
+    let Some(cmd) = resolve_ytdlp(&video) else {
+        return Err("no-ytdlp".to_string());
+    };
+
+    let mut args: Vec<String> = cmd[1..].to_vec();
+    args.extend([
+        "-J".to_string(),
+        "--no-playlist".to_string(),
+        "--no-warnings".to_string(),
+        "--no-progress".to_string(),
+        url,
+    ]);
+
+    let out = run_capped(&cmd[0], &args, 120)?;
+    if !out.status.success() {
+        // yt-dlp's own diagnosis is better than anything we could write: it
+        // knows the difference between a private video, a login wall, and a
+        // page with no media on it at all.
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let reason = stderr
+            .lines()
+            .rev()
+            .find(|l| l.contains("ERROR:"))
+            .map(|l| l.trim().trim_start_matches("ERROR:").trim())
+            .map(|l| l.split(". See ").next().unwrap_or(l).trim().to_string())
+            .unwrap_or_else(|| "yt-dlp could not read that page".to_string());
+        return Err(reason);
+    }
+
+    let root: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("could not read what yt-dlp returned: {e}"))?;
+
+    trim_info(&root)
+}
+
+/// Everything yt-dlp's 150 KB of JSON becomes: a handful of streams aria2 can
+/// actually fetch, in the order the picker lists them.
+fn trim_info(root: &serde_json::Value) -> Result<VideoInfo, String> {
+    // --no-playlist is a preference, not a guarantee: a channel or a playlist
+    // page still comes back as a playlist, and the first entry is what the
+    // user pointed at.
+    let info = if root.get("_type").and_then(|t| t.as_str()) == Some("playlist") {
+        root.get("entries")
+            .and_then(|e| e.as_array())
+            .and_then(|e| e.first())
+            .cloned()
+            .ok_or_else(|| "that page has no video on it".to_string())?
+    } else {
+        root.clone()
+    };
+
+    let empty = Vec::new();
+    let raw = info
+        .get("formats")
+        .and_then(|f| f.as_array())
+        .unwrap_or(&empty);
+
+    let mut formats: Vec<VideoFormat> = Vec::new();
+    for f in raw {
+        // aria2 fetches files over HTTP. A segmented stream — HLS, DASH — is a
+        // playlist of thousands of pieces, and handing one to aria2 downloads
+        // the playlist rather than the video.
+        let protocol = as_str(f, "protocol");
+        if protocol != "https" && protocol != "http" {
+            continue;
+        }
+        let url = as_str(f, "url");
+        if url.is_empty() {
+            continue;
+        }
+        let kind = format_kind(f);
+        if kind == "none" {
+            continue;
+        }
+
+        let filesize = f
+            .get("filesize")
+            .and_then(|x| x.as_f64())
+            .or_else(|| f.get("filesize_approx").and_then(|x| x.as_f64()))
+            .unwrap_or(0.0);
+
+        let bitrate = if kind == "audio" {
+            as_num(f, "abr")
+        } else {
+            let tbr = as_num(f, "tbr");
+            if tbr > 0.0 { tbr } else { as_num(f, "vbr") }
+        };
+
+        formats.push(VideoFormat {
+            id: as_str(f, "format_id"),
+            ext: as_str(f, "ext"),
+            kind: kind.to_string(),
+            height: as_num(f, "height") as u64,
+            fps: as_num(f, "fps"),
+            bitrate,
+            filesize: filesize.max(0.0) as u64,
+            note: as_str(f, "format_note"),
+            url,
+            headers: header_lines(f),
+        });
+    }
+
+    // Best first, and by the thing the row is labelled with: pixels for
+    // anything with a picture, bitrate for sound.
+    formats.sort_by(|a, b| {
+        b.height
+            .cmp(&a.height)
+            .then(b.bitrate.partial_cmp(&a.bitrate).unwrap_or(std::cmp::Ordering::Equal))
+            .then(b.filesize.cmp(&a.filesize))
+    });
+
+    // Nothing aria2 can fetch is a different answer from "no video here", and
+    // the frontend says so differently.
+    if formats.is_empty() && raw.is_empty() {
+        return Err("that page has no video on it".to_string());
+    }
+
+    Ok(VideoInfo {
+        title: as_str(&info, "title"),
+        uploader: as_str(&info, "uploader"),
+        duration: as_num(&info, "duration"),
+        thumbnail: as_str(&info, "thumbnail"),
+        webpage_url: as_str(&info, "webpage_url"),
+        extractor: as_str(&info, "extractor_key"),
+        formats,
+    })
+}
+
+/// The last step of a merged download: two files aria2 fetched in parallel,
+/// stitched into one. `-c copy` means no re-encoding — this is a container
+/// rewrite, seconds for a feature-length video, and the picture and sound come
+/// out bit-identical to what was downloaded.
+#[tauri::command]
+fn mux_video(video_path: String, audio_path: String, out_path: String) -> Result<String, String> {
+    let ffmpeg = ffmpeg_path().ok_or_else(|| "no-ffmpeg".to_string())?;
+
+    for p in [&video_path, &audio_path] {
+        if !Path::new(p).is_file() {
+            return Err(format!("{p} is not there any more"));
+        }
+    }
+
+    let mut args = vec![
+        "-y".to_string(),
+        "-i".to_string(),
+        video_path.clone(),
+        "-i".to_string(),
+        audio_path.clone(),
+        "-c".to_string(),
+        "copy".to_string(),
+    ];
+    // Puts the index at the front so the file plays before it has been read to
+    // the end. MP4 only — the other containers keep theirs there anyway.
+    if out_path.ends_with(".mp4") || out_path.ends_with(".m4v") {
+        args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+    }
+    args.push(out_path.clone());
+
+    let out = run_capped(&ffmpeg, &args, 900)?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let reason = stderr
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("ffmpeg could not merge the two files")
+            .trim()
+            .to_string();
+        let _ = fs::remove_file(&out_path);
+        return Err(reason);
+    }
+
+    // The halves have served their purpose. Trash rather than unlink, for the
+    // same reason deleting a download does.
+    for p in [&video_path, &audio_path] {
+        let _ = trash::delete(Path::new(p));
+    }
+
+    Ok(out_path)
+}
+
 /// Where to look for aria2c, best first. The sidecar sits next to the app
 /// binary and is what a fresh install runs — no `brew install aria2` first.
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
@@ -403,7 +900,10 @@ pub fn run() {
             trash_files,
             get_settings,
             save_settings,
-            set_badge
+            set_badge,
+            video_tools,
+            video_probe,
+            mux_video
         ])
         .setup(|app| {
             let dir = app
@@ -447,6 +947,25 @@ pub fn run() {
                 file: settings_file,
                 current: Mutex::new(settings),
             });
+
+            // The bundled zipapp. Missing it is not fatal — it is the second
+            // choice anyway, and a machine with its own yt-dlp never looks.
+            let zipapp = app
+                .path()
+                .resolve("resources/yt-dlp", tauri::path::BaseDirectory::Resource)
+                .ok()
+                .filter(|p| p.is_file());
+            if zipapp.is_none() {
+                eprintln!(
+                    "[garia] No bundled yt-dlp — video downloads need one on the machine. \
+                 Fetch it with: npm run sidecar"
+                );
+            }
+            app.manage(Video {
+                zipapp,
+                resolved: Mutex::new(None),
+                tools: Mutex::new(None),
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -475,3 +994,97 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real yt-dlp output, trimmed to the fields the parser reads. YouTube
+    /// because it is the hard case — 53 formats, not one of which is a
+    /// complete file — and Wikimedia because it is the easy one.
+    const YOUTUBE: &str = include_str!("../tests/fixtures/youtube.json");
+    const COMMONS: &str = include_str!("../tests/fixtures/commons.json");
+
+    fn parse(fixture: &str) -> VideoInfo {
+        trim_info(&serde_json::from_str(fixture).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn keeps_only_what_aria2_can_fetch() {
+        let info = parse(YOUTUBE);
+        // Not one HLS or DASH playlist survives: handing aria2 an m3u8 URL
+        // downloads the playlist, not the video.
+        assert!(!info.formats.is_empty());
+        for f in &info.formats {
+            assert!(!f.url.is_empty(), "a format with no URL got through");
+        }
+        // 32 of YouTube's 53 formats are plain HTTPS; the rest are segmented.
+        assert_eq!(info.formats.len(), 32);
+    }
+
+    #[test]
+    fn youtube_has_no_complete_formats() {
+        let info = parse(YOUTUBE);
+        // The whole reason merging exists. If this ever fails, YouTube started
+        // serving single-file formats again and the picker gets simpler.
+        assert!(info.formats.iter().all(|f| f.kind != "complete"));
+        assert!(info.formats.iter().any(|f| f.kind == "video"));
+        assert!(info.formats.iter().any(|f| f.kind == "audio"));
+        assert_eq!(info.title, "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film");
+        assert_eq!(info.uploader, "Blender");
+    }
+
+    #[test]
+    fn tallest_picture_first() {
+        let info = parse(YOUTUBE);
+        let heights: Vec<u64> = info.formats.iter().map(|f| f.height).collect();
+        assert!(heights.windows(2).all(|w| w[0] >= w[1]), "{heights:?}");
+        assert_eq!(heights[0], 2160);
+    }
+
+    #[test]
+    fn a_missing_codec_field_is_not_a_missing_stream() {
+        let info = parse(COMMONS);
+        // Two of Wikimedia's four formats name no codecs at all. Reading that
+        // as "no audio" would drop the only formats the page offers.
+        assert_eq!(info.formats.len(), 4);
+        assert!(info.formats.iter().all(|f| f.kind == "complete"));
+    }
+
+    #[test]
+    fn headers_come_out_ready_for_aria2() {
+        let info = parse(YOUTUBE);
+        let headers = &info.formats[0].headers;
+        assert!(!headers.is_empty());
+        // aria2's `header` option takes "Name: Value" lines, not an object.
+        assert!(headers.iter().all(|h| h.contains(": ")));
+        assert!(headers.iter().any(|h| h.starts_with("User-Agent: ")));
+    }
+
+    #[test]
+    fn sizes_fall_back_to_the_estimate() {
+        let info = parse(YOUTUBE);
+        assert!(
+            info.formats.iter().all(|f| f.filesize > 0),
+            "a format came through with no size at all"
+        );
+    }
+
+    #[test]
+    fn a_playlist_page_yields_its_first_video() {
+        // --no-playlist is a preference, not a guarantee: a channel URL still
+        // comes back wrapped.
+        let inner: serde_json::Value = serde_json::from_str(COMMONS).unwrap();
+        let wrapped = serde_json::json!({ "_type": "playlist", "entries": [inner] });
+        let info = trim_info(&wrapped).unwrap();
+        assert_eq!(info.title, "Physicsworks");
+        assert_eq!(info.formats.len(), 4);
+    }
+
+    #[test]
+    fn an_empty_playlist_is_an_error_not_an_empty_picker() {
+        let wrapped = serde_json::json!({ "_type": "playlist", "entries": [] });
+        assert!(trim_info(&wrapped).is_err());
+    }
+}
+

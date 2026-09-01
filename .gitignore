@@ -32,3 +32,6 @@ src-tauri/gen/
 
 # aria2c sidecar — built by scripts/build-aria2-sidecar.sh
 src-tauri/binaries/
+
+# yt-dlp — fetched by scripts/fetch-ytdlp-sidecar.sh
+src-tauri/resources/

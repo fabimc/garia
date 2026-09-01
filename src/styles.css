@@ -1145,3 +1145,152 @@ body {
 .field-check + .field-hint {
     margin-top: 0.3rem;
 }
+
+/* ── Video quality picker ────────────────────────────────────────────── */
+/* Reading a page takes yt-dlp a few seconds on a slow site, and the dialog
+   has to say so rather than appearing to have swallowed the click. */
+.modal-busy {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.spinner {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .spinner {
+        animation-duration: 2.4s;
+    }
+}
+
+.video-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.video-head {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+}
+
+/* 16:9, and cropped rather than letterboxed — a thumbnail is here to be
+   recognised, not studied. */
+.video-thumb {
+    width: 96px;
+    height: 54px;
+    flex: none;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--tint);
+    border: 1px solid var(--border);
+}
+
+.video-titles {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+/* Two lines of title, then an ellipsis: enough to tell two videos apart
+   without the picker below it being pushed off the dialog. */
+.video-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.video-sub {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+/* A long format list scrolls inside the dialog rather than growing it past
+   the window. */
+.video-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-height: 232px;
+    overflow-y: auto;
+    margin: 0 -0.2rem;
+    padding: 0 0.2rem;
+}
+
+.video-choice {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        background 0.15s;
+}
+.video-choice:hover {
+    border-color: var(--border-strong);
+    background: var(--tint);
+}
+.video-choice[aria-checked="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.video-choice-label {
+    font-size: 0.88rem;
+    font-weight: 600;
+    min-width: 3.6rem;
+}
+
+.video-choice-detail {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sizes line up against each other, which is most of why they're here. */
+.video-choice-size {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    flex: none;
+}
+
+/* Nothing on the page aria2 can fetch — the button says so by not working. */
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}

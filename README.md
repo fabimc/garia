@@ -7,6 +7,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 ## Features
 
 - Add downloads by URL, magnet link, or `.torrent` file — typed, or dropped on the window
+- Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
 - Pause and resume downloads
@@ -16,7 +17,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
 - Optional smart folders — new downloads sorted into Video, Music, Documents, and Archives by file type
 - Settings: download folder, an overall speed limit, how many files run at once, and both switches above
-- Status badges: Downloading, Queued, Paused, Complete, Error
+- Status badges: Downloading, Merging, Queued, Paused, Complete, Error
 
 ## Requirements
 
@@ -25,7 +26,14 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 | [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
 | [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
 
-aria2 isn't on that list. Garia builds its own and bundles it — see below.
+aria2 isn't on that list. Garia builds its own and bundles it — see below. Video downloads want two more, both optional:
+
+| Tool | Why | Install |
+|------|-----|---------|
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Reads a video page and resolves it into media URLs | `brew install yt-dlp` — or nothing, if you have a `python3` 3.10+, which the bundled copy runs under |
+| [ffmpeg](https://ffmpeg.org/) | Merges the separate video and audio streams every large site now serves | `brew install ffmpeg` |
+
+Without yt-dlp, a video page downloads as a page. Without ffmpeg, only qualities that arrive as a single file are offered — which on YouTube means audio only. Settings says which of the two garia found.
 
 ## Development
 
@@ -59,6 +67,22 @@ npm run sidecar -- x86_64-apple-darwin
 
 At runtime the bundled binary wins, and a system `aria2c` on `PATH` is the fallback.
 
+## The bundled yt-dlp
+
+`scripts/fetch-ytdlp-sidecar.sh` (part of `npm run sidecar`) downloads yt-dlp's 3 MB zipapp into `src-tauri/resources/`, checksum-verified against the release's own `SHA2-256SUMS`.
+
+The order is the opposite of aria2's: **a yt-dlp on `PATH` wins, and the bundled copy is the fallback.** aria2 is stable and the bundled build is the one garia knows; yt-dlp breaks whenever a site changes and ships a fix within days, so the user's own copy — the one that gets updated — is always the better bet.
+
+The zipapp needs a `python3` 3.10 or newer, which macOS does not provide: `/usr/bin/python3` is 3.9, and yt-dlp dropped it. Garia looks past it to Homebrew and python.org installs. The alternative was one of the standalone builds, and both are worse: the 37 MB onefile re-extracts itself on every run, which macOS then rescans — 22 seconds per probe, measured — and the onedir build that fixes the speed weighs 124 MB unpacked.
+
+## Video downloads
+
+Paste a video page into the add dialog and garia asks yt-dlp what is on it, then offers the qualities aria2 can actually fetch — plain HTTP only, since handing aria2 an HLS or DASH URL downloads the playlist rather than the video. A URL that already names a file is never probed.
+
+Large sites no longer serve video and audio in one file: YouTube's 53 formats include not a single complete one. So a merged quality is queued as **two** downloads that share **one row** — one name, one progress bar, one status — and when both land, ffmpeg stitches them with `-c copy` (a container rewrite, not a re-encode) and the halves go to the Trash. The pairing is written to `localStorage` along with both paths, so a quit mid-download still merges on the next launch, even though aria2 forgets a finished download when it restarts.
+
+Failed video rows offer Retry, which re-reads the page rather than re-queueing the URL: the media URLs sites hand out expire, often within hours.
+
 ## Build
 
 Produce an optimised, self-contained `.app` bundle in `src-tauri/target/release/bundle/`:
@@ -75,9 +99,11 @@ garia/
 │   ├── index.html        # App shell
 │   ├── styles.css        # Styles and animations
 │   └── main.js           # aria2 JSON-RPC client + UI logic
-├── scripts/              # aria2 sidecar build script
+├── scripts/              # sidecar scripts — builds aria2, fetches yt-dlp
 └── src-tauri/            # Tauri / Rust backend
     ├── binaries/         # Bundled aria2c (built, not committed)
+    ├── resources/        # Bundled yt-dlp zipapp (fetched, not committed)
+    ├── tests/fixtures/   # Real yt-dlp output, for the parser's unit tests
     ├── src/
     │   ├── lib.rs        # App setup — spawns and stops aria2
     │   └── main.rs       # Binary entry point
