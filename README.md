@@ -13,7 +13,9 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Delete a download, and optionally move the file it wrote to the Trash
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
-- Settings: download folder, an overall speed limit, and how many files run at once
+- A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
+- Optional smart folders — new downloads sorted into Video, Music, Documents, and Archives by file type
+- Settings: download folder, an overall speed limit, how many files run at once, and both switches above
 - Status badges: Downloading, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -87,7 +89,11 @@ garia/
 
 Garia communicates with aria2 via its built-in JSON-RPC interface on `localhost:6800`, falling back to a free port when something else already holds that one. The Rust backend spawns `aria2c` when the app opens and stops it on exit; if a crash ever leaves one running, the next launch recognises it by the pid it recorded and shuts it down before starting fresh. The frontend polls aria2 every second to refresh download progress.
 
-Settings live in `settings.json` beside the session file. Saving them writes the file and pushes all three into the running aria2, so nothing needs a restart; the next launch starts aria2 with them directly. Every new download also names its folder explicitly, which is what will let downloads be routed by file type later.
+Settings live in `settings.json` beside the session file. Saving them writes the file and pushes the three aria2 ones — folder, speed cap, concurrency — into the running aria2, so nothing needs a restart; the next launch starts aria2 with them directly.
+
+Every new download also names its folder explicitly rather than relying on aria2's global one, and that is what smart folders route with: the extension in the URL picks `Video`, `Music`, `Documents`, or `Archives` inside the download folder, and anything unrecognised — along with every torrent and magnet, which don't name their files until they start — lands in the folder itself. Nothing already on disk ever moves.
+
+Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
 
 Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 

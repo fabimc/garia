@@ -27,4 +27,5 @@ dirs = "5"
 ureq = { version = "2", features = ["json"] }
 getrandom = "0.2"
 trash = "5"
+tauri-plugin-notification = "2"
 

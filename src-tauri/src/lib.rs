@@ -25,6 +25,14 @@ struct Settings {
     max_concurrent_downloads: u32,
     /// Bytes per second across every download. 0 is aria2's own "no limit".
     max_overall_download_limit: u64,
+    /// Route each download into a subfolder named after its kind. Off by
+    /// default: where a file lands is the user's expectation to change, not
+    /// ours. The routing itself lives in the frontend, which names the folder
+    /// per download at add time — nothing here moves a file.
+    smart_folders: bool,
+    /// Say so when a download finishes. On by default: the whole point of a
+    /// download manager is not having to watch it.
+    notify_on_complete: bool,
 }
 
 impl Default for Settings {
@@ -34,6 +42,8 @@ impl Default for Settings {
             // aria2's own default, and a sane one: five files at a time.
             max_concurrent_downloads: 5,
             max_overall_download_limit: 0,
+            smart_folders: false,
+            notify_on_complete: true,
         }
     }
 }
@@ -130,10 +140,10 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 }
 
 /// Saving is three steps: normalise, persist, and push into the running aria2
-/// so nothing needs a restart. All three options are live-changeable — measured
-/// against aria2 1.37, not assumed. The frontend also sends `dir` with each
-/// download it adds, which is what will let smart folders route by file type
-/// without touching this global.
+/// so nothing needs a restart. The three aria2 options are all live-changeable
+/// — measured against aria2 1.37, not assumed. The other two are the frontend's
+/// to act on: it sends `dir` with each download it adds, which is how smart
+/// folders route by file type without touching this global.
 #[tauri::command]
 fn save_settings(
     aria2: tauri::State<Aria2>,
@@ -199,6 +209,20 @@ fn trash_files(paths: Vec<String>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The dock icon carries the count of downloads that finished while the user
+/// was looking somewhere else. A notification is gone the moment it's
+/// dismissed; the badge is what's still there when they come back to the Mac.
+#[tauri::command]
+fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    // None clears it — a zero badge would otherwise show as a literal "0".
+    window
+        .set_badge_count(if count == 0 { None } else { Some(count as i64) })
+        .map_err(|e| format!("could not set the dock badge: {e}"))
 }
 
 /// Where to look for aria2c, best first. The sidecar sits next to the app
@@ -372,12 +396,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
             trash_files,
             get_settings,
-            save_settings
+            save_settings,
+            set_badge
         ])
         .setup(|app| {
             let dir = app

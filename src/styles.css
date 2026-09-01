@@ -1125,3 +1125,23 @@ body {
 .confirm-check:hover {
     color: var(--text);
 }
+
+/* Settings checkboxes. Same shape as the delete dialog's, but these are
+   choices rather than a warning, so they take the accent instead of danger. */
+.field-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+}
+.field-check input {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+.field-check + .field-hint {
+    margin-top: 0.3rem;
+}

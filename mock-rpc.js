@@ -36,11 +36,23 @@ function snapshot() {
     // totalLength 0 → exercises the indeterminate sweep
     item("aaaa2222", "active", "/Users/me/Downloads/stream-of-unknown-size.bin", 0, Math.round(12 * MB + t * MB), 1.1 * MB),
   ];
+
+  // One download that actually crosses the line, so the completion handling —
+  // the notification, the dock badge, the row changing sections — has
+  // something to fire on without waiting for a real transfer.
+  const FINISH_AT = 15;
+  const landing = t < FINISH_AT
+    ? item("dddd1111", "active", "/Users/me/Downloads/lands-in-15-seconds.mp4",
+        80 * MB, Math.round((t / FINISH_AT) * 80 * MB), 5.3 * MB)
+    : item("dddd1111", "complete", "/Users/me/Downloads/lands-in-15-seconds.mp4",
+        80 * MB, 80 * MB, 0);
+  (landing.status === "active" ? active : null)?.push(landing);
   const waiting = [
     item("bbbb1111", "waiting", "/Users/me/Downloads/Xcode_16.2.xip", 7800 * MB, 0, 0),
     item("bbbb2222", "waiting", "/Users/me/Downloads/an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz", 2200 * MB, 0, 0),
   ];
   const stopped = [
+    ...(landing.status === "complete" ? [landing] : []),
     item("cccc1111", "paused", "/Users/me/Downloads/Blender 4.3 macOS arm64.dmg", 420 * MB, 190 * MB, 0),
     item("cccc2222", "complete", "/Users/me/Downloads/annual-report.pdf", 18 * MB, 18 * MB, 0),
     // quotes + angle brackets: proves filenames are no longer injected as HTML
@@ -66,8 +78,13 @@ createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
-    let id = null, method = "";
-    try { ({ id, method } = JSON.parse(body)); } catch {}
+    let id = null, method = "", params = [];
+    try { ({ id, method, params = [] } = JSON.parse(body)); } catch {}
+    // Anything that isn't a poll is the UI actually doing something — printed
+    // so the folder each download is added with is visible from here.
+    if (method && !method.startsWith("aria2.tell")) {
+      console.log(method, JSON.stringify(params));
+    }
     const s = snapshot();
     const result =
       method === "aria2.tellActive"  ? s.active  :

@@ -26,13 +26,15 @@ async function rpc(method, params = []) {
 }
 
 // The user's settings, mirrored from the Rust side, which owns the file they
-// live in and pushes all three into aria2. The folder is sent again with every
-// download added here: aria2's global dir is a default, and naming it per
-// download is what smart folders will need to route by file type later.
+// live in and pushes the aria2 ones into the running process. The folder is
+// sent again with every download added here — aria2's global dir is only a
+// default, and naming it per download is what smart folders route with.
 let settings = {
   downloadDir: "",
   maxConcurrentDownloads: 5,
   maxOverallDownloadLimit: 0,
+  smartFolders: false,
+  notifyOnComplete: true,
 };
 
 async function loadSettings() {
@@ -46,10 +48,49 @@ async function loadSettings() {
   }
 }
 
+// ── Smart folders ────────────────────────────────────────────────────────
+// The routing table. Four kinds, because those are the four people actually
+// sort by; anything else stays in the download folder itself rather than
+// landing in a "Other" bucket nobody asked for.
+const FOLDERS = {
+  Video: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ts"],
+  Music: ["mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac"],
+  Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+              "rtf", "txt", "csv", "epub", "mobi", "djvu"],
+  Archives: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg"],
+};
+
+const FOLDER_BY_EXT = new Map();
+for (const [folder, exts] of Object.entries(FOLDERS)) {
+  for (const ext of exts) FOLDER_BY_EXT.set(ext, folder);
+}
+
+// The extension has to come out of a URL, not a filename: query strings and
+// fragments both sit after the part that names the file.
+function extensionOf(url) {
+  const path = url.split(/[?#]/, 1)[0];
+  const name = path.split("/").pop() || "";
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+// Where a download should be written. Torrents and magnets don't name a file
+// until aria2 has the metadata, so they keep the base folder — routing on a
+// guess would scatter a multi-file torrent worse than not routing at all.
+function targetDir(url) {
+  const base = (settings.downloadDir || "").replace(/\/+$/, "");
+  if (!base || !settings.smartFolders || !url) return base;
+  const folder = FOLDER_BY_EXT.get(extensionOf(url));
+  return folder ? `${base}/${folder}` : base;
+}
+
 // Options every new download is added with. Retry passes the folder the failed
-// download already had, so it isn't routed through here.
-function addOptions() {
-  return settings.downloadDir ? { dir: settings.downloadDir } : {};
+// download already had, so it isn't routed through here — a retry lands where
+// the first attempt was going to, even if the rules have changed since.
+function addOptions(url) {
+  const dir = targetDir(url);
+  return dir ? { dir } : {};
 }
 
 function formatBytes(bytes) {
@@ -361,6 +402,11 @@ const VIEW_TITLES = {
 // the time the click lands unless it comes from the most recent poll.
 const snapshot = new Map();
 
+// The first poll is what the app was already looking at, not news: without
+// this, every download finished in a previous session would announce itself
+// again at launch.
+let firstPoll = true;
+
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
@@ -456,6 +502,65 @@ function renderLimitBadge() {
   if (bytes > 0) el.textContent = `· capped at ${formatSpeed(bytes)}`;
 }
 
+// ── Completion notifications ─────────────────────────────────────────────
+// A download that finishes while the window is buried behind a browser used to
+// go entirely unannounced. Two signals, because they answer different
+// questions: the notification says "this one just landed", the dock badge says
+// "this many landed while you were away".
+let notifyReady = null;   // a promise, resolved once, or null when unavailable
+
+function notifications() {
+  const api = window.__TAURI__?.notification;
+  if (!api) return null;
+  if (!notifyReady) {
+    // macOS only ever asks once, and only when something actually wants to
+    // notify — so the request is deferred to the first completed download
+    // rather than fired at launch.
+    notifyReady = api
+      .isPermissionGranted()
+      .then((granted) => (granted ? true : api.requestPermission().then((p) => p === "granted")))
+      .catch(() => false);
+  }
+  return { api, ready: notifyReady };
+}
+
+async function notifyComplete(dl) {
+  const n = notifications();
+  if (!n) return;
+  try {
+    if (!(await n.ready)) return;
+    const total = Number(dl.totalLength);
+    n.api.sendNotification({
+      title: "Download complete",
+      body: total > 0 ? `${fileName(dl)} · ${formatBytes(total)}` : fileName(dl),
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// Cleared when the user comes back to the window — at that point they have
+// seen the list, and the badge has said all it has to say.
+let unseenCompletions = 0;
+
+function setBadge(count) {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") return;
+  invoker("set_badge", { count }).catch((err) => console.error(err));
+}
+
+function countCompletion() {
+  if (document.hasFocus()) return;
+  unseenCompletions++;
+  setBadge(unseenCompletions);
+}
+
+function clearBadge() {
+  if (unseenCompletions === 0) return;
+  unseenCompletions = 0;
+  setBadge(0);
+}
+
 function setConn(state) {
   connState = state;
   const dot = document.getElementById("conn-dot");
@@ -490,7 +595,21 @@ async function poll(listEl) {
 
     for (const dl of all) {
       seen.add(dl.gid);
+      const before = snapshot.get(dl.gid);
       snapshot.set(dl.gid, dl);
+
+      // The transition, not the state: a row sits at "complete" for as long as
+      // it's on screen, and only the tick it arrived on is worth announcing.
+      if (
+        settings.notifyOnComplete &&
+        !firstPoll &&
+        dl.status === "complete" &&
+        before?.status !== "complete"
+      ) {
+        notifyComplete(dl);
+        countCompletion();
+      }
+
       if (tally[dl.status] !== undefined) tally[dl.status]++;
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
 
@@ -535,6 +654,9 @@ async function poll(listEl) {
     }
 
     renderCounts(tally);
+    // Only a poll that actually reached aria2 counts as having seen the list;
+    // a failed first attempt must not silence the real one.
+    firstPoll = false;
   } catch (err) {
     console.error(err);
     const text = setConn("error");
@@ -626,7 +748,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!url) return;
     modalError.classList.add("hidden");
     try {
-      await rpc("aria2.addUri", [[url], addOptions()]);
+      await rpc("aria2.addUri", [[url], addOptions(url)]);
       closeModal();
       await pollAndSync();
     } catch (err) {
@@ -762,6 +884,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsDir     = document.getElementById("settings-dir");
   const settingsLimit   = document.getElementById("settings-limit");
   const settingsConc    = document.getElementById("settings-concurrency");
+  const settingsNotify  = document.getElementById("settings-notify");
+  const settingsSmart   = document.getElementById("settings-smart-folders");
   const settingsError   = document.getElementById("settings-error");
 
   const MB = 1024 * 1024;
@@ -773,6 +897,8 @@ window.addEventListener("DOMContentLoaded", () => {
     // Bytes per second is what aria2 wants; MB/s is what a person thinks in.
     settingsLimit.value = bytes ? String(Math.round((bytes / MB) * 100) / 100) : "0";
     settingsConc.value = String(settings.maxConcurrentDownloads || 5);
+    settingsNotify.checked = settings.notifyOnComplete !== false;
+    settingsSmart.checked = settings.smartFolders === true;
     settingsOverlay.classList.remove("hidden");
     setTimeout(() => settingsDir.focus(), 50);
   }
@@ -787,7 +913,12 @@ window.addEventListener("DOMContentLoaded", () => {
       downloadDir: settingsDir.value.trim(),
       maxConcurrentDownloads: Number.isFinite(files) ? Math.min(Math.max(files, 1), 16) : 5,
       maxOverallDownloadLimit: Number.isFinite(mb) && mb > 0 ? Math.round(mb * MB) : 0,
+      smartFolders: settingsSmart.checked,
+      notifyOnComplete: settingsNotify.checked,
     };
+
+    // Switching notifications off should take the count on the dock with it.
+    if (!next.notifyOnComplete) clearBadge();
 
     const invoker = window.__TAURI__?.core?.invoke;
     if (typeof invoker !== "function") {
@@ -857,6 +988,10 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("sidebar-toggle").addEventListener("click", () => setSidebar(true));
   document.getElementById("sidebar-show").addEventListener("click", () => setSidebar(false));
 
+  // Coming back to the window is the user seeing the list, so the badge has
+  // nothing left to tell them.
+  window.addEventListener("focus", clearBadge);
+
   // ⌘F / Ctrl-F focuses the search field
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
@@ -901,7 +1036,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const urls = text.split(/\s+/).map(u => u.trim())
         .filter(u => u.startsWith("http") || u.startsWith("magnet:"));
       for (const url of urls) {
-        try { await rpc("aria2.addUri", [[url], addOptions()]); } catch (err) { console.error(err); }
+        try { await rpc("aria2.addUri", [[url], addOptions(url)]); } catch (err) { console.error(err); }
       }
     }
     await pollAndSync();
