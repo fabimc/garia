@@ -11,6 +11,8 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
 - Pause and resume downloads
+- Drag a queued download somewhere else in the queue — or move it with ⌥↑ / ⌥↓
+- A detail panel on every row — where the bytes come from, where they land, how many sockets are open, and every peer of a torrent
 - Delete a download, and optionally move the file it wrote to the Trash
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
@@ -120,6 +122,10 @@ Garia communicates with aria2 via its built-in JSON-RPC interface on `localhost:
 Settings live in `settings.json` beside the session file. Saving them writes the file and pushes the three aria2 ones — folder, speed cap, concurrency — into the running aria2, so nothing needs a restart; the next launch starts aria2 with them directly.
 
 Every new download also names its folder explicitly rather than relying on aria2's global one, and that is what smart folders route with: the extension in the URL picks `Video`, `Music`, `Documents`, or `Archives` inside the download folder, and anything unrecognised — along with every torrent and magnet, which don't name their files until they start — lands in the folder itself. Nothing already on disk ever moves.
+
+Clicking a row opens its detail panel, which asks aria2 for the full key set — the source URL, the destination path, the live connection count, the piece layout — for that one download only, so the list's own poll stays as narrow as it was. While it's open it refreshes off the same one-second tick: `aria2.getServers` for the servers an HTTP download is actually pulling from, `aria2.getPeers` for a torrent's peers, both asked for only while the download is running, because aria2 answers with an error otherwise. A merged video shows as what it is — the page it came from and the file it will become, then each half with its own URL, path and connections. Copy buttons go through Rust rather than the webview's clipboard, which also means the clipboard watcher on the other side knows to ignore what garia itself just wrote.
+
+A queued row can be dragged to a different place in the queue, which is `aria2.changePosition` underneath. The position it sends is not the row's place on screen: aria2's queue holds paused downloads too — they keep their slot without taking a turn — and the list shows those in a section of their own. So the drop is read off its neighbours instead. The row it was dropped above is looked up in the queue that `tellWaiting` last reported, and that index is the position. A merged video is two downloads in one row, so it moves as two, back to front, because aria2 renumbers the queue on every move. The row goes where it was put before aria2 is asked, and the list holds still while a row is in hand — a drag that waited on a round trip would drop the row back for a tick, which reads as a refusal. Only queued rows move: a running download has already left the queue, and a paused one is not waiting for a turn.
 
 Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
 

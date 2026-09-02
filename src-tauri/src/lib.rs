@@ -279,6 +279,27 @@ fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
     }
 }
 
+/// The last thing garia itself put on the clipboard. The watcher is looking
+/// for a file URL the user copied somewhere else — a URL copied out of garia's
+/// own detail panel is not news, and offering it straight back would be a loop.
+#[derive(Default)]
+struct OwnCopy(Mutex<Option<String>>);
+
+/// The detail panel's Copy buttons. This goes through Rust rather than
+/// `navigator.clipboard` because the webview's clipboard needs a permission
+/// the app has no reason to depend on, and arboard is already here for the
+/// watcher on the other side of the same clipboard.
+#[tauri::command]
+fn copy_text(state: tauri::State<OwnCopy>, text: String) -> Result<(), String> {
+    // Written down before the write, so the watcher can never see it first.
+    if let Ok(mut own) = state.0.lock() {
+        *own = Some(text.clone());
+    }
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .map_err(|e| format!("could not write to the clipboard: {e}"))
+}
+
 /// The first clipboard read is whatever was already copied, not news: without
 /// this, launching garia would offer a file URL the user copied hours ago.
 fn spawn_clipboard_watch(app: tauri::AppHandle) {
@@ -315,6 +336,15 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
                 continue;
             }
             last = Some(text.clone());
+            // Copying a download's own source URL out of garia must not come
+            // back as an offer to download it again.
+            let ours = app
+                .try_state::<OwnCopy>()
+                .and_then(|own| own.0.lock().ok().map(|g| g.as_deref() == Some(text.as_str())))
+                .unwrap_or(false);
+            if ours {
+                continue;
+            }
             if let Some(url) = catch::file_url_in(&text) {
                 dispatch_catch(&app, url, "clipboard");
             }
@@ -1000,6 +1030,7 @@ pub fn run() {
             save_settings,
             set_badge,
             take_pending_catch,
+            copy_text,
             video_tools,
             video_probe,
             mux_video
@@ -1068,6 +1099,7 @@ pub fn run() {
             app.manage(CatchQueue {
                 pending: Mutex::new(Vec::new()),
             });
+            app.manage(OwnCopy::default());
 
             // `garia://add?url=…` from a bookmarklet, an extension, or anything
             // else that wants to hand garia a download. macOS delivers these

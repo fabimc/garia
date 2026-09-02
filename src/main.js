@@ -381,7 +381,7 @@ function collapseJobs(all) {
   if (!jobs.size) return all;
 
   const byGid = new Map(all.map((d) => [d.gid, d]));
-  const claimed = new Set();
+  const rowFor = new Map();   // either half's gid → the one row they make
   const merged = [];
   let changed = false;
 
@@ -393,14 +393,31 @@ function collapseJobs(all) {
       changed = true;
       continue;
     }
-    claimed.add(videoGid);
-    claimed.add(job.audioGid);
-    merged.push(mergedRow(videoGid, video, audio, job));
+    const row = mergedRow(videoGid, video, audio, job);
+    rowFor.set(videoGid, row);
+    rowFor.set(job.audioGid, row);
+    merged.push(row);
   }
   if (changed) saveJobs();
 
-  // Order doesn't matter here — the poll sorts every row by status after this.
-  return [...merged, ...all.filter((d) => !claimed.has(d.gid))];
+  // The pair stands where its first half stood. Status is what the poll sorts
+  // on afterwards, but inside a status aria2's own order is what shows — and
+  // for the queue that order is the one the user dragged the row into.
+  const out = [];
+  const placed = new Set();
+  for (const dl of all) {
+    const row = rowFor.get(dl.gid);
+    if (!row) { out.push(dl); continue; }
+    if (placed.has(row.gid)) continue;
+    placed.add(row.gid);
+    out.push(row);
+  }
+  // A job can outlive both of its halves for a tick — aria2 forgets a finished
+  // download on restart, and the row is still the user's.
+  for (const row of merged) {
+    if (!placed.has(row.gid)) out.push(row);
+  }
+  return out;
 }
 
 // Both halves are down: stitch them. Started, not awaited — ffmpeg takes
@@ -465,15 +482,23 @@ function formatSpeed(bytesPerSec) {
   return b > 0 ? formatBytes(b) + "/s" : "";
 }
 
+// "45s", "12m", "1h 20m". The row wants "left" on the end of it; the detail
+// grid puts a label above the number and only wants the span.
+function formatSpan(seconds) {
+  const secs = Math.round(seconds);
+  if (!(secs > 0)) return "";
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m`;
+}
+
 function formatEta(remaining, bytesPerSec) {
   const speed = Number(bytesPerSec);
   if (!(speed > 0) || !(remaining > 0)) return "";
-  const secs = Math.round(remaining / speed);
-  if (secs < 60) return `${secs}s left`;
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m left`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ${mins % 60}m left`;
+  const span = formatSpan(remaining / speed);
+  return span ? `${span} left` : "";
 }
 
 function fileName(download) {
@@ -524,6 +549,13 @@ const ACTION_ICONS = {
   reprobe: BTN_OPEN + '<polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg>',
   remove: BTN_OPEN + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
 };
+
+// The handle for dragging a queued row somewhere else in the queue. It sits
+// over the status icon and only surfaces on rows that can actually move.
+const GRIP_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">'
+  + '<circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>'
+  + '<circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>'
+  + '<circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
 
 const ACTION_TITLES = {
   stop: "Pause",
@@ -622,10 +654,13 @@ function createItemEl(dl) {
   li.className = "dl-item";
   li.dataset.gid = dl.gid;
   li.innerHTML = `
-    <div class="dl-icon"></div>
+    <div class="dl-lead">
+      <div class="dl-icon"></div>
+      <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
+    </div>
     <div class="dl-content">
       <div class="dl-head">
-        <span class="dl-name"></span>
+        <button type="button" class="dl-name"></button>
         <span class="dl-status-pill"></span>
       </div>
       <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
@@ -878,6 +913,531 @@ function renderLimitBadge() {
   if (bytes > 0) el.textContent = `· capped at ${formatSpeed(bytes)}`;
 }
 
+// ── Queue order ──────────────────────────────────────────────────────────
+// What aria2 starts next, and after that: the queue exactly as tellWaiting
+// hands it over. Paused downloads are in it too — they hold their slot without
+// taking a turn — so a position can never be counted off the queued rows on
+// screen, only looked up in here.
+let queueOrder = [];
+
+// A move the user just made that aria2 hasn't confirmed yet. The poll leaves
+// the order alone while this is up: it is a tick behind the finger.
+let reorderHold = false;
+
+// aria2 numbers positions across the whole queue, and a row is dropped between
+// two others — so the position is read off the neighbours rather than counted.
+// `before` is the row the dragged one should now precede; `after` the one it
+// should follow, which is how a drop past the last queued row lands.
+async function moveInQueue(gid, { before = "", after = "" }) {
+  // Only what is actually in the queue can be moved in it: half of a merged
+  // video can be finished, or gone, while the other half still waits.
+  const gids = gidsFor(gid).filter((g) => queueOrder.includes(g));
+  if (!gids.length) return false;
+
+  const rest = queueOrder.filter((g) => !gids.includes(g));
+  const slots = (g) => gidsFor(g).map((x) => rest.indexOf(x)).filter((i) => i >= 0);
+
+  let pos = -1;
+  if (before) {
+    const found = slots(before);
+    if (found.length) pos = Math.min(...found);
+  } else if (after) {
+    const found = slots(after);
+    if (found.length) pos = Math.max(...found) + 1;
+  }
+  if (pos < 0) return false;
+
+  // A merged video is two downloads and has to stay two adjacent ones, or the
+  // half that lost its place would be started on its own.
+  const target = [...rest];
+  target.splice(pos, 0, ...gids);
+
+  // Back to front, against a copy kept in step with each call: aria2 renumbers
+  // the queue every time something moves, so the place for the first half is
+  // only fixed once the second one is where it belongs.
+  const queue = [...queueOrder];
+  for (const g of [...gids].reverse()) {
+    const follower = target[target.indexOf(g) + 1];
+    const at = queue.indexOf(g);
+    if (at >= 0) queue.splice(at, 1);
+    const found = follower === undefined ? -1 : queue.indexOf(follower);
+    const to = found < 0 ? queue.length : found;
+    queue.splice(to, 0, g);
+    await rpc("aria2.changePosition", [g, to, "POS_SET"]);
+  }
+  // The next drop may come before the next poll does.
+  queueOrder = queue;
+  return true;
+}
+
+// ── Detail view ──────────────────────────────────────────────────────────
+// A row is five numbers wide on purpose. Everything else aria2 already knows
+// about a download — the URL the bytes come from, the path they land on, how
+// many sockets are open this second, who the peers are — lives here, one
+// download at a time. It rides the list's poll tick rather than starting a
+// timer of its own, and asks for the full key set only for the gid on screen,
+// so the list poll stays as narrow as it was.
+const DETAIL_KEYS = [
+  "gid", "status", "totalLength", "completedLength", "uploadLength",
+  "downloadSpeed", "uploadSpeed", "connections", "numSeeders", "seeder",
+  "dir", "files", "bittorrent", "infoHash", "numPieces", "pieceLength",
+  "errorCode", "errorMessage",
+];
+
+// Peers arrive by the hundred on a healthy torrent and the fast ones are the
+// only ones worth a line. The rest are counted, not listed.
+const PEER_LIMIT = 40;
+
+const FACT_LABELS = {
+  status: "Status",
+  connections: "Connections",
+  seeders: "Seeders",
+  downloaded: "Downloaded",
+  speed: "Speed",
+  eta: "Time left",
+  uploaded: "Uploaded",
+  upspeed: "Upload speed",
+  ratio: "Ratio",
+  pieces: "Pieces",
+};
+
+const FACTS_HTTP = ["status", "connections", "downloaded", "speed", "eta", "pieces"];
+const FACTS_BT = ["status", "connections", "seeders", "downloaded", "speed",
+                  "uploaded", "upspeed", "ratio"];
+
+// The gid whose details are on screen, or null. Also the guard that stops a
+// reply arriving after the dialog closed from painting into a dead panel.
+let detailGid = null;
+let detailBusy = false;
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// aria2 answers getServers and getPeers with an error unless the download is
+// running — which is a fact about the download, not a fault worth surfacing.
+async function askQuietly(method, gid) {
+  try {
+    const result = await rpc(method, [gid]);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+
+// One download, or the two halves of a merged one. A half aria2 has forgotten
+// comes back as a part with no status — its file is on disk, and saying so is
+// better than leaving a gap.
+async function detailData(gid) {
+  const row = snapshot.get(gid);
+  const ids = gidsFor(gid);
+  const labels = ids.length > 1 ? ["Video", "Audio"] : [""];
+  const parts = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    let status = null;
+    try { status = await rpc("aria2.tellStatus", [id, DETAIL_KEYS]); } catch { /* forgotten */ }
+    const live = status?.status === "active";
+    parts.push({
+      gid: id,
+      label: labels[i] || "",
+      status,
+      servers: live ? await askQuietly("aria2.getServers", id) : [],
+      peers: live && status.bittorrent ? await askQuietly("aria2.getPeers", id) : [],
+    });
+  }
+  return { gid, row, job: row?.job || null, parts };
+}
+
+// What the panel is made of, as a string. A torrent that has just picked up
+// its metadata gains files and a half that finishes loses its tables, and both
+// mean the skeleton has to be rebuilt rather than updated.
+function detailShape(data) {
+  const parts = data.parts.map((p) => [
+    p.gid,
+    p.status ? (p.status.bittorrent ? "bt" : "http") : "gone",
+    (p.status?.files || []).length,
+  ].join(":"));
+  return (data.job ? "job|" : "") + parts.join("|");
+}
+
+function factValues(st) {
+  const total = Number(st.totalLength) || 0;
+  const done = Number(st.completedLength) || 0;
+  const up = Number(st.uploadLength) || 0;
+  const speed = Number(st.downloadSpeed) || 0;
+  const pieces = Number(st.numPieces) || 0;
+  const remaining = st.status === "active" && total > 0 ? total - done : 0;
+  return {
+    status: statusLabel(st.status),
+    connections: String(Number(st.connections) || 0),
+    seeders: String(Number(st.numSeeders) || 0),
+    downloaded: total > 0 ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(done),
+    speed: formatSpeed(speed) || "—",
+    eta: (remaining ? formatSpan(remaining / speed) : "") || "—",
+    uploaded: formatBytes(up),
+    upspeed: formatSpeed(st.uploadSpeed) || "—",
+    ratio: done > 0 ? (up / done).toFixed(2) : "0.00",
+    pieces: pieces ? `${pieces} × ${formatBytes(st.pieceLength)}` : "—",
+  };
+}
+
+// Every URI aria2 still holds for a download, in the order it holds them.
+function sourceUris(st) {
+  const uris = [];
+  for (const f of st.files || []) {
+    for (const u of f.uris || []) {
+      if (u.uri && !uris.includes(u.uri)) uris.push(u.uri);
+    }
+  }
+  return uris;
+}
+
+// A single-file download names the file; a torrent names the folder, because
+// the files themselves get a table of their own.
+function destinationOf(st) {
+  const files = st.files || [];
+  if (files.length === 1 && files[0].path) return files[0].path;
+  return st.dir || "";
+}
+
+function hostOf(uri) {
+  try { return new URL(uri).host; } catch { return uri; }
+}
+
+// aria2 reports a peer's progress as the raw piece bitfield, in hex. The share
+// of bits set is the share of the torrent that peer has.
+const HEX_BITS = { 0: 0, 1: 1, 2: 1, 3: 2, 4: 1, 5: 2, 6: 2, 7: 3,
+                   8: 1, 9: 2, a: 2, b: 3, c: 2, d: 3, e: 3, f: 4 };
+
+function bitfieldPct(bitfield, numPieces) {
+  const pieces = Number(numPieces) || 0;
+  if (!bitfield || !pieces) return "—";
+  let bits = 0;
+  for (const ch of bitfield.toLowerCase()) bits += HEX_BITS[ch] ?? 0;
+  return `${Math.min(100, Math.round((bits / pieces) * 100))}%`;
+}
+
+// ── Panel skeleton ───────────────────────────────────────────────────────
+function buildField(name, label) {
+  const wrap = el("div", "detail-field");
+  wrap.dataset.field = name;
+  wrap.appendChild(el("div", "detail-field-label", label));
+  const row = el("div", "detail-field-row");
+  row.appendChild(el("code", "detail-value"));
+  const copy = el("button", "detail-copy", "Copy");
+  copy.type = "button";
+  row.appendChild(copy);
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function buildTable(name, title, columns) {
+  const wrap = el("div", "detail-table-wrap hidden");
+  wrap.dataset.table = name;
+  const head = el("div", "detail-table-head");
+  head.appendChild(el("h4", null, title));
+  head.appendChild(el("span", "detail-table-count"));
+  wrap.appendChild(head);
+
+  const table = el("table", "detail-table");
+  const headRow = el("tr");
+  for (const column of columns) headRow.appendChild(el("th", null, column));
+  const thead = el("thead");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  table.appendChild(el("tbody"));
+
+  const scroll = el("div", "detail-table-scroll");
+  scroll.appendChild(table);
+  wrap.appendChild(scroll);
+  return wrap;
+}
+
+function buildPart(part) {
+  const sec = el("section", "detail-part");
+  sec.dataset.gid = part.gid;
+  if (part.label) sec.appendChild(el("h3", "detail-part-title", part.label));
+
+  if (!part.status) {
+    sec.appendChild(el("p", "detail-note",
+      "aria2 has no record of this half any more — it finished in an earlier " +
+      "session, and its file is on disk."));
+    return sec;
+  }
+
+  const bt = Boolean(part.status.bittorrent);
+
+  const track = el("div", "detail-bar-track");
+  track.appendChild(el("div", "detail-bar-fill"));
+  sec.appendChild(track);
+
+  const facts = el("dl", "detail-facts");
+  for (const key of bt ? FACTS_BT : FACTS_HTTP) {
+    const fact = el("div", "detail-fact");
+    fact.dataset.fact = key;
+    fact.appendChild(el("dt", null, FACT_LABELS[key]));
+    fact.appendChild(el("dd", null, "—"));
+    facts.appendChild(fact);
+  }
+  sec.appendChild(facts);
+
+  sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
+  sec.appendChild(buildField("dest", "Saving to"));
+
+  sec.appendChild(buildTable("files", "Files", ["File", "Size", "Done"]));
+  sec.appendChild(buildTable("servers", "Live connections", ["Server", "Speed"]));
+  if (bt) sec.appendChild(buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]));
+
+  sec.appendChild(el("p", "detail-error hidden"));
+  return sec;
+}
+
+// A merged video is two aria2 downloads and one file. The pair is the user's
+// download, so it gets the top of the panel and the halves come after it.
+function buildJobBlock() {
+  const sec = el("section", "detail-part detail-job");
+  sec.appendChild(buildField("page", "Source page"));
+  sec.appendChild(buildField("out", "Saving to"));
+  sec.appendChild(el("p", "detail-note"));
+  return sec;
+}
+
+// ── Panel updates ────────────────────────────────────────────────────────
+function setField(sec, name, value, title) {
+  const wrap = sec.querySelector(`[data-field="${name}"]`);
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", !value);
+  const code = wrap.querySelector(".detail-value");
+  if (code.textContent !== value) code.textContent = value;
+  code.title = title || value;
+  wrap.querySelector(".detail-copy").dataset.value = value;
+}
+
+function cells(tr, values) {
+  while (tr.children.length < values.length) tr.appendChild(document.createElement("td"));
+  values.forEach((value, i) => {
+    const td = tr.children[i];
+    if (td.textContent !== value) td.textContent = value;
+  });
+}
+
+// Servers come and go as aria2 picks up and drops connections, and peers churn
+// faster still. Rows are keyed the way the download list keys its own, so one
+// that is still there is updated rather than rebuilt under the pointer.
+function syncTable(sec, name, items, keyOf, fill, count) {
+  const wrap = sec.querySelector(`[data-table="${name}"]`);
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", items.length === 0);
+  wrap.querySelector(".detail-table-count").textContent =
+    items.length ? (count ?? String(items.length)) : "";
+
+  const body = wrap.querySelector("tbody");
+  const existing = new Map([...body.children].map((tr) => [tr.dataset.key, tr]));
+  const desired = [];
+
+  for (const item of items) {
+    const key = String(keyOf(item));
+    let tr = existing.get(key);
+    if (tr) existing.delete(key);
+    else {
+      tr = document.createElement("tr");
+      tr.dataset.key = key;
+    }
+    fill(tr, item);
+    desired.push(tr);
+  }
+  for (const tr of existing.values()) tr.remove();
+
+  const current = [...body.children];
+  if (current.length !== desired.length || desired.some((n, i) => current[i] !== n)) {
+    const frag = document.createDocumentFragment();
+    for (const tr of desired) frag.appendChild(tr);
+    body.textContent = "";
+    body.appendChild(frag);
+  }
+}
+
+function flattenServers(groups) {
+  const out = [];
+  for (const group of groups || []) {
+    for (const server of group.servers || []) {
+      const uri = server.currentUri || server.uri || "";
+      out.push({ key: `${group.index}:${server.uri || uri}`, uri, speed: server.downloadSpeed });
+    }
+  }
+  return out;
+}
+
+function updatePart(sec, part) {
+  const st = part.status;
+  if (!st) return;
+
+  const total = Number(st.totalLength) || 0;
+  const done = Number(st.completedLength) || 0;
+  const fill = sec.querySelector(".detail-bar-fill");
+  fill.dataset.status = statusClass(st.status);
+  fill.style.width = `${total > 0 ? Math.round((done / total) * 100) : 0}%`;
+
+  const values = factValues(st);
+  for (const fact of sec.querySelectorAll(".detail-fact")) {
+    const dd = fact.querySelector("dd");
+    const value = values[fact.dataset.fact] ?? "—";
+    if (dd.textContent !== value) {
+      dd.textContent = value;
+      dd.title = value;   // a narrow window truncates; hovering still answers
+    }
+  }
+
+  // A torrent has no source URL to show — its info hash is the closest thing,
+  // and it is what you paste into a tracker search.
+  const uris = sourceUris(st);
+  setField(sec, "source",
+    st.bittorrent ? st.infoHash || "" : uris[0] || "",
+    uris.length > 1 ? uris.join("\n") : "");
+  setField(sec, "dest", destinationOf(st));
+
+  const files = st.files || [];
+  syncTable(sec, "files", files.length > 1 ? files : [], (f) => f.index, (tr, f) => {
+    const size = Number(f.length) || 0;
+    const got = Number(f.completedLength) || 0;
+    cells(tr, [
+      (f.path || "").split("/").pop() || `File ${f.index}`,
+      formatBytes(size),
+      f.selected === "false" ? "skipped"
+        : size > 0 ? `${Math.round((got / size) * 100)}%` : "—",
+    ]);
+    tr.children[0].title = f.path || "";
+  });
+
+  syncTable(sec, "servers", flattenServers(part.servers), (s) => s.key, (tr, s) => {
+    cells(tr, [hostOf(s.uri), formatSpeed(s.speed) || "—"]);
+    tr.children[0].title = s.uri;
+  });
+
+  const peers = part.peers || [];
+  const shown = peers
+    .map((p) => ({ ...p, key: `${p.ip}:${p.port}` }))
+    .sort((a, b) => Number(b.downloadSpeed) - Number(a.downloadSpeed))
+    .slice(0, PEER_LIMIT);
+  syncTable(sec, "peers", shown, (p) => p.key, (tr, p) => {
+    cells(tr, [
+      `${p.ip}:${p.port}`,
+      p.seeder === "true" ? "all" : bitfieldPct(p.bitfield, st.numPieces),
+      formatSpeed(p.downloadSpeed) || "—",
+      formatSpeed(p.uploadSpeed) || "—",
+    ]);
+  }, peers.length > PEER_LIMIT ? `${PEER_LIMIT} of ${peers.length}` : undefined);
+
+  const errEl = sec.querySelector(".detail-error");
+  const reason = st.status === "error" ? errorReason(st) : "";
+  errEl.classList.toggle("hidden", !reason);
+  if (reason && errEl.textContent !== reason) errEl.textContent = reason;
+}
+
+const MERGE_NOTES = {
+  downloading: "Two downloads, one file: no site serves 2160p as a single stream any " +
+               "more, so garia takes the halves separately and stitches them when both land.",
+  muxing: "Both halves are down. ffmpeg is rewriting them into one container — a copy, not a re-encode.",
+  done: "Merged. The two halves went to the Trash once the file below existed.",
+  failed: "The halves downloaded; the merge did not finish.",
+};
+
+function updateJobBlock(sec, data) {
+  const job = data.job;
+  setField(sec, "page", job.webpageUrl || "");
+  setField(sec, "out", job.outPath || (job.dir ? `${job.dir}/${job.out}` : job.out || ""));
+  sec.querySelector(".detail-note").textContent = MERGE_NOTES[job.state] || "";
+}
+
+// Reveal has to name a file that is actually there: a merged row's output does
+// not exist until ffmpeg has run, and a download that never wrote a byte has
+// nothing to show.
+function revealPath(data) {
+  if (data.job) return data.job.state === "done" ? data.job.outPath || "" : "";
+  const st = data.parts[0]?.status;
+  return Number(st?.completedLength) > 0 ? st?.files?.[0]?.path || "" : "";
+}
+
+async function renderDetail() {
+  const gid = detailGid;
+  if (!gid) return;
+
+  const data = await detailData(gid);
+  if (detailGid !== gid) return;   // closed, or moved on, while aria2 answered
+
+  const body = document.getElementById("detail-body");
+  const shape = detailShape(data);
+  if (body.dataset.shape !== shape) {
+    body.dataset.shape = shape;
+    body.textContent = "";
+    if (data.job) body.appendChild(buildJobBlock());
+    for (const part of data.parts) body.appendChild(buildPart(part));
+  }
+
+  const title = data.row ? fileName(data.row) : gid;
+  const titleEl = document.getElementById("detail-title");
+  if (titleEl.textContent !== title) {
+    titleEl.textContent = title;
+    titleEl.title = title;
+  }
+
+  const sections = [...body.children];
+  let i = 0;
+  if (data.job) updateJobBlock(sections[i++], data);
+  for (const part of data.parts) updatePart(sections[i++], part);
+
+  const path = revealPath(data);
+  const reveal = document.getElementById("detail-reveal");
+  reveal.classList.toggle("hidden", !path);
+  reveal.dataset.path = path;
+}
+
+// Fired off the poll tick, never awaited by it: aria2 answering slowly must
+// not hold up the list, and two refreshes must not interleave.
+function refreshDetail() {
+  if (!detailGid || detailBusy) return;
+  detailBusy = true;
+  renderDetail()
+    .catch((err) => console.error(err))
+    .finally(() => { detailBusy = false; });
+}
+
+function openDetail(gid) {
+  if (!gid) return;
+  detailGid = gid;
+  const body = document.getElementById("detail-body");
+  // A fresh panel every time: the shape marker is what decides whether the
+  // next tick rebuilds, and the last download's shape is not this one's.
+  body.dataset.shape = "";
+  body.textContent = "";
+  const row = snapshot.get(gid);
+  document.getElementById("detail-title").textContent = row ? fileName(row) : gid;
+  document.getElementById("detail-reveal").classList.add("hidden");
+  document.getElementById("detail-overlay").classList.remove("hidden");
+  refreshDetail();
+}
+
+function closeDetail() {
+  detailGid = null;
+  document.getElementById("detail-overlay").classList.add("hidden");
+}
+
+// Through Rust when there is a Rust to go through: the webview's clipboard
+// needs a permission the app has no reason to depend on, and the backend is
+// already on the other side of this clipboard watching it for file URLs — so
+// it also knows to ignore what garia itself just wrote. The browser path is
+// for `npm run mock`, where there is no backend at all.
+async function copyText(text) {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker === "function") return invoker("copy_text", { text });
+  return navigator.clipboard.writeText(text);
+}
+
 // ── Completion notifications ─────────────────────────────────────────────
 // A download that finishes while the window is buried behind a browser used to
 // go entirely unannounced. Two signals, because they answer different
@@ -965,6 +1525,10 @@ async function poll(listEl) {
 
     setConn("ok");
 
+    // aria2's own queue order, kept before the pairs are folded and the rows
+    // are regrouped by status — the only place a drop position can come from.
+    queueOrder = waiting.map((d) => d.gid);
+
     const raw = [...active, ...waiting, ...stopped];
     // Where each half actually landed, kept before the pairs are folded away —
     // the merge needs both paths, and only aria2 knows them.
@@ -1033,12 +1597,16 @@ async function poll(listEl) {
     }
 
     const current = [...listEl.children];
-    if (current.length !== desired.length || desired.some((n, i) => current[i] !== n)) {
+    if (!reorderHold &&
+        (current.length !== desired.length || desired.some((n, i) => current[i] !== n))) {
       const frag = document.createDocumentFragment();
       for (const node of desired) frag.appendChild(node);
       listEl.textContent = "";   // drops headers for groups that no longer exist
       listEl.appendChild(frag);
     }
+
+    // A queue of one has nowhere to go, and the grab cursor would be a lie.
+    listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
 
     renderCounts(tally);
     // Only a poll that actually reached aria2 counts as having seen the list;
@@ -1050,6 +1618,9 @@ async function poll(listEl) {
     if (err?.message) text.title = `${text.title} — ${err.message}`;
   } finally {
     applyFilter(listEl);
+    // Whatever the list did, the open detail panel is looking at the same
+    // aria2 and wants the same tick.
+    refreshDetail();
   }
 }
 
@@ -1138,7 +1709,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModal(); closeConfirm(); closeSettings(); }
+    if (e.key === "Escape") { closeModal(); closeConfirm(); closeSettings(); closeDetail(); }
   });
 
   // Browse → open native file picker for .torrent
@@ -1347,8 +1918,14 @@ window.addEventListener("DOMContentLoaded", () => {
     const link = e.target.closest(".dl-section-link");
     if (link) { setFilter(link.dataset.filter); return; }
 
+    // Anywhere on a row that isn't one of its buttons — the name is a real
+    // button so the panel is reachable from the keyboard too.
     const btn = e.target.closest("[data-action]");
-    if (!btn) return;
+    if (!btn) {
+      const row = e.target.closest(".dl-item");
+      if (row) openDetail(row.dataset.gid);
+      return;
+    }
     const { gid, action, path, url } = btn.dataset;
     // Delete opens a dialog rather than acting, so it returns before the poll.
     if (action === "remove") { openConfirm(gid); return; }
@@ -1472,6 +2049,38 @@ window.addEventListener("DOMContentLoaded", () => {
     if (gid) await removeDownload(gid, alsoTrash);
   });
 
+  // ── Detail panel ─────────────────────────────────────────────────────────
+  const detailOverlay = document.getElementById("detail-overlay");
+
+  detailOverlay.addEventListener("click", async (e) => {
+    // A source URL is long, expiring and worth pasting elsewhere; a path is
+    // worth pasting into a terminal. Both are one click from being text.
+    const copy = e.target.closest(".detail-copy");
+    if (copy) {
+      // Say what actually happened: a button that reports "Copied" over a
+      // clipboard that refused is worse than no button.
+      let copied = true;
+      try {
+        await copyText(copy.dataset.value || "");
+      } catch (err) {
+        copied = false;
+        console.error(err);
+      }
+      copy.textContent = copied ? "Copied" : "Blocked";
+      setTimeout(() => { copy.textContent = "Copy"; }, 1200);
+      return;
+    }
+    if (e.target === detailOverlay) closeDetail();
+  });
+
+  document.getElementById("detail-close").addEventListener("click", closeDetail);
+  document.getElementById("detail-done").addEventListener("click", closeDetail);
+  document.getElementById("detail-reveal").addEventListener("click", async (e) => {
+    const path = e.currentTarget.dataset.path;
+    if (!path) return;
+    try { await window.__TAURI__.opener.revealItemInDir(path); } catch (err) { console.error(err); }
+  });
+
   // Bulk action helpers
   async function bulkAction(gids, action) {
     const method = action === "pause" ? "aria2.pause" : "aria2.unpause";
@@ -1488,6 +2097,207 @@ window.addEventListener("DOMContentLoaded", () => {
     const gids = [...listEl.querySelectorAll(".dl-item[data-status='paused']")].map(li => li.dataset.gid);
     bulkAction(gids, "resume");
   });
+
+  // ── Queue reordering ─────────────────────────────────────────────────────
+  // A queue is an order, so it has to be draggable. The rows move under the
+  // pointer here and aria2 is told once, on the drop — a round trip per pixel
+  // would leave the row a poll behind the finger the whole way down.
+  const PRESS_SLOP = 4;      // px before a press is a drag and not a click
+  const SCROLL_EDGE = 44;    // how close to the edge of the list starts a scroll
+
+  const scroller = document.querySelector(".content-body");
+  let press = null;          // pointer down on a queued row, not yet a drag
+  let drag = null;           // the live drag
+  let suppressClick = false; // the click that ends a drag isn't a click on the row
+
+  const bound = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
+
+  // Only the queued rows move, and only the ones on screen: search can hide a
+  // row without taking it out of the queue.
+  function queuedRows() {
+    return [...listEl.querySelectorAll('.dl-item[data-status="waiting"]:not(.hidden)')];
+  }
+
+  listEl.addEventListener("click", (e) => {
+    if (!suppressClick) return;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+
+  listEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !listEl.classList.contains("queue-reorderable")) return;
+    const row = e.target.closest(".dl-item");
+    if (!row || row.dataset.status !== "waiting") return;
+    // The row's buttons are buttons, not a handle.
+    if (e.target.closest("[data-action]")) return;
+    const rows = queuedRows();
+    if (rows.length < 2 || !rows.includes(row)) return;
+
+    press = { row, rows, y: e.clientY };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+  });
+
+  function startDrag() {
+    const { row, rows } = press;
+    const from = rows.indexOf(row);
+    drag = {
+      row, rows, from, to: from,
+      // Every position is measured once, in the layout the drag started in.
+      tops: rows.map((r) => r.getBoundingClientRect().top),
+      height: row.getBoundingClientRect().height,
+      y: press.y,
+      lastY: press.y,
+      scrollAt: scroller.scrollTop,
+      scrollStep: 0,
+      scrolling: 0,
+    };
+    listEl.classList.add("is-reordering");
+    row.classList.add("is-dragging");
+    // The list is the user's for as long as the row is in hand; the poll can
+    // keep the numbers moving, but not the rows.
+    reorderHold = true;
+  }
+
+  function onPointerMove(e) {
+    if (!drag) {
+      if (Math.abs(e.clientY - press.y) < PRESS_SLOP) return;
+      startDrag();
+    }
+    e.preventDefault();
+    drag.lastY = e.clientY;
+    autoScroll(e.clientY);
+    place(e.clientY);
+  }
+
+  // A scroll during the drag is just an offset against the measurements taken
+  // at the start of it, added back so the row stays under the finger.
+  function place(clientY) {
+    const { rows, tops, height, from } = drag;
+    const scrolled = scroller.scrollTop - drag.scrollAt;
+    const lo = tops[0] - tops[from];
+    const hi = tops[rows.length - 1] - tops[from];
+    const raw = clientY - drag.y + scrolled;
+    const dy = bound(raw, lo, hi);
+    // The slot is worked out from a hair past either end, so that dragging the
+    // row hard against the top of the queue is unambiguously first place
+    // rather than a tie with the row already there.
+    const center = tops[from] + bound(raw, lo - 1, hi + 1) + height / 2;
+
+    let to = from;
+    for (let i = 0; i < rows.length; i++) {
+      if (i === from) continue;
+      const middle = tops[i] + height / 2;
+      if (i < from && center < middle) to = Math.min(to, i);
+      if (i > from && center > middle) to = Math.max(to, i);
+    }
+    drag.to = to;
+
+    // The row follows the pointer; the rows it has passed step aside by
+    // exactly its height, which is the gap it will drop into.
+    drag.row.style.transform = `translateY(${dy}px)`;
+    rows.forEach((r, i) => {
+      if (i === from) return;
+      const shift = i > from && i <= to ? -height : i < from && i >= to ? height : 0;
+      r.style.transform = shift ? `translateY(${shift}px)` : "";
+    });
+  }
+
+  // Dragging to a row that is off the bottom of a long queue has to be
+  // possible without letting go, so the list scrolls itself near its edges.
+  function autoScroll(clientY) {
+    const box = scroller.getBoundingClientRect();
+    const above = clientY - box.top;
+    const below = box.bottom - clientY;
+    drag.scrollStep =
+      above < SCROLL_EDGE ? -Math.ceil((SCROLL_EDGE - above) / 4) :
+      below < SCROLL_EDGE ?  Math.ceil((SCROLL_EDGE - below) / 4) : 0;
+    if (!drag.scrollStep || drag.scrolling) return;
+
+    const tick = () => {
+      if (!drag) return;
+      if (!drag.scrollStep) { drag.scrolling = 0; return; }
+      scroller.scrollTop += drag.scrollStep;
+      place(drag.lastY);
+      drag.scrolling = requestAnimationFrame(tick);
+    };
+    drag.scrolling = requestAnimationFrame(tick);
+  }
+
+  function endDrag() {
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+    press = null;
+    if (!drag) return;
+
+    const { row, rows, from, to, scrolling } = drag;
+    if (scrolling) cancelAnimationFrame(scrolling);
+    drag = null;
+
+    listEl.classList.remove("is-reordering");
+    row.classList.remove("is-dragging");
+    for (const r of rows) r.style.transform = "";
+
+    // The pointerup is about to fire a click on the row, which would open the
+    // detail panel on the download that was just dragged.
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+
+    // moveRow puts the hold straight back up if there is a move to make.
+    reorderHold = false;
+    if (to !== from) moveRow(row, rows, from, to);
+  }
+
+  // The same move without a pointer, for the keyboard and for a queue too long
+  // to drag across: ⌥↑ / ⌥↓ by one, with shift to either end.
+  listEl.addEventListener("keydown", (e) => {
+    // Some layouts hand back a mangled key when alt is down, so the physical
+    // key is the fallback — the arrows are the arrows either way.
+    const key = e.key === "ArrowUp" || e.key === "ArrowDown" ? e.key : e.code;
+    if (!e.altKey || (key !== "ArrowUp" && key !== "ArrowDown")) return;
+    const row = e.target.closest?.(".dl-item");
+    if (!row || row.dataset.status !== "waiting") return;
+    const rows = queuedRows();
+    const from = rows.indexOf(row);
+    if (from < 0 || rows.length < 2) return;
+
+    e.preventDefault();
+    const up = key === "ArrowUp";
+    const to = e.shiftKey ? (up ? 0 : rows.length - 1) : from + (up ? -1 : 1);
+    if (to === from || to < 0 || to >= rows.length) return;
+    moveRow(row, rows, from, to);
+    row.scrollIntoView({ block: "nearest" });
+  });
+
+  // The row lands where it was put and aria2 is told afterwards. Waiting for
+  // the round trip would snap it back for a tick, which reads as a refusal.
+  async function moveRow(row, rows, from, to) {
+    // aria2 may have started the download while it was in hand, and a running
+    // one is not in the queue at all any more.
+    if (row.dataset.status !== "waiting") return;
+
+    const target = rows[to];
+    const anchor = to > from ? target.nextElementSibling : target;
+    const neighbours = to > from
+      ? { after: target.dataset.gid }
+      : { before: target.dataset.gid };
+    const focused = row.contains(document.activeElement) ? document.activeElement : null;
+
+    reorderHold = true;
+    listEl.insertBefore(row, anchor);
+    focused?.focus({ preventScroll: true });
+    try {
+      await moveInQueue(row.dataset.gid, neighbours);
+    } catch (err) {
+      console.error(err);
+    }
+    reorderHold = false;
+    // Whatever aria2 made of it is what the list should be showing.
+    await pollAndSync();
+    focused?.focus({ preventScroll: true });
+  }
 
   // ── Settings ─────────────────────────────────────────────────────────────
   const settingsOverlay = document.getElementById("settings-overlay");

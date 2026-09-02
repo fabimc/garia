@@ -548,6 +548,7 @@ body {
     border-radius: var(--radius);
     border-bottom: 1px solid var(--border);
     transition: background 0.15s;
+    cursor: pointer;
 }
 .dl-item:hover {
     background: var(--tint);
@@ -592,6 +593,61 @@ body {
     color: var(--danger);
 }
 
+/* ── Queue reordering ────────────────────────────────────────────────── */
+/* A queued row can be dragged to a different place in the queue. The grip
+   lives over the status icon rather than beside it, so nothing in the row
+   shifts when it appears — and it appears only on rows that can actually
+   move, which is why a queue of one never grows a grab cursor. */
+.dl-lead {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+}
+
+.dl-grip {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: var(--tint-strong);
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity 0.12s;
+    pointer-events: none;
+}
+
+.queue-reorderable .dl-item[data-status="waiting"] {
+    cursor: grab;
+}
+.queue-reorderable .dl-item[data-status="waiting"]:hover .dl-grip,
+.dl-item.is-dragging .dl-grip {
+    opacity: 1;
+}
+
+/* While a row is in hand: the ones it passes slide out of the way instead of
+   jumping, so the gap it will drop into is always the one under it. */
+.is-reordering .dl-item {
+    transition: transform 0.16s ease;
+    user-select: none;
+    cursor: grabbing;
+}
+
+.dl-item.is-dragging {
+    position: relative;
+    z-index: 3;
+    transition: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border-bottom-color: transparent;
+    box-shadow: var(--shadow-md), 0 0 0 1px var(--border);
+}
+.dl-item.is-dragging:hover {
+    background: var(--surface);
+}
+
 .dl-content {
     flex: 1;
     min-width: 0;
@@ -607,13 +663,27 @@ body {
     gap: 0.6rem;
 }
 
+/* A button, not a span: the row opens its detail panel, and that has to be
+   reachable from the keyboard as well as the pointer. It keeps the plain
+   look — the row's own hover is the affordance. */
 .dl-name {
+    font-family: inherit;
     font-size: 0.875rem;
     font-weight: 600;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+}
+.dl-name:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .dl-status-pill {
@@ -1351,4 +1421,247 @@ body {
     font-family: var(--mono);
     font-size: 0.92em;
     color: var(--text);
+}
+
+/* ── Detail panel ────────────────────────────────────────────────────── */
+/* Wider than the add dialog and taller than the screen on a torrent with a
+   hundred peers, so the body scrolls and the header and footer don't. */
+.modal.modal-lg {
+    width: min(620px, 92vw);
+    max-height: 86vh;
+}
+
+.detail-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.detail-body {
+    overflow-y: auto;
+    gap: 1.4rem;
+}
+
+.detail-part {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+/* The two halves of a merged download are separate downloads, and the rule
+   above each one is what says so. */
+.detail-part + .detail-part {
+    border-top: 1px solid var(--border);
+    padding-top: 1.2rem;
+}
+
+.detail-part-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+}
+
+.detail-bar-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--tint);
+    overflow: hidden;
+}
+
+.detail-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), #e08a52);
+    transition: width 0.4s ease;
+}
+.detail-bar-fill[data-status="complete"] {
+    background: var(--success);
+}
+.detail-bar-fill[data-status="error"] {
+    background: var(--danger);
+}
+.detail-bar-fill[data-status="paused"] {
+    background: var(--warning);
+}
+
+/* The numbers, in a grid that reflows rather than a fixed set of columns — an
+   HTTP download has six of them and a torrent eight, so the last row is
+   usually a partial one. Separate chips rather than a ruled table: a ruled
+   one leaves a hole where the row runs out. */
+.detail-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 0.4rem;
+}
+
+.detail-fact {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    min-width: 0;
+}
+/* The one fact that is two numbers gets two cells rather than an ellipsis. */
+.detail-fact[data-fact="downloaded"] {
+    grid-column: span 2;
+}
+.detail-fact dt {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+.detail-fact dd {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detail-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.detail-field-label {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+
+.detail-field-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+/* A media URL runs to hundreds of characters. It wraps rather than scrolls —
+   the whole point of showing it is that you can read it. */
+.detail-value {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.55rem;
+    max-height: 5.4rem;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+}
+
+.detail-copy {
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 0.35rem 0.6rem;
+    cursor: pointer;
+    transition:
+        color 0.15s,
+        background 0.15s;
+}
+.detail-copy:hover {
+    color: var(--text);
+    background: var(--tint);
+}
+
+.detail-table-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.detail-table-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+}
+.detail-table-head h4 {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+.detail-table-count {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    color: var(--muted);
+}
+
+/* Peers keep coming; the table gets a ceiling of its own rather than pushing
+   the source and destination off the top of the panel. */
+.detail-table-scroll {
+    max-height: 12rem;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+}
+.detail-table th {
+    position: sticky;
+    top: 0;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    background: var(--sidebar-bg);
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+}
+.detail-table td {
+    padding: 0.32rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 22rem;
+}
+.detail-table tbody tr:last-child td {
+    border-bottom: none;
+}
+/* Everything but the first column is a measurement */
+.detail-table td:not(:first-child),
+.detail-table th:not(:first-child) {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    width: 1%;
+}
+
+.detail-note {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.detail-error {
+    font-size: 0.78rem;
+    color: var(--danger);
 }

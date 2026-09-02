@@ -521,6 +521,38 @@
             </div>
         </div>
 
+        <!-- ── Download details ─────────────────────────────────────────── -->
+        <!-- Everything the row has no room for. The body is built in JS,
+             because a torrent, an HTTP file and a merged video are three
+             different shapes and only one of them is on screen at a time. -->
+        <div
+            id="detail-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="detail-title"
+        >
+            <div class="modal modal-lg">
+                <div class="modal-header">
+                    <h2 id="detail-title" class="detail-title">Details</h2>
+                    <button
+                        class="modal-close"
+                        id="detail-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body detail-body" id="detail-body"></div>
+                <div class="modal-footer">
+                    <button class="btn-secondary hidden" id="detail-reveal">
+                        Show in Finder
+                    </button>
+                    <button class="btn-primary" id="detail-done">Done</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ── Settings ─────────────────────────────────────────────────── -->
         <div
             id="settings-overlay"
