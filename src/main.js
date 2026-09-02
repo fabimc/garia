@@ -35,6 +35,7 @@ let settings = {
   maxOverallDownloadLimit: 0,
   smartFolders: false,
   notifyOnComplete: true,
+  catchClipboard: true,
 };
 
 async function loadSettings() {
@@ -73,6 +74,14 @@ function extensionOf(url) {
   const dot = name.lastIndexOf(".");
   if (dot <= 0 || dot === name.length - 1) return "";
   return name.slice(dot + 1).toLowerCase();
+}
+
+function catchLabel(url) {
+  if (url.startsWith("magnet:")) return "this magnet link";
+  const path = url.split(/[?#]/, 1)[0];
+  let name = path.split("/").pop() || "";
+  try { name = decodeURIComponent(name); } catch {}
+  return name || url;
 }
 
 // Where a download should be written. Torrents and magnets don't name a file
@@ -134,7 +143,7 @@ function renderVideoTools() {
 const DIRECT_EXTS = new Set([
   ...Object.values(FOLDERS).flat(),
   "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent",
-  "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp",
+  "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat", "xip",
 ]);
 
 // Worth asking yt-dlp about? Anything that isn't already a file, a magnet, or
@@ -1487,6 +1496,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsConc    = document.getElementById("settings-concurrency");
   const settingsNotify  = document.getElementById("settings-notify");
   const settingsSmart   = document.getElementById("settings-smart-folders");
+  const settingsCatch   = document.getElementById("settings-catch");
   const settingsError   = document.getElementById("settings-error");
 
   const MB = 1024 * 1024;
@@ -1501,6 +1511,7 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsConc.value = String(settings.maxConcurrentDownloads || 5);
     settingsNotify.checked = settings.notifyOnComplete !== false;
     settingsSmart.checked = settings.smartFolders === true;
+    settingsCatch.checked = settings.catchClipboard !== false;
     settingsOverlay.classList.remove("hidden");
     setTimeout(() => settingsDir.focus(), 50);
   }
@@ -1517,6 +1528,7 @@ window.addEventListener("DOMContentLoaded", () => {
       maxOverallDownloadLimit: Number.isFinite(mb) && mb > 0 ? Math.round(mb * MB) : 0,
       smartFolders: settingsSmart.checked,
       notifyOnComplete: settingsNotify.checked,
+      catchClipboard: settingsCatch.checked,
     };
 
     // Switching notifications off should take the count on the dock with it.
@@ -1554,6 +1566,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // The path stays typeable — the picker is the convenience, not the only way in.
+  document.getElementById("catch-bookmarklet").addEventListener("click", (e) => {
+    // The link is for dragging onto the bookmarks bar, not for clicking here.
+    e.preventDefault();
+  });
   document.getElementById("settings-browse").addEventListener("click", async () => {
     const pick = window.__TAURI__?.dialog?.open;
     if (typeof pick !== "function") {
@@ -1643,6 +1659,91 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     await pollAndSync();
   });
+
+  // ── Catch from elsewhere ────────────────────────────────────────────────
+  // Two ways a URL arrives without being typed: copied (an offer) and sent
+  // on the garia:// scheme (an instruction). The first clipboard contents
+  // at launch are ignored on the Rust side, so a leftover copy doesn't
+  // greet you.
+  const catchBanner = document.getElementById("catch-banner");
+  const catchText   = document.getElementById("catch-text");
+  let offeredUrl = "";
+  const recentlyCaught = new Set();
+
+  function hideCatch() {
+    offeredUrl = "";
+    catchBanner.classList.add("hidden");
+  }
+
+  async function ingestUrl(url) {
+    hideCatch();
+    if (!videoTools.version) await loadVideoTools();
+    // A file (or magnet) can go straight in; a page still needs the picker.
+    if (!looksLikeAPage(url) || url.startsWith("magnet:")) {
+      try {
+        await rpc("aria2.addUri", [[url], addOptions(url)]);
+        await pollAndSync();
+      } catch (err) {
+        openModal(url);
+        modalError.textContent = String(err?.message || err);
+        modalError.classList.remove("hidden");
+      }
+      return;
+    }
+    openModal(url);
+    await submitUrl();
+  }
+
+  async function notifyCatch(url) {
+    const n = notifications();
+    if (!n) return;
+    try {
+      if (!(await n.ready)) return;
+      n.api.sendNotification({
+        title: "Download this file?",
+        body: catchLabel(url),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function handleCatch({ url, source } = {}) {
+    if (!url) return;
+    const key = `${source}:${url}`;
+    if (recentlyCaught.has(key)) return;
+    recentlyCaught.add(key);
+    setTimeout(() => recentlyCaught.delete(key), 2500);
+
+    if (source === "scheme") {
+      ingestUrl(url);
+      return;
+    }
+    if (settings.catchClipboard === false) return;
+    offeredUrl = url;
+    catchText.textContent = `Download ${catchLabel(url)}?`;
+    catchBanner.classList.remove("hidden");
+    if (!document.hasFocus()) notifyCatch(url);
+  }
+
+  document.getElementById("catch-add").addEventListener("click", () => {
+    if (offeredUrl) ingestUrl(offeredUrl);
+  });
+  document.getElementById("catch-ignore").addEventListener("click", hideCatch);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideCatch();
+  });
+
+  const listen = window.__TAURI__?.event?.listen;
+  if (typeof listen === "function") {
+    listen("catch-url", (event) => handleCatch(event.payload));
+  }
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker === "function") {
+    invoker("take_pending_catch").then((pending) => {
+      for (const event of pending || []) handleCatch(event);
+    }).catch(() => {});
+  }
 
   loadSettings();
   loadVideoTools();

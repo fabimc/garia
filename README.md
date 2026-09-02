@@ -15,8 +15,9 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
 - A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
+- Catch a file URL from the clipboard, or send any page from the browser with a bookmarklet
 - Optional smart folders — new downloads sorted into Video, Music, Documents, and Archives by file type
-- Settings: download folder, an overall speed limit, how many files run at once, and both switches above
+- Settings: download folder, an overall speed limit, how many files run at once, clipboard catching, and both switches above
 - Status badges: Downloading, Merging, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -106,6 +107,7 @@ garia/
     ├── tests/fixtures/   # Real yt-dlp output, for the parser's unit tests
     ├── src/
     │   ├── lib.rs        # App setup — spawns and stops aria2
+    │   ├── catch.rs      # Clipboard file URLs and garia://add?url=…
     │   └── main.rs       # Binary entry point
     ├── Cargo.toml        # Rust dependencies
     └── tauri.conf.json   # Tauri configuration
@@ -120,6 +122,10 @@ Settings live in `settings.json` beside the session file. Saving them writes the
 Every new download also names its folder explicitly rather than relying on aria2's global one, and that is what smart folders route with: the extension in the URL picks `Video`, `Music`, `Documents`, or `Archives` inside the download folder, and anything unrecognised — along with every torrent and magnet, which don't name their files until they start — lands in the folder itself. Nothing already on disk ever moves.
 
 Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
+
+A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` (the bookmarklet in Settings, or an extension later) is queued, or opened on the quality picker when it's a video page.
+
+The `garia://` scheme is declared in `src-tauri/Info.plist`, which Tauri merges into the bundle. macOS only routes the scheme to an app it has registered, so the bookmarklet works from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
 
 Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 

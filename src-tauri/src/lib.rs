@@ -5,7 +5,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+mod catch;
 
 /// The aria2c child process plus the RPC secret it was started with.
 struct Aria2 {
@@ -33,6 +35,10 @@ struct Settings {
     /// Say so when a download finishes. On by default: the whole point of a
     /// download manager is not having to watch it.
     notify_on_complete: bool,
+    /// Watch the clipboard for a copied file URL and offer to take it. On by
+    /// default: catching a download that started in the browser is why the
+    /// app stays open. Off if the offer gets in the way.
+    catch_clipboard: bool,
 }
 
 impl Default for Settings {
@@ -44,6 +50,7 @@ impl Default for Settings {
             max_overall_download_limit: 0,
             smart_folders: false,
             notify_on_complete: true,
+            catch_clipboard: true,
         }
     }
 }
@@ -141,7 +148,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 
 /// Saving is three steps: normalise, persist, and push into the running aria2
 /// so nothing needs a restart. The three aria2 options are all live-changeable
-/// — measured against aria2 1.37, not assumed. The other two are the frontend's
+/// — measured against aria2 1.37, not assumed. The rest are the frontend's
 /// to act on: it sends `dir` with each download it adds, which is how smart
 /// folders route by file type without touching this global.
 #[tauri::command]
@@ -223,6 +230,96 @@ fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
     window
         .set_badge_count(if count == 0 { None } else { Some(count as i64) })
         .map_err(|e| format!("could not set the dock badge: {e}"))
+}
+
+/// URLs that arrived before the frontend was listening. The live `catch-url`
+/// event covers everything after that; this is the ones that beat it.
+struct CatchQueue {
+    pending: Mutex<Vec<catch::CatchEvent>>,
+}
+
+/// The queue is drained once, at startup, so everything caught afterwards
+/// would pile up forever if it weren't capped. Keeping the newest few is the
+/// right end to keep: a reload should show what just arrived, not an hour of
+/// stale clipboard offers.
+const MAX_PENDING_CATCHES: usize = 8;
+
+#[tauri::command]
+fn take_pending_catch(state: tauri::State<CatchQueue>) -> Vec<catch::CatchEvent> {
+    state
+        .pending
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+fn bring_to_front(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
+    let event = catch::CatchEvent {
+        url,
+        source: source.to_string(),
+    };
+    if let Some(queue) = app.try_state::<CatchQueue>() {
+        if let Ok(mut pending) = queue.pending.lock() {
+            pending.push(event.clone());
+            let overflow = pending.len().saturating_sub(MAX_PENDING_CATCHES);
+            pending.drain(..overflow);
+        }
+    }
+    let _ = app.emit("catch-url", &event);
+    if source == "scheme" {
+        bring_to_front(app);
+    }
+}
+
+/// The first clipboard read is whatever was already copied, not news: without
+/// this, launching garia would offer a file URL the user copied hours ago.
+fn spawn_clipboard_watch(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut clipboard = match arboard::Clipboard::new() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[garia] No clipboard access: {e}");
+                return;
+            }
+        };
+        let mut last: Option<String> = None;
+        let mut primed = false;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            let watching = app
+                .try_state::<SettingsState>()
+                .and_then(|s| s.current.lock().ok().map(|g| g.catch_clipboard))
+                .unwrap_or(true);
+            if !watching {
+                primed = false;
+                last = None;
+                continue;
+            }
+            let Ok(text) = clipboard.get_text() else {
+                continue;
+            };
+            if !primed {
+                last = Some(text);
+                primed = true;
+                continue;
+            }
+            if last.as_deref() == Some(text.as_str()) {
+                continue;
+            }
+            last = Some(text.clone());
+            if let Some(url) = catch::file_url_in(&text) {
+                dispatch_catch(&app, url, "clipboard");
+            }
+        }
+    });
 }
 
 
@@ -894,6 +991,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
@@ -901,6 +999,7 @@ pub fn run() {
             get_settings,
             save_settings,
             set_badge,
+            take_pending_catch,
             video_tools,
             video_probe,
             mux_video
@@ -966,6 +1065,34 @@ pub fn run() {
                 resolved: Mutex::new(None),
                 tools: Mutex::new(None),
             });
+            app.manage(CatchQueue {
+                pending: Mutex::new(Vec::new()),
+            });
+
+            // `garia://add?url=…` from a bookmarklet, an extension, or anything
+            // else that wants to hand garia a download. macOS delivers these
+            // to the running instance; a cold launch is `get_current` below.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for link in event.urls() {
+                        if let Some(url) = catch::url_from_garia_link(link.as_str()) {
+                            dispatch_catch(&handle, url, "scheme");
+                        }
+                    }
+                });
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let handle = app.handle().clone();
+                    for link in urls {
+                        if let Some(url) = catch::url_from_garia_link(link.as_str()) {
+                            dispatch_catch(&handle, url, "scheme");
+                        }
+                    }
+                }
+            }
+
+            spawn_clipboard_watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

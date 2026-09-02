@@ -1294,3 +1294,61 @@ body {
     opacity: 0.5;
     cursor: default;
 }
+
+/* ── Catch banner ────────────────────────────────────────────────────── */
+.catch-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.85rem;
+    margin: 0 0.7rem 0.7rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+}
+
+.catch-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.catch-banner .btn-primary,
+.catch-banner .btn-secondary {
+    padding: 0.32rem 0.75rem;
+    font-size: 0.78rem;
+}
+
+.bookmarklet {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    width: fit-content;
+    margin-top: 0.45rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--sidebar-bg);
+    color: var(--brand);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: grab;
+}
+
+.bookmarklet:hover {
+    border-color: var(--brand);
+    background: var(--surface);
+}
+
+.field-hint code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    color: var(--text);
+}

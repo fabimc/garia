@@ -356,10 +356,19 @@
                             No downloads yet
                         </p>
                         <p class="empty-sub" id="empty-sub">
-                            Drag a URL or .torrent file anywhere, or hit Add
-                            download
+                            Drag a URL or .torrent file anywhere, copy a file
+                            link, or hit Add download
                         </p>
                     </div>
+                </div>
+                <div id="catch-banner" class="catch-banner hidden" role="status">
+                    <p id="catch-text" class="catch-text">Download this file?</p>
+                    <button type="button" class="btn-secondary" id="catch-ignore">
+                        Ignore
+                    </button>
+                    <button type="button" class="btn-primary" id="catch-add">
+                        Add
+                    </button>
                 </div>
             </main>
 
@@ -638,6 +647,33 @@
                             lands in the folder itself. Nothing already
                             downloaded moves.
                         </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-catch" />
+                            <span>Watch the clipboard for file URLs</span>
+                        </label>
+                        <p class="field-hint">
+                            When you copy a download link, garia offers to take
+                            it. Pages and ordinary website URLs are left alone.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Catch from the browser</div>
+                        <p class="field-hint">
+                            Drag this onto the bookmarks bar, then click it on
+                            a page — a video, or any file — to send it here.
+                            The same <code>garia://add?url=…</code>
+                            scheme is what an extension would call.
+                        </p>
+                        <a
+                            id="catch-bookmarklet"
+                            class="bookmarklet"
+                            href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
+                            >Send this page to garia</a
+                        >
                     </div>
 
                     <div class="field">
