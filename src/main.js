@@ -409,6 +409,41 @@ function buildChoices(info, canMerge) {
   return choices;
 }
 
+// A playlist's entries do not all offer the same formats — a list can hold a
+// 4K lecture and a 360p phone clip — so a playlist cannot be given a chosen
+// quality the way a single video can. It gets a rule instead, read against
+// each entry once that entry has been probed.
+const QUALITY_RULES = [
+  { id: "best",  label: "Best available", detail: "The tallest each video has" },
+  { id: "2160",  label: "Up to 2160p",    detail: "4K where there is one" },
+  { id: "1440",  label: "Up to 1440p",    detail: "" },
+  { id: "1080",  label: "Up to 1080p",    detail: "The usual answer" },
+  { id: "720",   label: "Up to 720p",     detail: "" },
+  { id: "480",   label: "Up to 480p",     detail: "" },
+  { id: "audio", label: "Audio only",     detail: "Sound, no picture" },
+];
+
+// The rule applied to one entry's choices. `buildChoices` has already put the
+// tallest first, so the first one inside the cap is the best one inside it —
+// and a video whose every quality is over the cap still downloads, at its
+// smallest, because refusing to fetch a 720p-only video under a 480p rule
+// would be a silent hole in the list rather than a decision.
+function pickByRule(choices, rule) {
+  if (!choices.length) return null;
+  const audio = choices.find((c) => c.label === "Audio");
+  if (rule === "audio") return audio || choices[choices.length - 1];
+
+  const pictures = choices.filter((c) => c !== audio);
+  if (!pictures.length) return choices[0];
+  if (rule === "best") return pictures[0];
+
+  const cap = Number(rule);
+  return (
+    pictures.find((c) => (parseInt(c.label, 10) || 0) <= cap) ||
+    pictures[pictures.length - 1]
+  );
+}
+
 // What's on the page but out of reach, said plainly rather than left as a
 // quality that mysteriously isn't listed.
 function missingNote(info, choices, canMerge) {
@@ -2257,12 +2292,27 @@ window.addEventListener("DOMContentLoaded", () => {
   const videoChoices  = document.getElementById("video-choices");
   const videoNote     = document.getElementById("video-note");
 
-  // The dialog is one of three things at a time: asking for a URL, waiting on
-  // yt-dlp, or offering qualities. Every widget belongs to exactly one of them,
-  // so the state is set in one place rather than toggled six.
+  const playlistPanel   = document.getElementById("playlist-panel");
+  const playlistRule    = document.getElementById("playlist-rule");
+  const playlistEntries = document.getElementById("playlist-entries");
+  const playlistCount   = document.getElementById("playlist-count");
+  const playlistNote    = document.getElementById("playlist-note");
+
+  // The dialog is one of four things at a time: asking for a URL, waiting on
+  // yt-dlp, offering qualities, or offering a playlist. Every widget belongs to
+  // exactly one of them, so the state is set in one place rather than toggled
+  // eight.
   let modalMode = "url";
   let probed = null;      // the last successful probe, and its choices
+  let playlist = null;    // the last flat listing, and which of it is ticked
   let probeToken = 0;     // a probe the user has moved on from must not land
+
+  const MODAL_TITLES = {
+    url: "Add download",
+    busy: "Add download",
+    video: "Download video",
+    playlist: "Download playlist",
+  };
 
   function setModalMode(mode) {
     modalMode = mode;
@@ -2271,10 +2321,23 @@ window.addEventListener("DOMContentLoaded", () => {
     document.querySelector('label[for="modal-url-input"]').classList.toggle("hidden", !isUrl);
     modalBusy.classList.toggle("hidden", mode !== "busy");
     videoPanel.classList.toggle("hidden", mode !== "video");
+    playlistPanel.classList.toggle("hidden", mode !== "playlist");
     modalOk.classList.toggle("hidden", mode === "busy");
-    modalOk.textContent = mode === "video" ? "Download" : "OK";
-    modalTitle.textContent = mode === "video" ? "Download video" : "Add download";
+    // The playlist's own label counts what is ticked, and is set with it.
+    if (mode !== "playlist") {
+      modalOk.textContent = mode === "video" ? "Download" : "OK";
+      modalOk.disabled = false;
+    }
+    modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
   }
+
+  // One source for the rules, so the list and the reading of it can't drift.
+  playlistRule.append(...QUALITY_RULES.map((r) => {
+    const option = document.createElement("option");
+    option.value = r.id;
+    option.textContent = r.detail ? `${r.label} — ${r.detail}` : r.label;
+    return option;
+  }));
 
   // A URL whose host garia has a login for, said before the download starts —
   // a 401 three seconds later is a worse way to find out, and a site with a
@@ -2293,6 +2356,7 @@ window.addEventListener("DOMContentLoaded", () => {
   function openModal(url = "") {
     probeToken++;
     probed = null;
+    playlist = null;
     modalUrlInput.value = url;
     torrentInput.value  = "";
     modalError.classList.add("hidden");
@@ -2382,9 +2446,9 @@ window.addEventListener("DOMContentLoaded", () => {
     modalBusyText.textContent = "Looking for video…";
     setModalMode("busy");
 
-    let info;
+    let probe;
     try {
-      info = await window.__TAURI__.core.invoke("video_probe", { url });
+      probe = await window.__TAURI__.core.invoke("video_probe", { url });
     } catch (err) {
       if (token !== probeToken) return;
       const message = String(err?.message || err);
@@ -2401,7 +2465,25 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (token !== probeToken) return;
 
-    showPicker(info, url);
+    // A "playlist" holding one video is a video. Read it properly and offer
+    // qualities, rather than a single checkbox with nothing to compare it to.
+    if (probe.kind === "playlist" && probe.entries.length === 1) {
+      const only = probe.entries[0];
+      try {
+        probe = await window.__TAURI__.core.invoke("video_probe", { url: only.url });
+      } catch (err) {
+        if (token !== probeToken) return;
+        setModalMode("url");
+        modalError.textContent = String(err?.message || err);
+        modalError.classList.remove("hidden");
+        modalPlain.classList.remove("hidden");
+        return;
+      }
+      if (token !== probeToken) return;
+    }
+
+    if (probe.kind === "playlist") showPlaylist(probe);
+    else showPicker(probe, url);
   }
 
   // ── The quality picker ──────────────────────────────────────────────────
@@ -2442,9 +2524,10 @@ window.addEventListener("DOMContentLoaded", () => {
     videoNote.textContent = note;
     videoNote.classList.toggle("hidden", !note);
 
-    modalOk.disabled = choices.length === 0;
     modalPlain.classList.toggle("hidden", choices.length > 0);
     setModalMode("video");
+    // After the mode, which hands the button back its default state.
+    modalOk.disabled = choices.length === 0;
   }
 
   videoChoices.addEventListener("click", (e) => {
@@ -2456,14 +2539,165 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Queue what the picker chose. One format is one download; two are two, and
-  // a merge job that turns them back into one file and one row.
-  async function submitVideo() {
-    if (!probed) return;
-    const { info, choices, selected } = probed;
-    const choice = choices[selected];
-    if (!choice) return;
+  // ── The playlist picker ─────────────────────────────────────────────────
+  // A flat listing: titles and page URLs, no formats. What each entry can
+  // actually be downloaded at is a probe of its own, and those only happen for
+  // the entries that are still ticked when Download is pressed.
+  function showPlaylist(info) {
+    playlist = {
+      info,
+      // All ticked: a playlist someone pasted is a playlist they want.
+      checked: new Set(info.entries.map((_, i) => i)),
+    };
 
+    document.getElementById("playlist-title").textContent =
+      info.title || info.webpageUrl || "Playlist";
+    const shown = info.entries.length;
+    const held = info.total > shown ? `first ${shown} of ${info.total}` : `${shown} videos`;
+    document.getElementById("playlist-sub").textContent =
+      [info.uploader, held, info.extractor].filter(Boolean).join(" · ");
+
+    const thumb = document.getElementById("playlist-thumb");
+    const art = info.entries.find((e) => e.thumbnail);
+    thumb.classList.toggle("hidden", !art);
+    if (art) thumb.src = art.thumbnail;
+
+    // Only a cap is worth a note. Everything else the subtitle already said.
+    const note = info.total > shown
+      ? `Only the first ${shown} are listed — paste the rest of the playlist to reach them.`
+      : "";
+    playlistNote.textContent = note;
+    playlistNote.classList.toggle("hidden", !note);
+
+    renderPlaylistEntries();
+    setModalMode("playlist");
+  }
+
+  function renderPlaylistEntries() {
+    playlistEntries.textContent = "";
+    playlist.info.entries.forEach((entry, i) => {
+      const row = el("label", "playlist-entry");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.index = String(i);
+      box.checked = playlist.checked.has(i);
+      box.setAttribute("aria-label", `Download ${entry.title || entry.url}`);
+      row.append(
+        box,
+        el("span", "playlist-entry-num", String(i + 1)),
+        el("span", "playlist-entry-title", entry.title || entry.url),
+        el("span", "playlist-entry-time", formatDuration(entry.duration)),
+      );
+      row.title = entry.title || entry.url;
+      playlistEntries.appendChild(row);
+    });
+    renderPlaylistCount();
+  }
+
+  function renderPlaylistCount() {
+    const picked = playlist.checked.size;
+    const total = playlist.info.entries.length;
+    playlistCount.textContent = `${picked} of ${total} selected`;
+    modalOk.disabled = picked === 0;
+    modalOk.textContent = picked ? `Download ${picked}` : "Download";
+  }
+
+  playlistEntries.addEventListener("change", (e) => {
+    const box = e.target.closest("input[data-index]");
+    if (!box || !playlist) return;
+    const i = Number(box.dataset.index);
+    if (box.checked) playlist.checked.add(i);
+    else playlist.checked.delete(i);
+    renderPlaylistCount();
+  });
+
+  function setAllChecked(on) {
+    if (!playlist) return;
+    playlist.checked = on ? new Set(playlist.info.entries.map((_, i) => i)) : new Set();
+    for (const box of playlistEntries.querySelectorAll("input[data-index]")) {
+      box.checked = on;
+    }
+    renderPlaylistCount();
+  }
+  document.getElementById("playlist-all").addEventListener("click", () => setAllChecked(true));
+  document.getElementById("playlist-none").addEventListener("click", () => setAllChecked(false));
+
+  // One entry at a time, queued as it resolves rather than after the last one:
+  // twelve videos is twelve yt-dlp launches, and a list that fills in while it
+  // works is the difference between a wait and a hang. The rule is read
+  // against each entry's own formats, because the entries do not share any.
+  async function submitPlaylist() {
+    if (!playlist) return;
+    const picked = [...playlist.checked].sort((a, b) => a - b);
+    if (!picked.length) return;
+
+    const rule = playlistRule.value;
+    const token = ++probeToken;
+    const failures = [];
+    let queued = 0;
+
+    setModalMode("busy");
+    for (const [nth, index] of picked.entries()) {
+      if (token !== probeToken) return;
+      const entry = playlist.info.entries[index];
+      const name = entry.title || entry.url;
+      modalBusyText.textContent = `Reading ${nth + 1} of ${picked.length}…`;
+
+      let probe;
+      try {
+        probe = await window.__TAURI__.core.invoke("video_probe", { url: entry.url });
+      } catch (err) {
+        failures.push([name, String(err?.message || err)]);
+        continue;
+      }
+      if (token !== probeToken) return;
+      if (probe.kind !== "video") {
+        failures.push([name, "that entry is a playlist of its own"]);
+        continue;
+      }
+
+      const choices = buildChoices(probe, videoTools.ffmpeg);
+      const choice = pickByRule(choices, rule);
+      if (!choice) {
+        failures.push([name, missingNote(probe, choices, videoTools.ffmpeg) ||
+          "nothing on it can be fetched as a plain file"]);
+        continue;
+      }
+
+      try {
+        await queueChoice({ ...probe, webpageUrl: probe.webpageUrl || entry.url }, choice);
+        queued++;
+        // Untick what is already downloading, so what is left on the panel
+        // after a partial run is exactly what still needs one.
+        playlist.checked.delete(index);
+      } catch (err) {
+        failures.push([name, String(err?.message || err)]);
+      }
+    }
+
+    if (token !== probeToken) return;
+    await pollAndSync();
+    if (!failures.length) {
+      closeModal();
+      return;
+    }
+
+    // Something didn't read. The ones that did are already downloading, so the
+    // panel comes back showing only the leftovers.
+    renderPlaylistEntries();
+    setModalMode("playlist");
+    const [name, why] = failures[0];
+    modalError.textContent = failures.length === 1
+      ? `Queued ${queued}. “${name}” couldn't be read — ${why}`
+      : `Queued ${queued} of ${picked.length}. ${failures.length} couldn't be read; ` +
+        `the first, “${name}” — ${why}`;
+    modalError.classList.remove("hidden");
+  }
+
+  // Queue one picked quality. One format is one download; two are two, and a
+  // merge job that turns them back into one file and one row. Shared with the
+  // playlist picker, which does this once per entry it read.
+  async function queueChoice(info, choice) {
     const base = safeName(info.title) || "video";
     // Routed by what the file will be, not by the page URL — which has no
     // extension at all, and would land every video in the base folder.
@@ -2472,45 +2706,56 @@ window.addEventListener("DOMContentLoaded", () => {
     // Some sites mint a URL for one User-Agent and 403 every other.
     const referer = info.webpageUrl ? { referer: info.webpageUrl } : {};
 
+    if (choice.formats.length === 1) {
+      const f = choice.formats[0];
+      await rpc("aria2.addUri", [[f.url], {
+        ...common, ...referer, out: `${base}.${f.ext}`,
+        header: [...f.headers, ...loginHeaders(f.url)],
+      }]);
+      return;
+    }
+
+    const [v, a] = choice.formats;
+    // yt-dlp's own naming for the halves, so a leftover part is
+    // recognisable for what it is.
+    const videoName = `${base}.f${v.id}.${v.ext}`;
+    const audioName = `${base}.f${a.id}.${a.ext}`;
+    const videoGid = await rpc("aria2.addUri", [[v.url], {
+      ...common, ...referer, out: videoName,
+      header: [...v.headers, ...loginHeaders(v.url)],
+    }]);
+    const audioGid = await rpc("aria2.addUri", [[a.url], {
+      ...common, ...referer, out: audioName,
+      header: [...a.headers, ...loginHeaders(a.url)],
+    }]);
+    jobs.set(videoGid, {
+      audioGid,
+      dir,
+      out: `${base}.${choice.ext}`,
+      // Written down now rather than read back later: aria2 forgets a
+      // finished download across a restart, and the merge still has to
+      // know where its halves are.
+      videoPath: dir ? `${dir}/${videoName}` : "",
+      audioPath: dir ? `${dir}/${audioName}` : "",
+      title: info.title,
+      webpageUrl: info.webpageUrl,
+      state: "downloading",
+    });
+    saveJobs();
+  }
+
+  // Queue what the picker chose.
+  async function submitVideo() {
+    if (!probed) return;
+    const { info, choices, selected } = probed;
+    const choice = choices[selected];
+    if (!choice) return;
+
     modalBusyText.textContent = "Queueing…";
     setModalMode("busy");
 
     try {
-      if (choice.formats.length === 1) {
-        const f = choice.formats[0];
-        await rpc("aria2.addUri", [[f.url], {
-          ...common, ...referer, out: `${base}.${f.ext}`,
-          header: [...f.headers, ...loginHeaders(f.url)],
-        }]);
-      } else {
-        const [v, a] = choice.formats;
-        // yt-dlp's own naming for the halves, so a leftover part is
-        // recognisable for what it is.
-        const videoName = `${base}.f${v.id}.${v.ext}`;
-        const audioName = `${base}.f${a.id}.${a.ext}`;
-        const videoGid = await rpc("aria2.addUri", [[v.url], {
-          ...common, ...referer, out: videoName,
-          header: [...v.headers, ...loginHeaders(v.url)],
-        }]);
-        const audioGid = await rpc("aria2.addUri", [[a.url], {
-          ...common, ...referer, out: audioName,
-          header: [...a.headers, ...loginHeaders(a.url)],
-        }]);
-        jobs.set(videoGid, {
-          audioGid,
-          dir,
-          out: `${base}.${choice.ext}`,
-          // Written down now rather than read back later: aria2 forgets a
-          // finished download across a restart, and the merge still has to
-          // know where its halves are.
-          videoPath: dir ? `${dir}/${videoName}` : "",
-          audioPath: dir ? `${dir}/${audioName}` : "",
-          title: info.title,
-          webpageUrl: info.webpageUrl,
-          state: "downloading",
-        });
-        saveJobs();
-      }
+      await queueChoice(info, choice);
       closeModal();
       await pollAndSync();
     } catch (err) {
@@ -2522,6 +2767,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   modalOk.addEventListener("click", () => {
     if (modalMode === "video") submitVideo();
+    else if (modalMode === "playlist") submitPlaylist();
     else submitUrl();
   });
   modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));

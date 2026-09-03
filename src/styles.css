@@ -1463,6 +1463,100 @@ body {
     flex: none;
 }
 
+/* ── Playlist picker ─────────────────────────────────────────────────── */
+/* The count and the two shortcuts sit on one line above the list, the way the
+   list itself is read: how many, then change how many. */
+.playlist-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: -0.2rem;
+}
+
+.playlist-count {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.76rem;
+    color: var(--muted);
+}
+
+/* Shortcuts, not actions — they change what the one button below will do. */
+.playlist-pick {
+    flex: none;
+    padding: 0;
+    border: none;
+    background: none;
+    font-family: inherit;
+    font-size: 0.76rem;
+    color: var(--accent);
+    cursor: pointer;
+}
+.playlist-pick:hover {
+    text-decoration: underline;
+}
+
+/* Forty videos scroll inside the dialog rather than growing it past the
+   window — the same trade the quality list makes, with room for more rows
+   because there is only one line to each. */
+.playlist-entries {
+    display: flex;
+    flex-direction: column;
+    max-height: 244px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+
+.playlist-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.65rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+.playlist-entry:last-child {
+    border-bottom: none;
+}
+.playlist-entry:hover {
+    background: var(--tint);
+}
+.playlist-entry input {
+    flex: none;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* The playlist's own numbering, which is the order they queue in. */
+.playlist-entry-num {
+    flex: none;
+    width: 1.6rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.playlist-entry-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.playlist-entry-time {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /* Nothing on the page aria2 can fetch — the button says so by not working. */
 .btn-primary:disabled {
     opacity: 0.5;

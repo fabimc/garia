@@ -552,6 +552,63 @@
                         <p id="video-note" class="field-hint hidden"></p>
                     </div>
 
+                    <!-- A playlist. One rule for all of it, because its
+                         entries don't all offer the same qualities — and a
+                         tick per video, because a playlist is rarely all
+                         wanted. -->
+                    <div id="playlist-panel" class="video-panel hidden">
+                        <div class="video-head">
+                            <img
+                                id="playlist-thumb"
+                                class="video-thumb hidden"
+                                alt=""
+                            />
+                            <div class="video-titles">
+                                <div
+                                    id="playlist-title"
+                                    class="video-title"
+                                ></div>
+                                <div id="playlist-sub" class="video-sub"></div>
+                            </div>
+                        </div>
+                        <label class="modal-label" for="playlist-rule"
+                            >Quality for all of them</label
+                        >
+                        <!-- Filled from QUALITY_RULES, so the list and the
+                             rule that reads it can't drift apart. -->
+                        <select
+                            id="playlist-rule"
+                            class="field-input"
+                        ></select>
+                        <div class="playlist-bar">
+                            <span
+                                id="playlist-count"
+                                class="playlist-count"
+                            ></span>
+                            <button
+                                type="button"
+                                class="playlist-pick"
+                                id="playlist-all"
+                            >
+                                All
+                            </button>
+                            <button
+                                type="button"
+                                class="playlist-pick"
+                                id="playlist-none"
+                            >
+                                None
+                            </button>
+                        </div>
+                        <div
+                            id="playlist-entries"
+                            class="playlist-entries"
+                            role="group"
+                            aria-label="Videos in this playlist"
+                        ></div>
+                        <p id="playlist-note" class="field-hint hidden"></p>
+                    </div>
+
                     <p id="modal-error" class="error hidden"></p>
                 </div>
                 <div class="modal-footer">

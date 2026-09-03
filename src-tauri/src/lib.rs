@@ -698,6 +698,52 @@ struct VideoInfo {
     formats: Vec<VideoFormat>,
 }
 
+/// How many of a playlist's entries the picker will take. A channel can hold
+/// thousands, and neither the JSON nor a list of thousands of checkboxes is
+/// something to hand a dialog — the cap is said out loud rather than hidden.
+const MAX_PLAYLIST_ENTRIES: usize = 300;
+
+/// One video inside a playlist, as `--flat-playlist` reports it: enough to
+/// list, and enough to probe when it is ticked. There are deliberately no
+/// formats here — collecting them is what turns a playlist into minutes.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PlaylistEntry {
+    id: String,
+    title: String,
+    /// The page URL to probe if this entry is picked.
+    url: String,
+    /// Seconds, and often absent in a flat listing.
+    duration: f64,
+    uploader: String,
+    thumbnail: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PlaylistInfo {
+    title: String,
+    uploader: String,
+    webpage_url: String,
+    extractor: String,
+    /// What the site says is in it, which can be more than `entries` holds:
+    /// only the first `MAX_PLAYLIST_ENTRIES` are taken.
+    total: u64,
+    entries: Vec<PlaylistEntry>,
+}
+
+/// What a pasted page turned out to be. Both answers come from one yt-dlp
+/// launch, which is why the probe asks rather than guessing from the URL:
+/// `--no-playlist` still returns the single video for a watch link that
+/// happens to carry a list, and `--flat-playlist` keeps a 200-video channel
+/// from costing 200 extractions before the dialog says anything at all.
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Probe {
+    Video(VideoInfo),
+    Playlist(PlaylistInfo),
+}
+
 fn is_executable(path: &str) -> bool {
     Path::new(path).is_file()
 }
@@ -949,6 +995,19 @@ fn as_num(v: &serde_json::Value, key: &str) -> f64 {
     v.get(key).and_then(|x| x.as_f64()).unwrap_or(0.0)
 }
 
+/// The first of several keys that is actually filled in. Extractors disagree
+/// about which one carries the name — `uploader` on one site, `channel` on the
+/// next — and an empty string is the same as a missing key here.
+fn as_str_any(v: &serde_json::Value, keys: &[&str]) -> String {
+    for key in keys {
+        let found = as_str(v, key);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    String::new()
+}
+
 /// aria2 wants headers as "Name: Value" lines. yt-dlp hands them over as an
 /// object, and for some sites they are not optional — a URL minted for one
 /// User-Agent is a 403 for any other.
@@ -977,7 +1036,7 @@ fn format_kind(f: &serde_json::Value) -> &'static str {
 }
 
 #[tauri::command]
-fn video_probe(video: tauri::State<Video>, url: String) -> Result<VideoInfo, String> {
+fn video_probe(video: tauri::State<Video>, url: String) -> Result<Probe, String> {
     let Some(cmd) = resolve_ytdlp(&video) else {
         return Err("no-ytdlp".to_string());
     };
@@ -985,7 +1044,16 @@ fn video_probe(video: tauri::State<Video>, url: String) -> Result<VideoInfo, Str
     let mut args: Vec<String> = cmd[1..].to_vec();
     args.extend([
         "-J".to_string(),
+        // Still a preference for the single video: a watch link that carries
+        // a list is the video someone was watching, not the list.
         "--no-playlist".to_string(),
+        // And when the URL really is a playlist, stop at the listing. The
+        // formats come later, one probe per entry that gets ticked — a
+        // playlist's entries do not all offer the same qualities, so there is
+        // no one answer to collect here anyway.
+        "--flat-playlist".to_string(),
+        "--playlist-end".to_string(),
+        MAX_PLAYLIST_ENTRIES.to_string(),
         "--no-warnings".to_string(),
         "--no-progress".to_string(),
         url,
@@ -1010,25 +1078,100 @@ fn video_probe(video: tauri::State<Video>, url: String) -> Result<VideoInfo, Str
     let root: serde_json::Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("could not read what yt-dlp returned: {e}"))?;
 
-    trim_info(&root)
+    trim_probe(&root)
+}
+
+/// A thumbnail, wherever the extractor put it. A flat entry carries a
+/// `thumbnails` list and no `thumbnail`, and the list runs worst-first — which
+/// is the end to take for something rendered at 96 pixels wide.
+fn thumbnail_of(v: &serde_json::Value) -> String {
+    let direct = as_str(v, "thumbnail");
+    if !direct.is_empty() {
+        return direct;
+    }
+    v.get("thumbnails")
+        .and_then(|t| t.as_array())
+        .and_then(|t| t.first())
+        .map(|t| as_str(t, "url"))
+        .unwrap_or_default()
+}
+
+/// Which of the two a page is. Splitting here rather than inside `trim_info`
+/// keeps the single-video parser honest: it is only ever handed a video.
+fn trim_probe(root: &serde_json::Value) -> Result<Probe, String> {
+    if root.get("_type").and_then(|t| t.as_str()) == Some("playlist") {
+        trim_playlist(root).map(Probe::Playlist)
+    } else {
+        trim_info(root).map(Probe::Video)
+    }
+}
+
+/// A playlist as the picker needs it: a line per entry, and the page URL to
+/// come back to for each one.
+fn trim_playlist(root: &serde_json::Value) -> Result<PlaylistInfo, String> {
+    let empty = Vec::new();
+    let raw = root
+        .get("entries")
+        .and_then(|e| e.as_array())
+        .unwrap_or(&empty);
+
+    let mut entries: Vec<PlaylistEntry> = Vec::new();
+    let mut nested = 0usize;
+    for e in raw {
+        // A channel's front page is a playlist of playlists — its tabs. There
+        // is nothing to download in one of those, and walking into them is a
+        // different feature from listing videos.
+        if e.get("_type").and_then(|t| t.as_str()) == Some("playlist") {
+            nested += 1;
+            continue;
+        }
+        let url = as_str_any(e, &["url", "webpage_url"]);
+        if url.is_empty() {
+            continue;
+        }
+        entries.push(PlaylistEntry {
+            id: as_str(e, "id"),
+            title: as_str(e, "title"),
+            url,
+            duration: as_num(e, "duration"),
+            uploader: as_str_any(e, &["uploader", "channel", "creator"]),
+            thumbnail: thumbnail_of(e),
+        });
+        if entries.len() == MAX_PLAYLIST_ENTRIES {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
+        return Err(if nested > 0 {
+            "that page lists playlists rather than videos — open the one you want and paste that"
+                .to_string()
+        } else {
+            "that playlist has nothing in it".to_string()
+        });
+    }
+
+    // The site's own count when it gives one, so a capped listing can say what
+    // it is missing. A count smaller than what arrived is not a count.
+    let total = root
+        .get("playlist_count")
+        .and_then(|c| c.as_u64())
+        .filter(|c| *c as usize >= entries.len())
+        .unwrap_or(entries.len() as u64);
+
+    Ok(PlaylistInfo {
+        title: as_str(root, "title"),
+        uploader: as_str_any(root, &["uploader", "channel", "creator"]),
+        webpage_url: as_str(root, "webpage_url"),
+        extractor: as_str(root, "extractor_key"),
+        total,
+        entries,
+    })
 }
 
 /// Everything yt-dlp's 150 KB of JSON becomes: a handful of streams aria2 can
 /// actually fetch, in the order the picker lists them.
-fn trim_info(root: &serde_json::Value) -> Result<VideoInfo, String> {
-    // --no-playlist is a preference, not a guarantee: a channel or a playlist
-    // page still comes back as a playlist, and the first entry is what the
-    // user pointed at.
-    let info = if root.get("_type").and_then(|t| t.as_str()) == Some("playlist") {
-        root.get("entries")
-            .and_then(|e| e.as_array())
-            .and_then(|e| e.first())
-            .cloned()
-            .ok_or_else(|| "that page has no video on it".to_string())?
-    } else {
-        root.clone()
-    };
-
+fn trim_info(info: &serde_json::Value) -> Result<VideoInfo, String> {
     let empty = Vec::new();
     let raw = info
         .get("formats")
@@ -1096,12 +1239,12 @@ fn trim_info(root: &serde_json::Value) -> Result<VideoInfo, String> {
     }
 
     Ok(VideoInfo {
-        title: as_str(&info, "title"),
-        uploader: as_str(&info, "uploader"),
-        duration: as_num(&info, "duration"),
-        thumbnail: as_str(&info, "thumbnail"),
-        webpage_url: as_str(&info, "webpage_url"),
-        extractor: as_str(&info, "extractor_key"),
+        title: as_str(info, "title"),
+        uploader: as_str_any(info, &["uploader", "channel", "creator"]),
+        duration: as_num(info, "duration"),
+        thumbnail: thumbnail_of(info),
+        webpage_url: as_str(info, "webpage_url"),
+        extractor: as_str(info, "extractor_key"),
         formats,
     })
 }
@@ -1929,21 +2072,129 @@ mod tests {
         );
     }
 
+    fn playlist_of(entries: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "_type": "playlist",
+            "title": "Physics lectures",
+            "channel": "Physicsworks",
+            "webpage_url": "https://example.com/list",
+            "extractor_key": "Example",
+            "entries": entries,
+        })
+    }
+
+    fn as_playlist(root: &serde_json::Value) -> PlaylistInfo {
+        match trim_probe(root).unwrap() {
+            Probe::Playlist(list) => list,
+            Probe::Video(v) => panic!("a playlist came back as the video {:?}", v.title),
+        }
+    }
+
+    /// The whole point of the change: a playlist URL used to answer with its
+    /// first video, which is a wrong answer rather than a missing feature.
     #[test]
-    fn a_playlist_page_yields_its_first_video() {
-        // --no-playlist is a preference, not a guarantee: a channel URL still
-        // comes back wrapped.
-        let inner: serde_json::Value = serde_json::from_str(COMMONS).unwrap();
-        let wrapped = serde_json::json!({ "_type": "playlist", "entries": [inner] });
-        let info = trim_info(&wrapped).unwrap();
-        assert_eq!(info.title, "Physicsworks");
-        assert_eq!(info.formats.len(), 4);
+    fn a_playlist_page_is_a_list_not_its_first_video() {
+        let root = playlist_of(serde_json::json!([
+            { "id": "a", "title": "One",   "url": "https://example.com/a", "duration": 61 },
+            { "id": "b", "title": "Two",   "url": "https://example.com/b" },
+            { "id": "c", "title": "Three", "url": "https://example.com/c" },
+        ]));
+        let list = as_playlist(&root);
+        assert_eq!(list.total, 3);
+        // The order is the playlist's, because that is the order they queue in.
+        assert_eq!(
+            list.entries.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(),
+            ["One", "Two", "Three"]
+        );
+        assert_eq!(list.entries[0].url, "https://example.com/a");
+        assert_eq!(list.entries[0].duration, 61.0);
+        // `channel` where another site would have said `uploader`.
+        assert_eq!(list.uploader, "Physicsworks");
+    }
+
+    /// `--no-playlist` still wins for a watch link that carries a list, so the
+    /// single-video path has to survive the flat listing being asked for.
+    #[test]
+    fn a_single_video_is_still_a_video() {
+        let root: serde_json::Value = serde_json::from_str(COMMONS).unwrap();
+        match trim_probe(&root).unwrap() {
+            Probe::Video(v) => {
+                assert_eq!(v.title, "Physicsworks");
+                assert_eq!(v.formats.len(), 4);
+            }
+            Probe::Playlist(_) => panic!("a video came back as a playlist"),
+        }
     }
 
     #[test]
     fn an_empty_playlist_is_an_error_not_an_empty_picker() {
-        let wrapped = serde_json::json!({ "_type": "playlist", "entries": [] });
-        assert!(trim_info(&wrapped).is_err());
+        let root = playlist_of(serde_json::json!([]));
+        assert!(trim_probe(&root).is_err());
+    }
+
+    /// A channel's front page lists its tabs, which are playlists. Ticking one
+    /// would download nothing, so it says which page to paste instead.
+    #[test]
+    fn a_page_of_playlists_says_so() {
+        let root = playlist_of(serde_json::json!([
+            { "_type": "playlist", "id": "videos", "title": "Videos", "url": "https://example.com/v" },
+            { "_type": "playlist", "id": "shorts", "title": "Shorts", "url": "https://example.com/s" },
+        ]));
+        let err = trim_probe(&root).unwrap_err();
+        assert!(err.contains("lists playlists"), "unhelpful: {err}");
+    }
+
+    /// An entry with nowhere to go can't be probed and can't be queued.
+    #[test]
+    fn an_entry_with_no_url_is_dropped() {
+        let root = playlist_of(serde_json::json!([
+            { "id": "a", "title": "One" },
+            { "id": "b", "title": "Two", "webpage_url": "https://example.com/b" },
+        ]));
+        let list = as_playlist(&root);
+        assert_eq!(list.entries.len(), 1);
+        assert_eq!(list.entries[0].url, "https://example.com/b");
+    }
+
+    /// A channel holds more than a dialog can show. The cap is a cap, and the
+    /// count it came from is kept so the picker can say what it left behind.
+    #[test]
+    fn a_long_channel_is_capped_and_says_so() {
+        let entries: Vec<serde_json::Value> = (0..MAX_PLAYLIST_ENTRIES + 120)
+            .map(|i| serde_json::json!({ "id": i.to_string(), "url": format!("https://example.com/{i}") }))
+            .collect();
+        let mut root = playlist_of(serde_json::Value::Array(entries));
+        root["playlist_count"] = serde_json::json!(1240);
+        let list = as_playlist(&root);
+        assert_eq!(list.entries.len(), MAX_PLAYLIST_ENTRIES);
+        assert_eq!(list.total, 1240);
+    }
+
+    /// A count the site got wrong must not read as "there are more" — the
+    /// picker would promise entries nothing can produce.
+    #[test]
+    fn a_count_smaller_than_the_listing_is_not_a_count() {
+        let mut root = playlist_of(serde_json::json!([
+            { "id": "a", "url": "https://example.com/a" },
+            { "id": "b", "url": "https://example.com/b" },
+        ]));
+        root["playlist_count"] = serde_json::json!(1);
+        assert_eq!(as_playlist(&root).total, 2);
+    }
+
+    /// Flat entries carry a `thumbnails` list and no `thumbnail`, worst first
+    /// — which is the end worth taking for a 96-pixel row.
+    #[test]
+    fn a_flat_entry_takes_its_smallest_thumbnail() {
+        let root = playlist_of(serde_json::json!([{
+            "id": "a",
+            "url": "https://example.com/a",
+            "thumbnails": [
+                { "url": "https://example.com/small.jpg", "height": 90 },
+                { "url": "https://example.com/huge.jpg",  "height": 1080 },
+            ],
+        }]));
+        assert_eq!(as_playlist(&root).entries[0].thumbnail, "https://example.com/small.jpg");
     }
 
     /// One top-level ISO box: a big-endian size covering the header, the
