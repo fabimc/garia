@@ -41,6 +41,7 @@ let settings = {
   smartFolders: false,
   notifyOnComplete: true,
   catchClipboard: true,
+  inOrder: false,
 };
 
 async function loadSettings() {
@@ -141,7 +142,17 @@ function addOptions(url) {
   // Seeding rules cannot be pushed at a download that is already going, so
   // every torrent carries the rules that were in force when it was added.
   Object.assign(options, seedOptions());
+  Object.assign(options, orderOptions());
   return options;
+}
+
+// aria2 picks pieces to keep connections alive unless told otherwise, which is
+// the right default for finishing fast and the wrong one for watching a file
+// while it downloads. Like the seeding rules, this cannot be pushed at a
+// download already in flight — so it rides on each one as it is added, and
+// turning the setting on affects the next download rather than this one.
+function orderOptions() {
+  return settings.inOrder ? { "stream-piece-selector": "inorder" } : {};
 }
 
 // aria2 reads --seed-time=0 as "never seed", which is not what a blank field
@@ -1186,6 +1197,10 @@ const DETAIL_KEYS = [
   "downloadSpeed", "uploadSpeed", "connections", "numSeeders", "seeder",
   "dir", "files", "bittorrent", "infoHash", "numPieces", "pieceLength",
   "errorCode", "errorMessage",
+  // Which pieces are in. The list never asks for it — on a big torrent it is
+  // hundreds of characters a tick — but the panel needs it to say how much of
+  // the *front* of the file has arrived, which is the only part a player reads.
+  "bitfield",
 ];
 
 // Peers arrive by the hundred on a healthy torrent and the fast ones are the
@@ -1263,6 +1278,27 @@ function el(tag, className, text) {
   return node;
 }
 
+// How much has arrived is aria2's answer; whether that is enough to play is
+// the file's, and only the backend can read it. A container that keeps its
+// index at the end — which plenty of MP4s do — is complete-looking on aria2's
+// side and unplayable all the same.
+async function previewOf(st) {
+  const path = previewPath(st);
+  if (!path) return null;
+  const bytes = playableBytes(st);
+  const invoker = window.__TAURI__?.core?.invoke;
+  // Browser dev mode: there is no file on disk to read an index out of, so the
+  // front of it is taken on aria2's word alone. The app never comes here.
+  if (typeof invoker !== "function") return { path, bytes, ready: bytes >= 256 * 1024, reason: "" };
+  try {
+    const state = await invoker("preview_state", { path, readyBytes: bytes });
+    return { path, bytes, ...state };
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
 // aria2 answers getServers and getPeers with an error unless the download is
 // running — which is a fact about the download, not a fault worth surfacing.
 async function askQuietly(method, gid) {
@@ -1292,6 +1328,7 @@ async function detailData(gid) {
       gid: id,
       label: labels[i] || "",
       status,
+      preview: status ? await previewOf(status) : null,
       servers: live ? await askQuietly("aria2.getServers", id) : [],
       peers: live && status.bittorrent ? await askQuietly("aria2.getPeers", id) : [],
     });
@@ -1359,6 +1396,49 @@ function hostOf(uri) {
 // of bits set is the share of the torrent that peer has.
 const HEX_BITS = { 0: 0, 1: 1, 2: 1, 3: 2, 4: 1, 5: 2, 6: 2, 7: 3,
                    8: 1, 9: 2, a: 2, b: 3, c: 2, d: 3, e: 3, f: 4 };
+
+// The share of pieces that are in says nothing about whether a file will
+// play: a download can be 90% complete with a hole at the front. What a player
+// reads is the contiguous run from piece zero, so that is what gets counted —
+// aria2 writes the bitfield most-significant bit first, piece zero at the top.
+function leadingPieces(bitfield) {
+  let run = 0;
+  for (const ch of String(bitfield || "").toLowerCase()) {
+    const nibble = parseInt(ch, 16);
+    if (!Number.isFinite(nibble)) return run;
+    for (let bit = 3; bit >= 0; bit--) {
+      if (!(nibble & (1 << bit))) return run;
+      run++;
+    }
+  }
+  return run;
+}
+
+// That run, in bytes. The last piece of a file is short, so the total is the
+// ceiling — otherwise a finished download claims a few kilobytes it never had.
+function playableBytes(st) {
+  const pieces = Number(st.numPieces) || 0;
+  const pieceLength = Number(st.pieceLength) || 0;
+  const total = Number(st.totalLength) || 0;
+  if (!pieces || !pieceLength) return 0;
+  const bytes = Math.min(leadingPieces(st.bitfield), pieces) * pieceLength;
+  return total > 0 ? Math.min(bytes, total) : bytes;
+}
+
+// Worth offering to open: a download still running, writing one file, of a
+// kind something on the machine plays. A torrent that is a folder of files has
+// no single "the file", and saying which one to play is a bigger question than
+// this button answers.
+const PREVIEWABLE = new Set([...FOLDERS.Video, ...FOLDERS.Music]);
+const PREVIEW_WHILE = new Set(["active", "paused", "waiting"]);
+
+function previewPath(st) {
+  if (!st || !PREVIEW_WHILE.has(st.status)) return "";
+  const files = st.files || [];
+  if (files.length !== 1) return "";
+  const path = files[0].path || "";
+  return PREVIEWABLE.has(extensionOf(path)) ? path : "";
+}
 
 function bitfieldPct(bitfield, numPieces) {
   const pieces = Number(numPieces) || 0;
@@ -1435,6 +1515,17 @@ function buildPart(part) {
   sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
   sec.appendChild(buildField("dest", "Saving to"));
 
+  // Always built, usually hidden: whether a partial file is worth opening
+  // changes on almost every tick, and rebuilding the panel under the pointer
+  // to make a button appear is what detailShape exists to avoid.
+  const preview = el("div", "detail-preview hidden");
+  preview.appendChild(el("p", "detail-note detail-preview-note"));
+  const play = el("button", "btn-secondary detail-preview-play", "Play what's here");
+  play.type = "button";
+  play.dataset.gid = part.gid;
+  preview.appendChild(play);
+  sec.appendChild(preview);
+
   const filesTable = buildTable("files", "Files",
     bt ? ["Take", "File", "Size", "Done"] : ["File", "Size", "Done"]);
   // The tick column pushes the name along one, and the name is the only column
@@ -1455,6 +1546,34 @@ function buildPart(part) {
 
   sec.appendChild(el("p", "detail-error hidden"));
   return sec;
+}
+
+// What the file has of itself, said in bytes rather than in a percentage —
+// "the first 40 MB are here" is the sentence that decides whether to open it.
+function updatePreview(sec, part) {
+  const block = sec.querySelector(".detail-preview");
+  if (!block) return;
+  const preview = part.preview;
+  block.classList.toggle("hidden", !preview);
+  if (!preview) return;
+
+  const play = block.querySelector(".detail-preview-play");
+  play.disabled = !preview.ready;
+  play.dataset.path = preview.path;
+
+  const said = [];
+  if (preview.ready) {
+    said.push(`The first ${formatBytes(preview.bytes)} are on disk and will play.`);
+    said.push("The rest keeps filling in behind them.");
+  } else {
+    said.push(preview.reason || "Not enough of the front of the file has arrived to play.");
+    // The one place the setting is worth mentioning is the moment it would
+    // have helped — and it only helps downloads added after it is turned on.
+    if (!settings.inOrder) {
+      said.push("Downloads aren't being filled from the front — turn on “Download in order” in Settings.");
+    }
+  }
+  block.querySelector(".detail-preview-note").textContent = said.join(" ");
 }
 
 // The same three modes as the status bar, aimed at one download. It sits above
@@ -1614,6 +1733,7 @@ function updatePart(sec, part) {
     st.bittorrent ? st.infoHash || "" : uris[0] || "",
     uris.length > 1 ? uris.join("\n") : "");
   setField(sec, "dest", destinationOf(st));
+  updatePreview(sec, part);
 
   const files = st.files || [];
   const bt = Boolean(st.bittorrent);
@@ -2237,7 +2357,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // Routed by what the file will be, not by the page URL — which has no
     // extension at all, and would land every video in the base folder.
     const dir = targetDir(`x.${choice.ext}`);
-    const common = dir ? { dir } : {};
+    const common = { ...(dir ? { dir } : {}), ...orderOptions() };
     // Some sites mint a URL for one User-Agent and 403 every other.
     const referer = info.webpageUrl ? { referer: info.webpageUrl } : {};
 
@@ -2356,7 +2476,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const dl = snapshot.get(gid);
     const uris = dl ? retryUris(dl) : [];
     if (!uris.length) return;
-    await rpc("aria2.addUri", [uris, dl.dir ? { dir: dl.dir } : {}]);
+    await rpc("aria2.addUri", [uris, { ...(dl.dir ? { dir: dl.dir } : {}), ...orderOptions() }]);
     await purgeResult(gid);
   }
 
@@ -2464,6 +2584,23 @@ window.addEventListener("DOMContentLoaded", () => {
       const sec = box.closest(".detail-part");
       fileSelection.set(sec.dataset.gid, new Set(selectedIndices(sec)));
       updateSelectBar(sec);
+      return;
+    }
+
+    // Opening the partial file. The button is only enabled once the backend
+    // has said the bytes at the front are worth opening, so there is nothing
+    // to re-check here — but the file can go away between tick and click.
+    const play = e.target.closest(".detail-preview-play");
+    if (play) {
+      play.disabled = true;
+      try {
+        await window.__TAURI__.core.invoke("preview_file", { path: play.dataset.path });
+      } catch (err) {
+        console.error(err);
+        const note = play.closest(".detail-preview").querySelector(".detail-preview-note");
+        note.textContent = String(err?.message || err);
+      }
+      play.disabled = false;
       return;
     }
 
@@ -2738,6 +2875,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsNotify  = document.getElementById("settings-notify");
   const settingsSmart   = document.getElementById("settings-smart-folders");
   const settingsCatch   = document.getElementById("settings-catch");
+  const settingsInOrder = document.getElementById("settings-in-order");
   const settingsError   = document.getElementById("settings-error");
 
   const MB = 1024 * 1024;
@@ -2761,6 +2899,7 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsNotify.checked = settings.notifyOnComplete !== false;
     settingsSmart.checked = settings.smartFolders === true;
     settingsCatch.checked = settings.catchClipboard !== false;
+    settingsInOrder.checked = settings.inOrder === true;
     settingsOverlay.classList.remove("hidden");
     setTimeout(() => settingsDir.focus(), 50);
   }
@@ -2783,6 +2922,7 @@ window.addEventListener("DOMContentLoaded", () => {
       smartFolders: settingsSmart.checked,
       notifyOnComplete: settingsNotify.checked,
       catchClipboard: settingsCatch.checked,
+      inOrder: settingsInOrder.checked,
     };
 
     // Switching notifications off should take the count on the dock with it.

@@ -26,6 +26,10 @@ const item = (gid, status, path, total, done, speed, extra = {}) => {
     connections: status === "active" ? "16" : "0",
     numPieces: total ? String(Math.ceil(total / (4 * MB))) : "0",
     pieceLength: String(4 * MB),
+    // Which pieces are in. In-order by default — a leading run, which is what
+    // --stream-piece-selector=inorder produces and what makes a partial file
+    // playable. `extra` overrides it for the row that shows the other case.
+    bitfield: total ? bitfield(Math.ceil(total / (4 * MB)), done / total) : "",
     files: [{
       index: "1",
       path,
@@ -69,6 +73,7 @@ const torrent = (t) => {
     seeder: "false",
     numPieces: String(Math.ceil(total / (4 * MB))),
     pieceLength: String(4 * MB),
+    bitfield: bitfield(Math.ceil(total / (4 * MB)), done / total),
     infoHash: "2b66980093bc11806fab50cb3cb41835b95a0362",
     dir,
     files,
@@ -80,8 +85,15 @@ const torrent = (t) => {
 // to hand over hex rather than a percentage.
 function bitfield(pieces, share) {
   const nibbles = Math.ceil(pieces / 4);
-  const full = Math.floor(nibbles * share);
+  const full = Math.max(0, Math.min(nibbles, Math.floor(nibbles * share)));
   return "f".repeat(full) + "0".repeat(nibbles - full);
+}
+
+// The same pieces, none of them at the front — aria2's own selector, which
+// picks whatever keeps a connection busiest. A download in this shape can read
+// 60% complete and have nothing a player could open.
+function scattered(pieces, share) {
+  return "0" + bitfield(pieces, share).slice(1);
 }
 
 function peersFor(bt) {
@@ -210,6 +222,12 @@ function snapshot() {
     torrent(t),
     // totalLength 0 → exercises the indeterminate sweep
     item("aaaa2222", "active", "/Users/me/Downloads/stream-of-unknown-size.bin", 0, Math.round(12 * MB + t * MB), 1.1 * MB),
+    // A film-sized video whose pieces are scattered rather than in order,
+    // which is what aria2 does unless told otherwise: a quarter of it on disk
+    // and nothing at the front for a player to open.
+    item("aaaa3333", "active", "/Users/me/Downloads/Video/Big Buck Bunny 4K.mp4",
+      2400 * MB, Math.round(Math.min(2400 * MB, 480 * MB + t * 5.5 * MB)), 5.5 * MB,
+      { bitfield: scattered(600, Math.min(1, (480 * MB + t * 5.5 * MB) / (2400 * MB))) }),
   ];
 
   // One download that actually crosses the line, so the completion handling —

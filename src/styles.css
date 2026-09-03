@@ -1808,6 +1808,26 @@ body {
     flex-shrink: 0;
 }
 
+/* Same shape as the file-selection bar — a sentence about the file and the one
+   button that acts on it — but a class of its own: updateSelectBar reaches for
+   the first .detail-select in a part, and it must not find this. */
+.detail-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+.detail-preview .detail-preview-note {
+    flex: 1;
+    min-width: 0;
+}
+.detail-preview-play {
+    flex-shrink: 0;
+}
+
 /* The row's own share of the line. Same three modes as the status bar, aimed
    at one download — so the one file saturating the connection can be held
    back without slowing everything else down. */

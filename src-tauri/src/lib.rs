@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -74,6 +75,13 @@ struct Settings {
     /// default: catching a download that started in the browser is why the
     /// app stays open. Off if the offer gets in the way.
     catch_clipboard: bool,
+    /// Ask aria2 for the lowest-numbered piece it can take next, so the file
+    /// fills from the front and can be played before it is finished. Off by
+    /// default, because it is a real trade: the default selector picks pieces
+    /// to keep connections alive, and in-order arrival gives some of that up.
+    /// Nothing here reads it — it goes on each download as it is added, since
+    /// aria2 will not change a piece selector on a download it is working.
+    in_order: bool,
 }
 
 impl Default for Settings {
@@ -91,6 +99,7 @@ impl Default for Settings {
             smart_folders: false,
             notify_on_complete: true,
             catch_clipboard: true,
+            in_order: false,
         }
     }
 }
@@ -979,6 +988,144 @@ fn mux_video(video_path: String, audio_path: String, out_path: String) -> Result
     Ok(out_path)
 }
 
+// ── Preview ──────────────────────────────────────────────────────────────
+// A download that arrives from the front is a playable file long before it is
+// a finished one. What stops it being playable is never the missing tail — it
+// is the container's index, which some formats keep at the end of the file.
+
+/// Containers that carry an index the player has to find before it can start.
+/// Everything else garia downloads — Matroska, WebM, Ogg, MPEG-TS, a raw MP3 —
+/// is built to be read from the first byte, so having some of it is enough.
+const INDEXED_EXTS: [&str; 5] = ["mp4", "m4v", "m4a", "mov", "3gp"];
+
+/// Below this there is not enough of anything for a player to make sense of,
+/// whatever the container. A quarter of a megabyte is a few seconds of audio
+/// and rather less video, and it is smaller than one aria2 piece.
+const PREVIEW_FLOOR: u64 = 256 * 1024;
+
+/// What the panel says about opening a half-downloaded file, and whether it
+/// offers to.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct PreviewState {
+    ready: bool,
+    /// Why not, in the panel's own words — empty once it is ready, because
+    /// then the panel has the number to show instead.
+    reason: String,
+}
+
+impl PreviewState {
+    fn no(reason: &str) -> Self {
+        Self { ready: false, reason: reason.to_string() }
+    }
+}
+
+/// Walks the top-level boxes of an ISO base media file looking for `moov` —
+/// the index, without which a player has no idea what is in the file or where.
+/// `limit` is how far into the file the bytes have actually arrived: reading a
+/// box header past it would be reading a hole aria2 has not filled in yet.
+fn moov_within<R: Read + Seek>(src: &mut R, limit: u64) -> bool {
+    let mut offset = 0u64;
+    // A real file has a handful of top-level boxes. The cap is so a corrupt
+    // one — or one whose header lands on a hole that reads as zeroes — cannot
+    // walk forever.
+    for _ in 0..64 {
+        if offset.saturating_add(8) > limit || src.seek(SeekFrom::Start(offset)).is_err() {
+            return false;
+        }
+        let mut head = [0u8; 8];
+        if src.read_exact(&mut head).is_err() {
+            return false;
+        }
+        let kind = &head[4..8];
+        let mut size = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64;
+        let mut header = 8u64;
+
+        if size == 1 {
+            // The 32-bit field is an escape: the real size is the eight bytes
+            // after the type. This is how an mdat larger than 4 GB is written.
+            if offset.saturating_add(16) > limit {
+                return false;
+            }
+            let mut ext = [0u8; 8];
+            if src.read_exact(&mut ext).is_err() {
+                return false;
+            }
+            size = u64::from_be_bytes(ext);
+            header = 16;
+        } else if size == 0 {
+            // "To the end of the file" — so nothing follows it to go looking for.
+            return kind == b"moov";
+        }
+
+        if size < header {
+            return false;
+        }
+        if kind == b"moov" {
+            // Finding where it starts is not enough; a player reads all of it.
+            return offset.saturating_add(size) <= limit;
+        }
+        offset = offset.saturating_add(size);
+    }
+    false
+}
+
+/// Whether the bytes that have arrived are worth opening — asked of the file
+/// on disk, not of aria2, because aria2 knows how much has arrived and nothing
+/// at all about what a player needs.
+///
+/// `ready_bytes` is the contiguous run from the front of the file, which the
+/// panel works out from aria2's piece bitfield. A download can be 90% complete
+/// and have none of it.
+#[tauri::command]
+fn preview_state(path: String, ready_bytes: u64) -> PreviewState {
+    let file = Path::new(&path);
+    let Ok(meta) = fs::metadata(file) else {
+        return PreviewState::no("Nothing has been written to disk yet.");
+    };
+    // aria2 preallocates, so the file is full-size from the first second and
+    // its length says nothing. It is still the ceiling on what can be read.
+    let ready = ready_bytes.min(meta.len());
+    if ready < PREVIEW_FLOOR {
+        return PreviewState::no("Not enough of the front of the file has arrived to play.");
+    }
+
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !INDEXED_EXTS.contains(&ext.as_str()) {
+        return PreviewState { ready: true, reason: String::new() };
+    }
+
+    let Ok(mut handle) = fs::File::open(file) else {
+        return PreviewState::no("The file could not be opened.");
+    };
+    if moov_within(&mut handle, ready) {
+        PreviewState { ready: true, reason: String::new() }
+    } else {
+        PreviewState::no(
+            "Its index hasn't arrived. Some MP4s keep it at the end of the file, \
+             and those only play once the download finishes.",
+        )
+    }
+}
+
+/// Hands the partial file to whatever the machine opens that kind with. The
+/// panel has already asked whether it is worth opening; this only refuses the
+/// case that would open a Finder window on nothing.
+#[tauri::command]
+fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    if !Path::new(&path).is_file() {
+        return Err(format!("{path} is not there any more"));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path.clone(), None::<&str>)
+        .map_err(|e| format!("could not open {path}: {e}"))
+}
+
 /// Where to look for aria2c, best first. The sidecar sits next to the app
 /// binary and is what a fresh install runs — no `brew install aria2` first.
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
@@ -1179,7 +1326,9 @@ pub fn run() {
             copy_text,
             video_tools,
             video_probe,
-            mux_video
+            mux_video,
+            preview_state,
+            preview_file
         ])
         .setup(|app| {
             let dir = app
@@ -1473,6 +1622,75 @@ mod tests {
     fn an_empty_playlist_is_an_error_not_an_empty_picker() {
         let wrapped = serde_json::json!({ "_type": "playlist", "entries": [] });
         assert!(trim_info(&wrapped).is_err());
+    }
+
+    /// One top-level ISO box: a big-endian size covering the header, the
+    /// four-character type, and however much filler the size claims.
+    fn boxed(kind: &[u8; 4], payload: usize) -> Vec<u8> {
+        let size = (8 + payload) as u32;
+        let mut out = size.to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend(std::iter::repeat_n(0u8, payload));
+        out
+    }
+
+    fn walk(file: &[u8], ready: u64) -> bool {
+        moov_within(&mut std::io::Cursor::new(file.to_vec()), ready)
+    }
+
+    /// A faststart MP4 — the one `mux_video` writes — puts the index in front
+    /// of the media, which is the whole reason preview works on one at all.
+    #[test]
+    fn a_faststart_mp4_is_playable_from_its_first_bytes() {
+        let mut file = boxed(b"ftyp", 24);
+        file.extend(boxed(b"moov", 900));
+        file.extend(boxed(b"mdat", 40_000));
+        assert!(walk(&file, 2_000));
+    }
+
+    /// The case the panel exists to explain: everything has arrived except the
+    /// index, because the index is behind all of it.
+    #[test]
+    fn an_index_at_the_end_is_not_playable_until_it_arrives() {
+        let mut file = boxed(b"ftyp", 24);
+        file.extend(boxed(b"mdat", 40_000));
+        file.extend(boxed(b"moov", 900));
+        assert!(!walk(&file, 20_000), "half the media is not an index");
+        assert!(walk(&file, file.len() as u64), "and the whole file is");
+    }
+
+    /// Starting inside the downloaded prefix is not enough — a player reads
+    /// the whole index, and the rest of it is still a hole.
+    #[test]
+    fn an_index_that_runs_past_the_frontier_is_not_playable() {
+        let mut file = boxed(b"ftyp", 24);
+        file.extend(boxed(b"moov", 4_000));
+        assert!(!walk(&file, 1_000));
+        assert!(walk(&file, 4_100));
+    }
+
+    /// A box header read past the frontier is a header read off a hole, which
+    /// aria2 preallocated as zeroes — and a zero size means "to end of file".
+    /// Walking that would report an index the file may not have.
+    #[test]
+    fn a_header_on_an_unwritten_hole_is_not_walked() {
+        let mut file = boxed(b"ftyp", 24);
+        file.extend(vec![0u8; 4_000]);
+        assert!(!walk(&file, file.len() as u64));
+    }
+
+    /// The 64-bit escape, which is how any mdat over 4 GB is written — and a
+    /// preview is exactly the case where the file is that big.
+    #[test]
+    fn a_64_bit_mdat_is_stepped_over_to_reach_the_index() {
+        let mut file = boxed(b"ftyp", 24);
+        let payload = 5_000u64;
+        file.extend(1u32.to_be_bytes());
+        file.extend(b"mdat");
+        file.extend((16 + payload).to_be_bytes());
+        file.extend(vec![0u8; payload as usize]);
+        file.extend(boxed(b"moov", 100));
+        assert!(walk(&file, file.len() as u64));
     }
 
     /// The sidecar is looked at first — a bundled garia must merge without

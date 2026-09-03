@@ -815,6 +815,21 @@
 
                     <div class="field">
                         <label class="field-check">
+                            <input type="checkbox" id="settings-in-order" />
+                            <span>Download in order, so files play before they finish</span>
+                        </label>
+                        <p class="field-hint">
+                            aria2 normally takes whichever piece keeps a
+                            connection busiest, which finishes soonest but
+                            leaves holes near the front. In order, the file
+                            fills from the beginning and a row can be opened
+                            in a player while it downloads — at some cost to
+                            the speed. Applies to downloads added from now on.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
                             <input type="checkbox" id="settings-catch" />
                             <span>Watch the clipboard for file URLs</span>
                         </label>
