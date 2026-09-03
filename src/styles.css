@@ -116,8 +116,7 @@ body {
     flex-shrink: 0;
     width: 26px;
     height: 26px;
-    object-fit: cover;
-    border-radius: 7px;
+    object-fit: contain;
 }
 
 .wordmark {
