@@ -32,6 +32,9 @@ async function rpc(method, params = []) {
 let settings = {
   downloadDir: "",
   maxConcurrentDownloads: 5,
+  trafficMode: "full",
+  mediumLimit: 2 * 1024 * 1024,
+  lightLimit: 512 * 1024,
   maxOverallDownloadLimit: 0,
   smartFolders: false,
   notifyOnComplete: true,
@@ -43,10 +46,43 @@ async function loadSettings() {
   if (typeof invoker !== "function") return;   // browser dev mode: aria2's own defaults
   try {
     settings = await invoker("get_settings");
-    renderLimitBadge();
+    renderTraffic();
   } catch (err) {
     console.error(err);
   }
+}
+
+// ── Traffic modes ────────────────────────────────────────────────────────
+// One number is a setting; three named speeds are a control. Full is aria2's
+// own "no limit"; the other two are whatever the user made them, and the same
+// three can be aimed at a single download from its detail panel.
+const MODES = ["full", "medium", "light"];
+const MODE_LABELS = { full: "Full speed", medium: "Medium", light: "Light" };
+
+function modeLimit(mode) {
+  if (mode === "medium") return Number(settings.mediumLimit) || 0;
+  if (mode === "light") return Number(settings.lightLimit) || 0;
+  return 0;
+}
+
+function currentMode() {
+  return MODES.includes(settings.trafficMode) ? settings.trafficMode : "full";
+}
+
+// A cap set when Light meant something else is still that many bytes, so the
+// number is what a mode is recognised by — and a cap matching neither mode
+// still has to be able to say what it is.
+function modeOfLimit(bytes) {
+  if (!(bytes > 0)) return "full";
+  if (bytes === modeLimit("medium")) return "medium";
+  if (bytes === modeLimit("light")) return "light";
+  return "";
+}
+
+function limitLabel(bytes) {
+  const mode = modeOfLimit(bytes);
+  if (mode === "full") return "";
+  return mode ? MODE_LABELS[mode] : formatSpeed(bytes);
 }
 
 // ── Smart folders ────────────────────────────────────────────────────────
@@ -661,6 +697,7 @@ function createItemEl(dl) {
     <div class="dl-content">
       <div class="dl-head">
         <button type="button" class="dl-name"></button>
+        <span class="dl-cap hidden"></span>
         <span class="dl-status-pill"></span>
       </div>
       <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
@@ -692,6 +729,17 @@ function updateItemEl(li, dl) {
   if (nameEl.textContent !== name) {
     nameEl.textContent = name;
     nameEl.title = name;
+  }
+
+  // A capped row is slower than the line on purpose, and the row is where that
+  // has to be said — the alternative is a download that looks stuck.
+  const capEl = li.querySelector(".dl-cap");
+  const cap = LIMITABLE.has(dl.status) ? rowLimit(dl.gid) : 0;
+  const capText = cap > 0 ? limitLabel(cap) : "";
+  capEl.classList.toggle("hidden", !capText);
+  if (capText && capEl.textContent !== capText) {
+    capEl.textContent = capText;
+    capEl.title = `This download is capped at ${formatSpeed(cap)}`;
   }
 
   // Downloading rows already say it twice over — the moving bar, the speed, and
@@ -903,14 +951,96 @@ function renderCounts(tally) {
   document.getElementById("stat-speed").textContent = speed ? `↓ ${speed}` : "";
 }
 
-// A cap explains a slow download, so it has to be visible without opening
-// Settings to remember it's there.
-function renderLimitBadge() {
-  const el = document.getElementById("stat-limit");
-  if (!el) return;
-  const bytes = Number(settings.maxOverallDownloadLimit) || 0;
-  el.classList.toggle("hidden", bytes <= 0);
-  if (bytes > 0) el.textContent = `· capped at ${formatSpeed(bytes)}`;
+// A cap explains a slow download, so it has to be visible — and reachable —
+// without opening Settings to remember it's there.
+function renderTraffic() {
+  const btn = document.getElementById("traffic-btn");
+  if (!btn) return;
+  const mode = currentMode();
+  const bytes = modeLimit(mode);
+
+  btn.textContent = mode === "full"
+    ? MODE_LABELS.full
+    : `${MODE_LABELS[mode]} · ${formatSpeed(bytes)}`;
+  btn.classList.toggle("capped", mode !== "full");
+
+  for (const option of document.querySelectorAll(".traffic-option")) {
+    const own = option.dataset.mode;
+    option.setAttribute("aria-checked", String(own === mode));
+    if (own === "full") continue;
+    option.querySelector(".traffic-option-note").textContent =
+      formatSpeed(modeLimit(own)) || "—";
+  }
+}
+
+async function setTrafficMode(mode) {
+  const next = { ...settings, trafficMode: mode, maxOverallDownloadLimit: modeLimit(mode) };
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker === "function") {
+    // Rust owns the file and pushes the cap into the running aria2.
+    settings = await invoker("save_settings", { settings: next });
+  } else {
+    // Browser dev mode: no backend to route through, so aria2 is told here.
+    settings = next;
+    try {
+      await rpc("aria2.changeGlobalOption", [{
+        "max-overall-download-limit": String(next.maxOverallDownloadLimit),
+      }]);
+    } catch (err) { console.error(err); }
+  }
+  renderTraffic();
+}
+
+// ── Per-download caps ────────────────────────────────────────────────────
+// gid → bytes per second, mirroring aria2's own max-download-limit. aria2
+// keeps that option for the life of the download and writes it into the
+// session file, so a cap set in one run is still in force in the next — which
+// means it has to be read back, not just remembered.
+const rowLimits = new Map();
+
+// Only a download that has yet to finish can be limited, and only those are
+// worth asking aria2 about.
+const LIMITABLE = new Set(["active", "waiting", "paused"]);
+
+// aria2 answers with a plain byte count, but its own option syntax allows a
+// K or M suffix and a hand-edited session file can carry one.
+function parseLimit(value) {
+  const text = String(value ?? "").trim();
+  const scale = /k$/i.test(text) ? 1024 : /m$/i.test(text) ? 1024 * 1024 : 1;
+  const n = parseFloat(text);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * scale) : 0;
+}
+
+// A merged video is two downloads under one row, and both halves carry the
+// cap — so the row's cap is whichever half admits to one.
+function rowLimit(gid) {
+  for (const g of gidsFor(gid)) {
+    const bytes = rowLimits.get(g) || 0;
+    if (bytes > 0) return bytes;
+  }
+  return 0;
+}
+
+// Asked once per gid, off the poll rather than inside it: the list must not
+// wait on a question whose answer only decorates a row.
+function learnLimits(raw) {
+  for (const dl of raw) {
+    if (!LIMITABLE.has(dl.status) || rowLimits.has(dl.gid)) continue;
+    rowLimits.set(dl.gid, 0);   // uncapped until aria2 says otherwise
+    rpc("aria2.getOption", [dl.gid])
+      .then((opt) => {
+        const bytes = parseLimit(opt?.["max-download-limit"]);
+        if (bytes > 0) rowLimits.set(dl.gid, bytes);
+      })
+      .catch(() => { /* finished, or forgotten, between the poll and the ask */ });
+  }
+}
+
+async function setRowLimit(gid, bytes) {
+  const gids = gidsFor(gid);
+  await Promise.all(gids.map((g) =>
+    rpc("aria2.changeOption", [g, { "max-download-limit": String(bytes) }])));
+  for (const g of gids) rowLimits.set(g, bytes);
 }
 
 // ── Queue order ──────────────────────────────────────────────────────────
@@ -1062,7 +1192,7 @@ function detailShape(data) {
     p.status ? (p.status.bittorrent ? "bt" : "http") : "gone",
     (p.status?.files || []).length,
   ].join(":"));
-  return (data.job ? "job|" : "") + parts.join("|");
+  return (canLimit(data) ? "cap|" : "") + (data.job ? "job|" : "") + parts.join("|");
 }
 
 function factValues(st) {
@@ -1195,6 +1325,58 @@ function buildPart(part) {
 
   sec.appendChild(el("p", "detail-error hidden"));
   return sec;
+}
+
+// The same three modes as the status bar, aimed at one download. It sits above
+// everything else in the panel because the reason to open a row while it runs
+// is usually to do something about how fast it is going.
+const MODE_SHORT = { full: "Full", medium: "Medium", light: "Light" };
+
+function buildLimitBlock() {
+  const sec = el("section", "detail-part detail-limit");
+  sec.appendChild(el("h3", "detail-part-title", "Speed limit"));
+
+  const seg = el("div", "seg");
+  seg.setAttribute("role", "group");
+  seg.setAttribute("aria-label", "Speed limit for this download");
+  for (const mode of MODES) {
+    const btn = el("button", null, MODE_SHORT[mode]);
+    btn.type = "button";
+    btn.dataset.limitMode = mode;
+    seg.appendChild(btn);
+  }
+  sec.appendChild(seg);
+
+  sec.appendChild(el("p", "detail-note"));
+  return sec;
+}
+
+function updateLimitBlock(sec, data) {
+  const bytes = rowLimit(data.gid);
+  const mode = modeOfLimit(bytes);
+  for (const btn of sec.querySelectorAll("[data-limit-mode]")) {
+    btn.setAttribute("aria-pressed", String(btn.dataset.limitMode === mode));
+  }
+
+  const said = [];
+  if (bytes > 0) {
+    said.push(`Held to ${formatSpeed(bytes)}.`);
+    // A cap set back when Light meant something else is still that many bytes.
+    if (!mode) said.push("Neither mode stands for that speed now — picking one replaces it.");
+    // The cap is an aria2 option on a download, and a merged row is two of them.
+    if (data.parts.length > 1) said.push("Each half of the merge carries it, so the pair can take twice that.");
+  } else if (currentMode() === "full") {
+    said.push("Takes what the line gives it.");
+  } else {
+    said.push(`Takes what the line gives it, under the overall ${MODE_LABELS[currentMode()]} cap.`);
+  }
+  sec.querySelector(".detail-note").textContent = said.join(" ");
+}
+
+// Only a download still going anywhere can be limited: aria2 takes the option
+// on a finished one and does nothing with it.
+function canLimit(data) {
+  return data.parts.some((p) => p.status && LIMITABLE.has(p.status.status));
 }
 
 // A merged video is two aria2 downloads and one file. The pair is the user's
@@ -1375,6 +1557,7 @@ async function renderDetail() {
   if (body.dataset.shape !== shape) {
     body.dataset.shape = shape;
     body.textContent = "";
+    if (canLimit(data)) body.appendChild(buildLimitBlock());
     if (data.job) body.appendChild(buildJobBlock());
     for (const part of data.parts) body.appendChild(buildPart(part));
   }
@@ -1388,6 +1571,7 @@ async function renderDetail() {
 
   const sections = [...body.children];
   let i = 0;
+  if (sections[i]?.classList.contains("detail-limit")) updateLimitBlock(sections[i++], data);
   if (data.job) updateJobBlock(sections[i++], data);
   for (const part of data.parts) updatePart(sections[i++], part);
 
@@ -1536,6 +1720,13 @@ async function poll(listEl) {
     for (const dl of raw) {
       const path = dl.files?.[0]?.path;
       if (path) rawPaths.set(dl.gid, path);
+    }
+
+    // Every unfinished download's own cap, learned once per gid — a row that
+    // came back capped from the session file has to be able to say so.
+    learnLimits(raw);
+    for (const gid of rowLimits.keys()) {
+      if (!raw.some((d) => d.gid === gid)) rowLimits.delete(gid);
     }
 
     const all = collapseJobs(raw);
@@ -1709,7 +1900,9 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModal(); closeConfirm(); closeSettings(); closeDetail(); }
+    if (e.key === "Escape") {
+      closeTrafficMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
+    }
   });
 
   // Browse → open native file picker for .torrent
@@ -2053,6 +2246,26 @@ window.addEventListener("DOMContentLoaded", () => {
   const detailOverlay = document.getElementById("detail-overlay");
 
   detailOverlay.addEventListener("click", async (e) => {
+    // The row's own cap. Sent before the panel is redrawn, and the buttons go
+    // dead in between: a second click while aria2 is still answering the first
+    // would leave the two halves of a merged row on different limits.
+    const limitBtn = e.target.closest("[data-limit-mode]");
+    if (limitBtn && detailGid) {
+      const gid = detailGid;
+      const seg = limitBtn.closest(".seg");
+      const buttons = [...seg.querySelectorAll("button")];
+      for (const b of buttons) b.disabled = true;
+      try {
+        await setRowLimit(gid, modeLimit(limitBtn.dataset.limitMode));
+      } catch (err) {
+        console.error(err);
+      }
+      for (const b of buttons) b.disabled = false;
+      refreshDetail();
+      await pollAndSync();   // the chip on the row behind the panel
+      return;
+    }
+
     // A source URL is long, expiring and worth pasting elsewhere; a path is
     // worth pasting into a terminal. Both are one click from being text.
     const copy = e.target.closest(".detail-copy");
@@ -2302,7 +2515,8 @@ window.addEventListener("DOMContentLoaded", () => {
   // ── Settings ─────────────────────────────────────────────────────────────
   const settingsOverlay = document.getElementById("settings-overlay");
   const settingsDir     = document.getElementById("settings-dir");
-  const settingsLimit   = document.getElementById("settings-limit");
+  const settingsMedium  = document.getElementById("settings-medium");
+  const settingsLight   = document.getElementById("settings-light");
   const settingsConc    = document.getElementById("settings-concurrency");
   const settingsNotify  = document.getElementById("settings-notify");
   const settingsSmart   = document.getElementById("settings-smart-folders");
@@ -2311,13 +2525,19 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const MB = 1024 * 1024;
 
+  const inMB = (bytes) => String(Math.round((Number(bytes) / MB) * 100) / 100);
+  const toBytes = (text) => {
+    const mb = parseFloat(text);
+    return Number.isFinite(mb) && mb > 0 ? Math.round(mb * MB) : 0;
+  };
+
   function openSettings() {
     settingsError.classList.add("hidden");
     loadVideoTools();
     settingsDir.value = settings.downloadDir || "";
-    const bytes = Number(settings.maxOverallDownloadLimit) || 0;
     // Bytes per second is what aria2 wants; MB/s is what a person thinks in.
-    settingsLimit.value = bytes ? String(Math.round((bytes / MB) * 100) / 100) : "0";
+    settingsMedium.value = inMB(modeLimit("medium"));
+    settingsLight.value = inMB(modeLimit("light"));
     settingsConc.value = String(settings.maxConcurrentDownloads || 5);
     settingsNotify.checked = settings.notifyOnComplete !== false;
     settingsSmart.checked = settings.smartFolders === true;
@@ -2330,12 +2550,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
   async function saveSettings() {
     settingsError.classList.add("hidden");
-    const mb    = parseFloat(settingsLimit.value);
     const files = parseInt(settingsConc.value, 10);
     const next = {
       downloadDir: settingsDir.value.trim(),
       maxConcurrentDownloads: Number.isFinite(files) ? Math.min(Math.max(files, 1), 16) : 5,
-      maxOverallDownloadLimit: Number.isFinite(mb) && mb > 0 ? Math.round(mb * MB) : 0,
+      // The mode stands; what it means is what this dialog edits. A zero is
+      // read as "unset" on the way back in and comes back as the default.
+      trafficMode: currentMode(),
+      mediumLimit: toBytes(settingsMedium.value),
+      lightLimit: toBytes(settingsLight.value),
       smartFolders: settingsSmart.checked,
       notifyOnComplete: settingsNotify.checked,
       catchClipboard: settingsCatch.checked,
@@ -2347,8 +2570,14 @@ window.addEventListener("DOMContentLoaded", () => {
     const invoker = window.__TAURI__?.core?.invoke;
     if (typeof invoker !== "function") {
       // Browser dev mode — nothing to persist to, but the dialog still behaves.
-      settings = next;
-      renderLimitBadge();
+      settings = {
+        ...next,
+        // What Rust would have done with a blank field.
+        mediumLimit: next.mediumLimit || 2 * MB,
+        lightLimit: next.lightLimit || 512 * 1024,
+      };
+      settings.maxOverallDownloadLimit = modeLimit(currentMode());
+      renderTraffic();
       closeSettings();
       return;
     }
@@ -2356,13 +2585,56 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       // Rust returns the settings as they were actually stored, clamped.
       settings = await invoker("save_settings", { settings: next });
-      renderLimitBadge();
+      renderTraffic();
       closeSettings();
     } catch (err) {
       settingsError.textContent = String(err?.message || err);
       settingsError.classList.remove("hidden");
     }
   }
+
+  // ── Traffic mode menu ────────────────────────────────────────────────────
+  // Anchored to its button rather than nested in the status bar, which clips
+  // its own overflow so a long line of counts can't stretch it.
+  const trafficBtn  = document.getElementById("traffic-btn");
+  const trafficMenu = document.getElementById("traffic-menu");
+
+  function closeTrafficMenu() {
+    trafficMenu.classList.add("hidden");
+    trafficBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openTrafficMenu() {
+    renderTraffic();
+    trafficMenu.classList.remove("hidden");
+    trafficBtn.setAttribute("aria-expanded", "true");
+    const rect = trafficBtn.getBoundingClientRect();
+    trafficMenu.style.left = `${rect.left}px`;
+    trafficMenu.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  }
+
+  trafficBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (trafficMenu.classList.contains("hidden")) openTrafficMenu();
+    else closeTrafficMenu();
+  });
+
+  trafficMenu.addEventListener("click", async (e) => {
+    const option = e.target.closest(".traffic-option");
+    if (!option) return;
+    closeTrafficMenu();
+    try {
+      await setTrafficMode(option.dataset.mode);
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  // Anywhere else, including the rest of the status bar.
+  document.addEventListener("click", (e) => {
+    if (trafficMenu.classList.contains("hidden")) return;
+    if (!e.target.closest("#traffic-menu, #traffic-btn")) closeTrafficMenu();
+  });
 
   document.getElementById("open-settings-btn").addEventListener("click", openSettings);
   document.getElementById("settings-close").addEventListener("click", closeSettings);

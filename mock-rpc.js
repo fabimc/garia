@@ -154,6 +154,27 @@ function changePosition(gid, pos, how = "POS_SET") {
   return to;
 }
 
+// Per-download caps, the way aria2 keeps them: an option on the download, set
+// with changeOption and read back with getOption. One row starts capped, so a
+// chip and a pressed segment are on screen without anyone clicking first.
+const limits = new Map([["aaaa2222", String(512 * 1024)]]);
+
+function changeOption(gid, options = {}) {
+  if ("max-download-limit" in options) {
+    limits.set(gid, String(options["max-download-limit"]));
+  }
+  return "OK";
+}
+
+function getOption(gid) {
+  return {
+    dir: "/Users/me/Downloads",
+    "max-download-limit": limits.get(gid) ?? "0",
+    "max-connection-per-server": "16",
+    split: "16",
+  };
+}
+
 function snapshot() {
   // Let the two active downloads creep forward so progress bars animate.
   const t = (Date.now() - started) / 1000;
@@ -220,7 +241,8 @@ createServer((req, res) => {
     // Anything that isn't a poll is the UI actually doing something — printed
     // so the folder each download is added with is visible from here.
     if (method && !method.startsWith("aria2.tell") &&
-        method !== "aria2.getServers" && method !== "aria2.getPeers") {
+        method !== "aria2.getServers" && method !== "aria2.getPeers" &&
+        method !== "aria2.getOption") {
       console.log(method, JSON.stringify(params));
     }
     const s = snapshot();
@@ -230,6 +252,8 @@ createServer((req, res) => {
     const one = (gid) => all.find((d) => d.gid === gid);
     const result =
       method === "aria2.changePosition" ? changePosition(params[0], params[1], params[2]) :
+      method === "aria2.changeOption" ? changeOption(params[0], params[1]) :
+      method === "aria2.getOption"    ? getOption(params[0]) :
       method === "aria2.tellActive"  ? s.active  :
       method === "aria2.tellWaiting" ? s.waiting :
       method === "aria2.tellStopped" ? s.stopped :

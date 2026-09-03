@@ -686,6 +686,19 @@ body {
     text-underline-offset: 2px;
 }
 
+/* Why this row is slower than the rest of them, said on the row rather than
+   left for the detail panel to explain. */
+.dl-cap {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
 .dl-status-pill {
     flex-shrink: 0;
     font-size: 0.66rem;
@@ -923,8 +936,87 @@ body {
     opacity: 0.5;
 }
 
-.stat-limit {
+/* The traffic mode reads as a word in the bar until it is hovered — a control
+   that looked like a button would compete with the row buttons above it. */
+.traffic-btn {
+    font: inherit;
+    color: var(--muted);
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 0.1rem 0.4rem;
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.traffic-btn:hover,
+.traffic-btn[aria-expanded="true"] {
+    background: var(--accent-soft);
     color: var(--accent);
+}
+/* Anything but full speed is why a download is slower than the line, so it
+   says so in the bar's one accent colour. */
+.traffic-btn.capped {
+    color: var(--accent);
+}
+
+.traffic-menu {
+    position: fixed;
+    z-index: 300;
+    min-width: 15rem;
+    padding: 0.3rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.traffic-option {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.4rem 0.55rem;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.traffic-option:hover {
+    background: var(--tint);
+}
+.traffic-option[aria-checked="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.traffic-option-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.traffic-option-note {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+.traffic-option[aria-checked="true"] .traffic-option-note {
+    color: inherit;
+}
+
+.traffic-menu-foot {
+    padding: 0.35rem 0.55rem 0.2rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    margin-top: 0.2rem;
 }
 
 .status-right {
@@ -1659,6 +1751,49 @@ body {
 .detail-note {
     font-size: 0.78rem;
     color: var(--muted);
+}
+
+/* The row's own share of the line. Same three modes as the status bar, aimed
+   at one download — so the one file saturating the connection can be held
+   back without slowing everything else down. */
+.detail-limit {
+    gap: 0.5rem;
+}
+
+.seg {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: 2px;
+    gap: 2px;
+    border-radius: 9px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+}
+
+.seg button {
+    padding: 0.28rem 0.85rem;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.seg button:hover {
+    background: var(--tint);
+}
+.seg button[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+}
+.seg button:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 .detail-error {

@@ -17,6 +17,24 @@ struct Aria2 {
     pid_file: PathBuf,
 }
 
+/// A cap nobody can find is a cap nobody uses. FDM frames the one number as
+/// three modes instead, switchable without opening a dialog — so garia keeps
+/// the number in Settings and the choice between them in the status bar.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum TrafficMode {
+    Full,
+    Medium,
+    Light,
+}
+
+/// What Medium and Light mean before the user says otherwise: enough for a
+/// video to keep up, and slow enough to disappear behind a call.
+const DEFAULT_MEDIUM_LIMIT: u64 = 2 * 1024 * 1024;
+const DEFAULT_LIGHT_LIMIT: u64 = 512 * 1024;
+/// Below a kilobyte a second a download is stopped, not limited.
+const MIN_LIMIT: u64 = 1024;
+
 /// What the user gets to decide. Kept here rather than read back out of aria2
 /// because these have to survive a restart, and aria2 forgets everything that
 /// isn't an unfinished download.
@@ -25,7 +43,17 @@ struct Aria2 {
 struct Settings {
     download_dir: String,
     max_concurrent_downloads: u32,
-    /// Bytes per second across every download. 0 is aria2's own "no limit".
+    /// Which of the three modes is in force. `None` is a settings file written
+    /// before the modes existed; the bare cap it holds becomes Medium. The
+    /// field says so itself, because the struct's own default names a mode.
+    #[serde(default = "no_mode")]
+    traffic_mode: Option<TrafficMode>,
+    /// Bytes per second the two capped modes stand for. The numbers are the
+    /// user's; only the switching between them is fixed.
+    medium_limit: u64,
+    light_limit: u64,
+    /// Bytes per second across every download — derived from the mode, not set
+    /// on its own. 0 is aria2's own "no limit", which is what Full is.
     max_overall_download_limit: u64,
     /// Route each download into a subfolder named after its kind. Off by
     /// default: where a file lands is the user's expectation to change, not
@@ -47,6 +75,9 @@ impl Default for Settings {
             download_dir: default_download_dir().display().to_string(),
             // aria2's own default, and a sane one: five files at a time.
             max_concurrent_downloads: 5,
+            traffic_mode: Some(TrafficMode::Full),
+            medium_limit: DEFAULT_MEDIUM_LIMIT,
+            light_limit: DEFAULT_LIGHT_LIMIT,
             max_overall_download_limit: 0,
             smart_folders: false,
             notify_on_complete: true,
@@ -64,7 +95,47 @@ impl Settings {
         if self.download_dir.trim().is_empty() {
             self.download_dir = default_download_dir().display().to_string();
         }
+
+        // A settings file from before the modes carries a cap and no mode. The
+        // cap is what the user chose, so it becomes what Medium means and the
+        // app comes up capped exactly as it was left.
+        let mode = match self.traffic_mode {
+            Some(mode) => mode,
+            None if self.max_overall_download_limit > 0 => {
+                self.medium_limit = self.max_overall_download_limit;
+                TrafficMode::Medium
+            }
+            None => TrafficMode::Full,
+        };
+
+        self.medium_limit = clamp_limit(self.medium_limit, DEFAULT_MEDIUM_LIMIT);
+        self.light_limit = clamp_limit(self.light_limit, DEFAULT_LIGHT_LIMIT);
+
+        // The overall cap is the mode's number, always — the frontend sends it
+        // back with the rest and never gets to disagree with the mode.
+        self.traffic_mode = Some(mode);
+        self.max_overall_download_limit = match mode {
+            TrafficMode::Full => 0,
+            TrafficMode::Medium => self.medium_limit,
+            TrafficMode::Light => self.light_limit,
+        };
         self
+    }
+}
+
+/// A settings file that has never heard of the modes, as distinct from one
+/// that names Full — the first is migrated, the second is obeyed.
+fn no_mode() -> Option<TrafficMode> {
+    None
+}
+
+/// A mode's number, kept usable: zero means the file never carried one, and
+/// anything under a kilobyte a second is a stall rather than a limit.
+fn clamp_limit(bytes: u64, fallback: u64) -> u64 {
+    if bytes == 0 {
+        fallback
+    } else {
+        bytes.max(MIN_LIMIT)
     }
 }
 
@@ -1166,6 +1237,58 @@ mod tests {
 
     fn parse(fixture: &str) -> VideoInfo {
         trim_info(&serde_json::from_str(fixture).unwrap()).unwrap()
+    }
+
+    fn settings_from(json: &str) -> Settings {
+        serde_json::from_str::<Settings>(json).unwrap().normalised()
+    }
+
+    /// The upgrade case: a settings file written before the modes existed
+    /// carries a cap and no mode. Losing it would silently un-throttle a
+    /// connection someone deliberately throttled.
+    #[test]
+    fn an_old_cap_becomes_medium() {
+        let s = settings_from(r#"{"downloadDir":"/tmp","maxOverallDownloadLimit":786432}"#);
+        assert_eq!(s.traffic_mode, Some(TrafficMode::Medium));
+        assert_eq!(s.medium_limit, 786_432);
+        assert_eq!(s.max_overall_download_limit, 786_432);
+    }
+
+    #[test]
+    fn an_old_file_with_no_cap_is_full_speed() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert_eq!(s.traffic_mode, Some(TrafficMode::Full));
+        assert_eq!(s.max_overall_download_limit, 0);
+        // The modes still mean something the moment one is picked.
+        assert_eq!(s.medium_limit, DEFAULT_MEDIUM_LIMIT);
+        assert_eq!(s.light_limit, DEFAULT_LIGHT_LIMIT);
+    }
+
+    /// The overall cap is derived, never taken: the frontend sends the whole
+    /// settings object back and must not be able to contradict the mode.
+    #[test]
+    fn the_mode_decides_the_cap() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","trafficMode":"light","lightLimit":262144,
+                "maxOverallDownloadLimit":99999999}"#,
+        );
+        assert_eq!(s.max_overall_download_limit, 262_144);
+
+        let s =
+            settings_from(r#"{"downloadDir":"/tmp","trafficMode":"full","mediumLimit":262144}"#);
+        assert_eq!(s.max_overall_download_limit, 0);
+    }
+
+    /// A blank field is "unset", and anything under a kilobyte a second is a
+    /// stall rather than a limit.
+    #[test]
+    fn a_mode_never_means_stopped() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","trafficMode":"medium","mediumLimit":0,"lightLimit":12}"#,
+        );
+        assert_eq!(s.medium_limit, DEFAULT_MEDIUM_LIMIT);
+        assert_eq!(s.light_limit, MIN_LIMIT);
+        assert_eq!(s.max_overall_download_limit, DEFAULT_MEDIUM_LIMIT);
     }
 
     #[test]

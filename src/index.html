@@ -378,10 +378,61 @@
                 <span id="conn-text">Connecting…</span>
                 <span class="status-sep">·</span>
                 <span id="stat-counts">no downloads</span>
-                <span id="stat-limit" class="stat-limit hidden"></span>
+                <span class="status-sep">·</span>
+                <button
+                    type="button"
+                    id="traffic-btn"
+                    class="traffic-btn"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-controls="traffic-menu"
+                    title="How much of the line downloads may take"
+                >
+                    Full speed
+                </button>
                 <span id="stat-speed" class="status-right"></span>
                 <span class="kbd-hint"><kbd>&#8984;F</kbd> search</span>
             </footer>
+
+            <!-- Anchored to the status bar button, but outside it: the bar
+                 clips its own overflow so the queue counts can't stretch it. -->
+            <div
+                id="traffic-menu"
+                class="traffic-menu hidden"
+                role="menu"
+                aria-labelledby="traffic-btn"
+            >
+                <button
+                    type="button"
+                    class="traffic-option"
+                    role="menuitemradio"
+                    data-mode="full"
+                >
+                    <span class="traffic-option-name">Full speed</span>
+                    <span class="traffic-option-note">No limit</span>
+                </button>
+                <button
+                    type="button"
+                    class="traffic-option"
+                    role="menuitemradio"
+                    data-mode="medium"
+                >
+                    <span class="traffic-option-name">Medium</span>
+                    <span class="traffic-option-note"></span>
+                </button>
+                <button
+                    type="button"
+                    class="traffic-option"
+                    role="menuitemradio"
+                    data-mode="light"
+                >
+                    <span class="traffic-option-name">Light</span>
+                    <span class="traffic-option-note"></span>
+                </button>
+                <p class="traffic-menu-foot">
+                    What Medium and Light mean is yours to set, in Settings.
+                </p>
+            </div>
         </div>
 
         <!-- ── Add download modal ───────────────────────────────────────── -->
@@ -610,46 +661,62 @@
                         </p>
                     </div>
 
-                    <div class="field-pair">
-                        <div class="field">
-                            <label class="modal-label" for="settings-limit"
-                                >Speed limit</label
-                            >
-                            <div class="field-unit">
-                                <input
-                                    id="settings-limit"
-                                    class="field-input"
-                                    type="number"
-                                    min="0"
-                                    step="0.5"
-                                />
-                                <span class="field-suffix">MB/s</span>
+                    <div class="field">
+                        <div class="field-pair">
+                            <div class="field">
+                                <label class="modal-label" for="settings-medium"
+                                    >Medium</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-medium"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                    />
+                                    <span class="field-suffix">MB/s</span>
+                                </div>
                             </div>
-                            <p class="field-hint">
-                                Across every download. 0 is no limit.
-                            </p>
-                        </div>
-                        <div class="field">
-                            <label
-                                class="modal-label"
-                                for="settings-concurrency"
-                                >Downloads at once</label
-                            >
-                            <div class="field-unit">
-                                <input
-                                    id="settings-concurrency"
-                                    class="field-input"
-                                    type="number"
-                                    min="1"
-                                    max="16"
-                                    step="1"
-                                />
-                                <span class="field-suffix">files</span>
+                            <div class="field">
+                                <label class="modal-label" for="settings-light"
+                                    >Light</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-light"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                    />
+                                    <span class="field-suffix">MB/s</span>
+                                </div>
                             </div>
-                            <p class="field-hint">
-                                The rest wait in the queue.
-                            </p>
                         </div>
+                        <p class="field-hint">
+                            The two speeds the status bar switches between —
+                            across every download, or on one row from its
+                            details. The third mode is full speed.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-concurrency"
+                            >Downloads at once</label
+                        >
+                        <div class="field-unit is-narrow">
+                            <input
+                                id="settings-concurrency"
+                                class="field-input"
+                                type="number"
+                                min="1"
+                                max="16"
+                                step="1"
+                            />
+                            <span class="field-suffix">files</span>
+                        </div>
+                        <p class="field-hint">The rest wait in the queue.</p>
                     </div>
 
                     <div class="field">

@@ -19,7 +19,8 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
 - Catch a file URL from the clipboard, or send any page from the browser with a bookmarklet
 - Optional smart folders — new downloads sorted into Video, Music, Documents, and Archives by file type
-- Settings: download folder, an overall speed limit, how many files run at once, clipboard catching, and both switches above
+- Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
+- Settings: download folder, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
 - Status badges: Downloading, Merging, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -120,6 +121,8 @@ garia/
 Garia communicates with aria2 via its built-in JSON-RPC interface on `localhost:6800`, falling back to a free port when something else already holds that one. The Rust backend spawns `aria2c` when the app opens and stops it on exit; if a crash ever leaves one running, the next launch recognises it by the pid it recorded and shuts it down before starting fresh. The frontend polls aria2 every second to refresh download progress.
 
 Settings live in `settings.json` beside the session file. Saving them writes the file and pushes the three aria2 ones — folder, speed cap, concurrency — into the running aria2, so nothing needs a restart; the next launch starts aria2 with them directly.
+
+The speed cap is a mode rather than a number to remember: Full is aria2's own no-limit, and Medium and Light are two speeds the user defines in Settings and switches between from the status bar — `max-overall-download-limit`, derived from the mode rather than set beside it, so the two can never disagree. A settings file written before the modes existed keeps its cap: it becomes what Medium means, and the app comes up capped exactly as it was left. The same three are aimed at a single download from its detail panel, which is `max-download-limit` on that gid — both halves of a merged video, since the row is two downloads. aria2 keeps that option in the session file, so a cap set in one run is still in force in the next; the list asks `aria2.getOption` once per unfinished download to find the ones it did not set itself, and says so on the row.
 
 Every new download also names its folder explicitly rather than relying on aria2's global one, and that is what smart folders route with: the extension in the URL picks `Video`, `Music`, `Documents`, or `Archives` inside the download folder, and anything unrecognised — along with every torrent and magnet, which don't name their files until they start — lands in the folder itself. Nothing already on disk ever moves.
 
