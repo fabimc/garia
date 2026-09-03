@@ -114,7 +114,10 @@ body {
 .logo-mark {
     display: block;
     flex-shrink: 0;
-    color: var(--brand);
+    width: 26px;
+    height: 26px;
+    object-fit: cover;
+    border-radius: 7px;
 }
 
 .wordmark {
