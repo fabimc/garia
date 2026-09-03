@@ -475,6 +475,10 @@ struct VideoTools {
     /// Whether an ffmpeg was found. Without one, the qualities that arrive as
     /// separate video and audio streams cannot be offered.
     ffmpeg: bool,
+    /// "bundled" or "system" — which of the two answered, or empty when
+    /// neither did. The bundled one is a remux-only build, so a system ffmpeg
+    /// showing up here means the sidecar went missing.
+    ffmpeg_source: String,
 }
 
 /// One downloadable stream, trimmed to what the picker shows and what aria2
@@ -669,19 +673,46 @@ fn resolve_ytdlp(video: &Video) -> Option<Vec<String>> {
     found
 }
 
-fn ffmpeg_path() -> Option<String> {
-    let mut candidates = vec!["ffmpeg".to_string()];
+/// Where to look for ffmpeg, best first — the same order, and for the same
+/// reasons, as `aria2c_candidates`. The sidecar sits next to the app binary
+/// and is what a fresh install runs, so merging works with nothing installed.
+/// The system copies stay as a fallback: they keep `tauri dev` working, and
+/// they rescue a bundle whose sidecar went missing.
+/// Each candidate carries where it came from, rather than that being read off
+/// its position: `current_exe` can fail, and a list that then starts with the
+/// machine's own ffmpeg would have Settings calling it the bundled one.
+fn ffmpeg_candidates() -> Vec<(String, &'static str)> {
+    let mut candidates = Vec::new();
+
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        candidates.push((dir.join("ffmpeg").display().to_string(), "bundled"));
+    }
+
+    candidates.push(("ffmpeg".to_string(), "system"));
 
     #[cfg(target_os = "macos")]
     candidates.extend([
-        "/opt/homebrew/bin/ffmpeg".to_string(),
-        "/usr/local/bin/ffmpeg".to_string(),
+        ("/opt/homebrew/bin/ffmpeg".to_string(), "system"),
+        ("/usr/local/bin/ffmpeg".to_string(), "system"),
     ]);
 
     #[cfg(target_os = "linux")]
-    candidates.extend(["/usr/bin/ffmpeg".to_string(), "/usr/local/bin/ffmpeg".to_string()]);
+    candidates.extend([
+        ("/usr/bin/ffmpeg".to_string(), "system"),
+        ("/usr/local/bin/ffmpeg".to_string(), "system"),
+    ]);
 
-    for bin in candidates {
+    candidates
+}
+
+/// The first candidate that runs, paired with where it came from. Asking for
+/// its version doubles as the "does this actually work" test, the same way it
+/// does for yt-dlp: a sidecar that won't launch is not one to hand two files.
+fn ffmpeg_found() -> Option<(String, &'static str)> {
+    for (bin, origin) in ffmpeg_candidates() {
         if bin.contains('/') && !is_executable(&bin) {
             continue;
         }
@@ -689,10 +720,14 @@ fn ffmpeg_path() -> Option<String> {
             .map(|o| o.status.success())
             .unwrap_or(false);
         if ok {
-            return Some(bin);
+            return Some((bin, origin));
         }
     }
     None
+}
+
+fn ffmpeg_path() -> Option<String> {
+    ffmpeg_found().map(|(bin, _)| bin)
 }
 
 #[tauri::command]
@@ -707,14 +742,17 @@ fn video_tools(video: tauri::State<Video>) -> VideoTools {
     // Resolution already proved the command works by asking it its version;
     // this is the same answer, kept rather than asked for twice.
     let bundled = cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
+    let ffmpeg = ffmpeg_found();
     let tools = VideoTools {
         version: cmd.as_deref().and_then(ytdlp_version).unwrap_or_default(),
         source: if bundled { "bundled" } else { "system" }.to_string(),
-        ffmpeg: ffmpeg_path().is_some(),
+        ffmpeg: ffmpeg.is_some(),
+        ffmpeg_source: ffmpeg.map(|(_, src)| src).unwrap_or_default().to_string(),
     };
 
-    // A machine with neither tool is one `brew install` away from having them,
-    // and Settings is where that message is read — so don't cache a "no".
+    // A machine without yt-dlp is one `brew install` away from having it, and
+    // Settings is where that message is read — so don't cache a "no". The same
+    // goes for an ffmpeg the sidecar failed to be: the next look might find one.
     if !tools.version.is_empty() && tools.ffmpeg {
         if let Ok(mut guard) = video.tools.lock() {
             *guard = Some(tools.clone());
@@ -1435,6 +1473,20 @@ mod tests {
     fn an_empty_playlist_is_an_error_not_an_empty_picker() {
         let wrapped = serde_json::json!({ "_type": "playlist", "entries": [] });
         assert!(trim_info(&wrapped).is_err());
+    }
+
+    /// The sidecar is looked at first — a bundled garia must merge without
+    /// anything installed — and only it is labelled "bundled", because that
+    /// label is what Settings prints and what a support answer starts from.
+    #[test]
+    fn the_bundled_ffmpeg_is_looked_at_first_and_is_the_only_bundled_one() {
+        let candidates = ffmpeg_candidates();
+        let exe_dir = std::env::current_exe().unwrap();
+        let exe_dir = exe_dir.parent().unwrap();
+
+        assert_eq!(candidates[0].1, "bundled");
+        assert_eq!(candidates[0].0, exe_dir.join("ffmpeg").display().to_string());
+        assert!(candidates[1..].iter().all(|(_, origin)| *origin == "system"));
     }
 }
 

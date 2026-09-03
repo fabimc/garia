@@ -160,7 +160,7 @@ function seedOptions() {
 // is as fast, as resumable, and as visible in the list as every other row.
 
 // What the backend found to work with, asked for once at launch.
-let videoTools = { version: "", source: "", ffmpeg: false };
+let videoTools = { version: "", source: "", ffmpeg: false, ffmpegSource: "" };
 
 async function loadVideoTools() {
   const invoker = window.__TAURI__?.core?.invoke;
@@ -183,9 +183,14 @@ function renderVideoTools() {
     return;
   }
   const where = videoTools.source === "bundled" ? "the bundled copy" : "your own";
-  const merge = videoTools.ffmpeg
-    ? "ffmpeg is here, so the qualities that arrive as separate video and audio can be merged."
-    : "No ffmpeg, so only qualities that come as a single file are offered — `brew install ffmpeg` for the rest.";
+  // Garia ships its own ffmpeg, so the interesting case is no longer "have
+  // you installed one" — it's which one answered. A "system" here means the
+  // bundled binary didn't run, which is worth seeing before a merge fails.
+  const merge = !videoTools.ffmpeg
+    ? "No ffmpeg — the bundled one is missing, so only qualities that come as a single file are offered."
+    : videoTools.ffmpegSource === "system"
+      ? "Merging uses your own ffmpeg; the copy garia ships didn't run."
+      : "Merging uses the ffmpeg garia ships, so the split video-and-audio qualities are all on offer.";
   el.textContent = `yt-dlp ${videoTools.version} (${where}). ${merge}`;
 }
 
@@ -315,7 +320,7 @@ function missingNote(info, choices, canMerge) {
     const best = Math.max(...videos.map((f) => f.height || 0));
     notes.push(
       `Higher qualities here${best ? ` — up to ${best}p` : ""} arrive as separate ` +
-      "video and audio. Install ffmpeg (`brew install ffmpeg`) and garia will merge them.",
+      "video and audio, and the ffmpeg that merges them isn't running — see Settings.",
     );
   }
   if (!choices.length) {
@@ -505,7 +510,7 @@ function runPendingMerges(rows) {
         job.state = "failed";
         const message = String(err?.message || err);
         job.error = message === "no-ffmpeg"
-          ? "Both halves downloaded, but there's no ffmpeg to merge them"
+          ? "Both halves downloaded, but the ffmpeg that merges them isn't running"
           : `Could not merge the two halves: ${message}`;
       })
       .finally(saveJobs);

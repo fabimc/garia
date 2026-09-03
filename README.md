@@ -31,14 +31,13 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 | [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
 | [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
 
-aria2 isn't on that list. Garia builds its own and bundles it — see below. Video downloads want two more, both optional:
+aria2 and ffmpeg aren't on that list. Garia builds both and bundles them — see below. Video downloads want one more:
 
 | Tool | Why | Install |
 |------|-----|---------|
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Reads a video page and resolves it into media URLs | `brew install yt-dlp` — or nothing, if you have a `python3` 3.10+, which the bundled copy runs under |
-| [ffmpeg](https://ffmpeg.org/) | Merges the separate video and audio streams every large site now serves | `brew install ffmpeg` |
 
-Without yt-dlp, a video page downloads as a page. Without ffmpeg, only qualities that arrive as a single file are offered — which on YouTube means audio only. Settings says which of the two garia found.
+Without yt-dlp, a video page downloads as a page. Settings says which yt-dlp and which ffmpeg garia is using.
 
 ## Development
 
@@ -54,7 +53,7 @@ Start the app in development mode (hot-reloads the frontend, recompiles Rust on 
 npm run tauri dev
 ```
 
-> The first run takes a few minutes while Cargo compiles the Tauri runtime and `scripts/build-aria2-sidecar.sh` builds aria2. Subsequent runs are fast — the script is a no-op once the binary exists.
+> The first run takes a few minutes while Cargo compiles the Tauri runtime and the sidecar scripts build aria2 and ffmpeg. Subsequent runs are fast — the scripts are no-ops once the binaries exist.
 
 ## The bundled aria2
 
@@ -71,6 +70,16 @@ npm run sidecar -- x86_64-apple-darwin
 ```
 
 At runtime the bundled binary wins, and a system `aria2c` on `PATH` is the fallback.
+
+## The bundled ffmpeg
+
+`scripts/build-ffmpeg-sidecar.sh` (part of `npm run sidecar`) compiles ffmpeg 9.0.1 into `src-tauri/binaries/` the same way, and it takes about a minute — because almost none of ffmpeg gets built.
+
+Garia asks ffmpeg for exactly one thing: rewrite two finished files into one container with `-c copy`. That is a job for muxers, demuxers, parsers and bitstream filters, and for nothing else — so every encoder, decoder, hardware accelerator, filter and device is configured out, along with the network layer. What is left is 4 MB instead of 70, links nothing but the OS, and is LGPL-2.1 with no GPL parts in it; the script checks all three and refuses to install a binary that fails any of them.
+
+The same target-triple argument cross-builds it. There is no assembly left to assemble once the codecs are gone, so the x86_64 build needs no `nasm` on an Apple Silicon Mac.
+
+As with aria2, the bundled binary wins and a system `ffmpeg` is the fallback — which is what Settings is saying when it names one rather than the other.
 
 ## The bundled yt-dlp
 
@@ -104,9 +113,9 @@ garia/
 │   ├── index.html        # App shell
 │   ├── styles.css        # Styles and animations
 │   └── main.js           # aria2 JSON-RPC client + UI logic
-├── scripts/              # sidecar scripts — builds aria2, fetches yt-dlp
+├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp
 └── src-tauri/            # Tauri / Rust backend
-    ├── binaries/         # Bundled aria2c (built, not committed)
+    ├── binaries/         # Bundled aria2c and ffmpeg (built, not committed)
     ├── resources/        # Bundled yt-dlp zipapp (fetched, not committed)
     ├── tests/fixtures/   # Real yt-dlp output, for the parser's unit tests
     ├── src/
