@@ -124,6 +124,29 @@
                                 data-count="active"
                             ></span>
                         </button>
+                        <button class="nav-item" data-filter="seeding">
+                            <svg
+                                class="nav-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.75"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <circle cx="12" cy="12" r="9" />
+                                <polyline points="8 12 12 8 16 12" />
+                                <line x1="12" y1="16" x2="12" y2="8" />
+                            </svg>
+                            <span class="nav-label">Seeding</span>
+                            <span
+                                class="nav-count hidden"
+                                data-count="seeding"
+                            ></span>
+                        </button>
                         <button class="nav-item" data-filter="waiting">
                             <svg
                                 class="nav-icon"
@@ -698,6 +721,48 @@
                             The two speeds the status bar switches between —
                             across every download, or on one row from its
                             details. The third mode is full speed.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="field-pair">
+                            <div class="field">
+                                <label class="modal-label" for="settings-seed-ratio"
+                                    >Seed until ratio</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-seed-ratio"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                    />
+                                    <span class="field-suffix">×</span>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label class="modal-label" for="settings-seed-time"
+                                    >or for</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-seed-time"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="10"
+                                    />
+                                    <span class="field-suffix">minutes</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="field-hint">
+                            When a finished torrent stops uploading — whichever
+                            comes first. A ratio of 0 seeds until you stop it
+                            yourself, and so does a time of 0. Torrents already
+                            running keep the rules they started under.
                         </p>
                     </div>
 

@@ -55,6 +55,13 @@ struct Settings {
     /// Bytes per second across every download — derived from the mode, not set
     /// on its own. 0 is aria2's own "no limit", which is what Full is.
     max_overall_download_limit: u64,
+    /// Seed a finished torrent until this share ratio. aria2's own default is
+    /// 1.0 — give back what you took; 0.0 means seed until told to stop.
+    seed_ratio: f64,
+    /// …or for this many minutes, whichever comes first. 0 is no time limit,
+    /// and the option is left off entirely rather than sent as a zero, which
+    /// aria2 reads as "do not seed at all".
+    seed_time_minutes: u32,
     /// Route each download into a subfolder named after its kind. Off by
     /// default: where a file lands is the user's expectation to change, not
     /// ours. The routing itself lives in the frontend, which names the folder
@@ -79,6 +86,8 @@ impl Default for Settings {
             medium_limit: DEFAULT_MEDIUM_LIMIT,
             light_limit: DEFAULT_LIGHT_LIMIT,
             max_overall_download_limit: 0,
+            seed_ratio: 1.0,
+            seed_time_minutes: 0,
             smart_folders: false,
             notify_on_complete: true,
             catch_clipboard: true,
@@ -107,6 +116,16 @@ impl Settings {
             }
             None => TrafficMode::Full,
         };
+
+        // A ratio arrives from a hand-editable file, so NaN is possible and
+        // uploading a hundred times what you took is nobody's intent.
+        if !self.seed_ratio.is_finite() || self.seed_ratio < 0.0 {
+            self.seed_ratio = 1.0;
+        }
+        self.seed_ratio = (self.seed_ratio * 100.0).round() / 100.0;
+        self.seed_ratio = self.seed_ratio.min(100.0);
+        // A month of seeding is already "until I stop it".
+        self.seed_time_minutes = self.seed_time_minutes.min(60 * 24 * 30);
 
         self.medium_limit = clamp_limit(self.medium_limit, DEFAULT_MEDIUM_LIMIT);
         self.light_limit = clamp_limit(self.light_limit, DEFAULT_LIGHT_LIMIT);
@@ -218,7 +237,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 }
 
 /// Saving is three steps: normalise, persist, and push into the running aria2
-/// so nothing needs a restart. The three aria2 options are all live-changeable
+/// so nothing needs a restart. Those three aria2 options are all live-changeable
 /// — measured against aria2 1.37, not assumed. The rest are the frontend's
 /// to act on: it sends `dir` with each download it adds, which is how smart
 /// folders route by file type without touching this global.
@@ -244,7 +263,9 @@ fn save_settings(
         .map_err(|e| format!("could not write {}: {e}", state.file.display()))?;
 
     // Best-effort: the file on disk is the source of truth, and an aria2 that
-    // cannot be reached is already saying so in the status bar.
+    // cannot be reached is already saying so in the status bar. The seeding
+    // rules are deliberately absent: aria2 takes neither on a running download,
+    // so they go on each torrent as it is added and into the next launch.
     if let Err(e) = aria2_request(
         aria2.port,
         &aria2.secret,
@@ -955,6 +976,51 @@ fn aria2c_candidates() -> Vec<String> {
     c
 }
 
+/// Everything aria2 is started with. A Vec rather than an array because one
+/// of them is conditional: `--seed-time=0` does not mean "no time limit", it
+/// means "never seed", so the option has to be absent rather than zero.
+fn aria2_args(port: u16, secret: &str, session_file: &Path, settings: &Settings) -> Vec<String> {
+    let mut args = vec![
+        "--enable-rpc".to_string(),
+        "--rpc-listen-all=false".to_string(),
+        format!("--rpc-listen-port={port}"),
+        format!("--rpc-secret={secret}"),
+        "--quiet=true".to_string(),
+        format!("--dir={}", settings.download_dir),
+        // The user's settings, applied from the first second. The first two are
+        // also pushed into a running aria2 by save_settings.
+        format!(
+            "--max-concurrent-downloads={}",
+            settings.max_concurrent_downloads
+        ),
+        format!(
+            "--max-overall-download-limit={}",
+            settings.max_overall_download_limit
+        ),
+        // Seeding is the half of a torrent that happens after the download, and
+        // aria2 will not change either of these on a download that is already
+        // running — so they are set here, and again on each torrent as it is
+        // added, rather than pushed at a running process.
+        format!("--seed-ratio={}", settings.seed_ratio),
+        // Without these, aria2 opens a single connection per download —
+        // the multi-segment speed-up people install a download manager
+        // for never happens.
+        "--continue=true".to_string(),
+        "--max-connection-per-server=16".to_string(),
+        "--split=16".to_string(),
+        "--min-split-size=1M".to_string(),
+        // Unfinished and queued downloads survive a quit: aria2 writes
+        // them here and reads them back on the next launch.
+        format!("--save-session={}", session_file.display()),
+        "--save-session-interval=30".to_string(),
+        format!("--input-file={}", session_file.display()),
+    ];
+    if settings.seed_time_minutes > 0 {
+        args.push(format!("--seed-time={}", settings.seed_time_minutes));
+    }
+    args
+}
+
 fn spawn_aria2(port: u16, secret: &str, session_file: &Path, settings: &Settings) -> Option<Child> {
     for bin in aria2c_candidates() {
         if bin.contains('/') && !Path::new(&bin).exists() {
@@ -962,36 +1028,7 @@ fn spawn_aria2(port: u16, secret: &str, session_file: &Path, settings: &Settings
         }
 
         let child = Command::new(&bin)
-            .args([
-                "--enable-rpc",
-                "--rpc-listen-all=false",
-                &format!("--rpc-listen-port={port}"),
-                &format!("--rpc-secret={secret}"),
-                "--quiet=true",
-                &format!("--dir={}", settings.download_dir),
-                // The user's settings, applied from the first second. Both are
-                // also pushed into a running aria2 by save_settings.
-                &format!(
-                    "--max-concurrent-downloads={}",
-                    settings.max_concurrent_downloads
-                ),
-                &format!(
-                    "--max-overall-download-limit={}",
-                    settings.max_overall_download_limit
-                ),
-                // Without these, aria2 opens a single connection per download —
-                // the multi-segment speed-up people install a download manager
-                // for never happens.
-                "--continue=true",
-                "--max-connection-per-server=16",
-                "--split=16",
-                "--min-split-size=1M",
-                // Unfinished and queued downloads survive a quit: aria2 writes
-                // them here and reads them back on the next launch.
-                &format!("--save-session={}", session_file.display()),
-                "--save-session-interval=30",
-                &format!("--input-file={}", session_file.display()),
-            ])
+            .args(aria2_args(port, secret, session_file, settings))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
@@ -1289,6 +1326,37 @@ mod tests {
         assert_eq!(s.medium_limit, DEFAULT_MEDIUM_LIMIT);
         assert_eq!(s.light_limit, MIN_LIMIT);
         assert_eq!(s.max_overall_download_limit, DEFAULT_MEDIUM_LIMIT);
+    }
+
+    /// `--seed-time=0` means "never seed", so "no time limit" has to be the
+    /// absence of the option rather than a zero.
+    #[test]
+    fn no_seed_time_means_no_seed_time_option() {
+        let settings = settings_from(r#"{"downloadDir":"/tmp","seedTimeMinutes":0}"#);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &settings);
+        assert!(!args.iter().any(|a| a.starts_with("--seed-time")));
+        assert!(args.iter().any(|a| a == "--seed-ratio=1"));
+
+        let settings = settings_from(r#"{"downloadDir":"/tmp","seedTimeMinutes":90}"#);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &settings);
+        assert!(args.iter().any(|a| a == "--seed-time=90"));
+    }
+
+    #[test]
+    fn a_hand_edited_ratio_stays_a_ratio() {
+        assert_eq!(
+            settings_from(r#"{"downloadDir":"/tmp","seedRatio":-4}"#).seed_ratio,
+            1.0
+        );
+        assert_eq!(
+            settings_from(r#"{"downloadDir":"/tmp","seedRatio":1e9}"#).seed_ratio,
+            100.0
+        );
+        // 0.0 is meaningful: seed until told to stop.
+        assert_eq!(
+            settings_from(r#"{"downloadDir":"/tmp","seedRatio":0}"#).seed_ratio,
+            0.0
+        );
     }
 
     #[test]

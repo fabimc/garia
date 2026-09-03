@@ -36,6 +36,8 @@ let settings = {
   mediumLimit: 2 * 1024 * 1024,
   lightLimit: 512 * 1024,
   maxOverallDownloadLimit: 0,
+  seedRatio: 1,
+  seedTimeMinutes: 0,
   smartFolders: false,
   notifyOnComplete: true,
   catchClipboard: true,
@@ -135,7 +137,20 @@ function targetDir(url) {
 // the first attempt was going to, even if the rules have changed since.
 function addOptions(url) {
   const dir = targetDir(url);
-  return dir ? { dir } : {};
+  const options = dir ? { dir } : {};
+  // Seeding rules cannot be pushed at a download that is already going, so
+  // every torrent carries the rules that were in force when it was added.
+  Object.assign(options, seedOptions());
+  return options;
+}
+
+// aria2 reads --seed-time=0 as "never seed", which is not what a blank field
+// means, so no limit is the option's absence rather than a zero.
+function seedOptions() {
+  const options = { "seed-ratio": String(Number(settings.seedRatio) || 0) };
+  const minutes = Number(settings.seedTimeMinutes) || 0;
+  if (minutes > 0) options["seed-time"] = String(minutes);
+  return options;
 }
 
 // ── Video downloads (yt-dlp) ─────────────────────────────────────────────
@@ -545,7 +560,7 @@ function fileName(download) {
 }
 
 function statusLabel(status) {
-  const map = { active: "Downloading", merging: "Merging", waiting: "Queued", paused: "Paused", complete: "Complete", error: "Error", removed: "Removed" };
+  const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Complete", error: "Error", removed: "Removed" };
   return map[status] || status;
 }
 
@@ -553,11 +568,11 @@ function statusLabel(status) {
 // borrows the active row's look, because that is what it is to the user.
 function statusClass(status) {
   if (status === "merging") return "active";
-  return ["complete", "error", "active", "paused"].includes(status) ? status : "waiting";
+  return ["complete", "error", "active", "paused", "seeding"].includes(status) ? status : "waiting";
 }
 
 // Row order: what's moving first, what's finished last.
-const STATUS_RANK = { active: 0, merging: 0.5, waiting: 1, paused: 2, error: 3, complete: 4, removed: 5 };
+const STATUS_RANK = { active: 0, merging: 0.5, seeding: 0.75, waiting: 1, paused: 2, error: 3, complete: 4, removed: 5 };
 
 function statusRank(status) {
   const r = STATUS_RANK[status];
@@ -572,6 +587,7 @@ const STATUS_ICONS = {
   waiting:  SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
   paused:   SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>',
   complete: SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8.5 12.5 11 15 15.5 9.5"/></svg>',
+  seeding:  SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8 12 12 8 16 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>',
   error:    SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>',
 };
 
@@ -583,6 +599,7 @@ const ACTION_ICONS = {
   reveal: BTN_OPEN + '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   retry:  BTN_OPEN + '<polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg>',
   reprobe: BTN_OPEN + '<polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg>',
+  unseed: BTN_OPEN + '<rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
   remove: BTN_OPEN + '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
 };
 
@@ -599,6 +616,7 @@ const ACTION_TITLES = {
   reveal: "Show in Finder",
   retry: "Retry download",
   reprobe: "Read the page again and pick a quality",
+  unseed: "Stop uploading this torrent and file it as done — seeding it again means adding the torrent again",
   remove: "Delete download",
 };
 
@@ -664,6 +682,9 @@ function actionsFor(dl) {
     // Nothing to pause: aria2 is finished and ffmpeg is a few seconds.
   } else if (dl.status === "active" || dl.status === "waiting") {
     out.push({ action: "stop", kind: "pill", tone: "accent", label: "Pause" });
+  } else if (dl.status === "seeding") {
+    // The download is over; what is left to stop is the upload.
+    out.push({ action: "unseed", kind: "pill", tone: "success", label: "Stop seeding" });
   } else if (dl.status === "paused") {
     out.push({ action: "resume", kind: "pill", tone: "accent", label: "Resume" });
   } else if (dl.status === "error" && dl.job?.webpageUrl) {
@@ -707,6 +728,37 @@ function createItemEl(dl) {
     <div class="dl-actions"></div>
   `;
   return li;
+}
+
+function progressMeta(dl) {
+  const total = Number(dl.totalLength);
+  const done = Number(dl.completedLength);
+  const parts = [];
+  if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
+  else if (done > 0) parts.push(formatBytes(done));
+  const speed = formatSpeed(dl.downloadSpeed);
+  if (speed) parts.push(speed);
+  if (total > 0) parts.push(`${Math.round((done / total) * 100)}%`);
+  if (dl.status === "active" && total > 0) {
+    const eta = formatEta(total - done, dl.downloadSpeed);
+    if (eta) parts.push(eta);
+  }
+  return parts;
+}
+
+// A seeding row has no percentage left to report and no arrival to wait for.
+// What it has is a size, an upload speed, and the ratio the seeding rules in
+// Settings are counting towards.
+function seedingMeta(dl) {
+  const total = Number(dl.totalLength) || 0;
+  const up = Number(dl.uploadLength) || 0;
+  const parts = [];
+  if (total > 0) parts.push(formatBytes(total));
+  const speed = formatSpeed(dl.uploadSpeed);
+  if (speed) parts.push(`↑ ${speed}`);
+  parts.push(`${formatBytes(up)} shared`);
+  if (total > 0) parts.push(`ratio ${(up / total).toFixed(2)}`);
+  return parts;
 }
 
 function updateItemEl(li, dl) {
@@ -755,18 +807,10 @@ function updateItemEl(li, dl) {
   fill.classList.toggle("indeterminate", isIndeterminate);
   fill.style.width = isIndeterminate ? "" : `${pct}%`;
 
-  // Meta line: size · speed · percent · eta
-  const parts = [];
-  if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
-  else if (done > 0) parts.push(formatBytes(done));
-  const speed = formatSpeed(dl.downloadSpeed);
-  if (speed) parts.push(speed);
-  if (total > 0) parts.push(`${pct}%`);
-  if (dl.status === "active" && total > 0) {
-    const eta = formatEta(total - done, dl.downloadSpeed);
-    if (eta) parts.push(eta);
-  }
-  li.querySelector(".dl-meta").textContent = parts.join(" · ");
+  // Meta line: size · speed · percent · eta — or, once the download is over
+  // and the uploading isn't, what has gone back out and how far past even.
+  li.querySelector(".dl-meta").textContent =
+    (dl.status === "seeding" ? seedingMeta(dl) : progressMeta(dl)).join(" · ");
 
   // "Failed" on its own is a dead end — say what aria2 actually reported.
   const errEl = li.querySelector(".dl-error");
@@ -812,6 +856,7 @@ function updateItemEl(li, dl) {
 const SECTION_LABELS = {
   active: "Downloading",
   merging: "Merging",
+  seeding: "Seeding",
   waiting: "Queued",
   paused: "Paused",
   error: "Failed",
@@ -844,11 +889,32 @@ const KEYS = [
   "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files",
   // dir survives a retry; the error pair is what lets a failed row say why.
   "dir", "errorCode", "errorMessage",
+  // A finished torrent is still "active" to aria2. seeder is what separates it
+  // from a download, and the upload pair is what a seeding row has to show
+  // instead of a speed and an ETA. aria2 sends all three for torrents only.
+  "seeder", "uploadLength", "uploadSpeed",
 ];
+
+// aria2 has no status for "finished downloading, still uploading" — a seeding
+// torrent is `active` with `seeder` set, and looks in every list like a
+// download stuck at 100%. The list gives it a status of its own, the way a
+// merging video already has one.
+function withSeeding(dl) {
+  if (dl.status === "active" && dl.seeder === "true") return { ...dl, status: "seeding" };
+  // Stopping the seeding is a removal to aria2, so a torrent that has all its
+  // bytes and was removed is a download that finished — not one that was
+  // cancelled. Anything actually cancelled is purged before it can be seen.
+  const total = Number(dl.totalLength) || 0;
+  if (dl.status === "removed" && total > 0 && Number(dl.completedLength) === total) {
+    return { ...dl, status: "complete" };
+  }
+  return dl;
+}
 
 const VIEW_TITLES = {
   all: "All Downloads",
   active: "Downloading",
+  seeding: "Seeding",
   waiting: "Queued",
   paused: "Paused",
   complete: "Completed",
@@ -940,6 +1006,7 @@ function renderCounts(tally) {
 
   const bits = [];
   if (tally.active) bits.push(`${tally.active} downloading`);
+  if (tally.seeding) bits.push(`${tally.seeding} seeding`);
   if (tally.waiting) bits.push(`${tally.waiting} queued`);
   if (tally.paused) bits.push(`${tally.paused} paused`);
   if (tally.complete) bits.push(`${tally.complete} done`);
@@ -947,8 +1014,10 @@ function renderCounts(tally) {
   document.getElementById("stat-counts").textContent =
     bits.length ? bits.join(" · ") : "no downloads";
 
-  const speed = formatSpeed(tally.speed);
-  document.getElementById("stat-speed").textContent = speed ? `↓ ${speed}` : "";
+  const down = formatSpeed(tally.speed);
+  const up = formatSpeed(tally.upspeed);
+  document.getElementById("stat-speed").textContent =
+    [down && `↓ ${down}`, up && `↑ ${up}`].filter(Boolean).join("  ");
 }
 
 // A cap explains a slow download, so it has to be visible — and reachable —
@@ -1140,6 +1209,48 @@ const FACTS_BT = ["status", "connections", "seeders", "downloaded", "speed",
 let detailGid = null;
 let detailBusy = false;
 
+// Which files inside a torrent the user has ticked but not yet applied, per
+// gid. The panel redraws every second off the poll; without this a tick made
+// between two of them would be wiped by the next one.
+const fileSelection = new Map();
+
+// A torrent's files can be re-picked while it runs, waits or is paused —
+// aria2 will not take the option on a download it is actively working, so
+// applying one pauses it first.
+function canPickFiles(st) {
+  return ["active", "waiting", "paused"].includes(st?.status);
+}
+
+// 1-based file indices, the way aria2's --select-file names them.
+function selectedIndices(sec) {
+  return [...sec.querySelectorAll("input[data-file-index]")]
+    .filter((box) => box.checked)
+    .map((box) => Number(box.dataset.fileIndex))
+    .sort((a, b) => a - b);
+}
+
+// Nothing to apply until the ticks say something aria2 doesn't already say,
+// and nothing to apply if they say "take none of it" — aria2 reads an empty
+// selection as "every file", which is the opposite of what the box shows.
+function updateSelectBar(sec) {
+  const bar = sec.querySelector(".detail-select");
+  if (!bar) return;
+  // Set by the redraw off aria2's own status, and read back here and by Apply:
+  // a running download has to be stopped before it will take the change.
+  const running = bar.dataset.running === "true";
+  const boxes = [...sec.querySelectorAll("input[data-file-index]")];
+  const changed = boxes.some((box) => box.checked !== (box.dataset.was !== "false"));
+  const taking = boxes.filter((box) => box.checked).length;
+
+  bar.classList.toggle("hidden", !changed || boxes.length === 0);
+  bar.querySelector(".detail-select-note").textContent = taking === 0
+    ? "Leave at least one file — a torrent with nothing selected downloads all of it."
+    : running
+      ? `Take ${taking} of ${boxes.length}. aria2 only changes this on a stopped download, so garia pauses it and starts it again.`
+      : `Take ${taking} of ${boxes.length}.`;
+  bar.querySelector(".detail-select-apply").disabled = taking === 0;
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -1319,7 +1430,21 @@ function buildPart(part) {
   sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
   sec.appendChild(buildField("dest", "Saving to"));
 
-  sec.appendChild(buildTable("files", "Files", ["File", "Size", "Done"]));
+  const filesTable = buildTable("files", "Files",
+    bt ? ["Take", "File", "Size", "Done"] : ["File", "Size", "Done"]);
+  // The tick column pushes the name along one, and the name is the only column
+  // in these tables that isn't a measurement.
+  if (bt) filesTable.dataset.pick = "true";
+  sec.appendChild(filesTable);
+  if (bt) {
+    const bar = el("div", "detail-select hidden");
+    bar.appendChild(el("p", "detail-note detail-select-note"));
+    const apply = el("button", "btn-secondary detail-select-apply", "Apply");
+    apply.type = "button";
+    apply.dataset.gid = part.gid;
+    bar.appendChild(apply);
+    sec.appendChild(bar);
+  }
   sec.appendChild(buildTable("servers", "Live connections", ["Server", "Speed"]));
   if (bt) sec.appendChild(buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]));
 
@@ -1400,10 +1525,12 @@ function setField(sec, name, value, title) {
   wrap.querySelector(".detail-copy").dataset.value = value;
 }
 
-function cells(tr, values) {
-  while (tr.children.length < values.length) tr.appendChild(document.createElement("td"));
+function cells(tr, values, offset = 0) {
+  while (tr.children.length < offset + values.length) {
+    tr.appendChild(document.createElement("td"));
+  }
   values.forEach((value, i) => {
-    const td = tr.children[i];
+    const td = tr.children[offset + i];
     if (td.textContent !== value) td.textContent = value;
   });
 }
@@ -1484,17 +1611,40 @@ function updatePart(sec, part) {
   setField(sec, "dest", destinationOf(st));
 
   const files = st.files || [];
+  const bt = Boolean(st.bittorrent);
+  const pending = fileSelection.get(part.gid);
   syncTable(sec, "files", files.length > 1 ? files : [], (f) => f.index, (tr, f) => {
     const size = Number(f.length) || 0;
     const got = Number(f.completedLength) || 0;
+    // A torrent is a bundle you can take part of, so its rows are ticked; an
+    // HTTP download's file list is a fact, not a choice.
+    if (bt) {
+      let box = tr.querySelector("input[data-file-index]");
+      if (!box) {
+        const td = el("td", "detail-pick");
+        box = document.createElement("input");
+        box.type = "checkbox";
+        box.dataset.fileIndex = f.index;
+        box.setAttribute("aria-label", `Download ${(f.path || "").split("/").pop()}`);
+        td.appendChild(box);
+        tr.appendChild(td);
+      }
+      // What aria2 says, so the bar can tell a change from a redraw.
+      box.dataset.was = f.selected === "false" ? "false" : "true";
+      box.checked = pending ? pending.has(Number(f.index)) : f.selected !== "false";
+      box.disabled = !canPickFiles(st);
+    }
     cells(tr, [
       (f.path || "").split("/").pop() || `File ${f.index}`,
       formatBytes(size),
       f.selected === "false" ? "skipped"
         : size > 0 ? `${Math.round((got / size) * 100)}%` : "—",
-    ]);
-    tr.children[0].title = f.path || "";
+    ], bt ? 1 : 0);
+    tr.children[bt ? 1 : 0].title = f.path || "";
   });
+  const bar = sec.querySelector(".detail-select");
+  if (bar) bar.dataset.running = String(st.status === "active");
+  updateSelectBar(sec);
 
   syncTable(sec, "servers", flattenServers(part.servers), (s) => s.key, (tr, s) => {
     cells(tr, [hostOf(s.uri), formatSpeed(s.speed) || "—"]);
@@ -1591,6 +1741,35 @@ function refreshDetail() {
     .finally(() => { detailBusy = false; });
 }
 
+// aria2 takes select-file on a waiting or paused download, never on one it is
+// working. So the download is stopped, told, and started again — forcePause
+// because the ordinary pause finishes what it is doing first, and a poll for
+// the status because "paused" is a state to arrive at, not a return value.
+async function whilePaused(gid, wasActive, change) {
+  if (!wasActive) return change();
+  await rpc("aria2.forcePause", [gid]);
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const st = await rpc("aria2.tellStatus", [gid, ["status"]]).catch(() => null);
+    if (st?.status !== "active") break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  try {
+    return await change();
+  } finally {
+    // Whatever the change did, the download was running when it was asked for.
+    await rpc("aria2.unpause", [gid]).catch((err) => console.error(err));
+  }
+}
+
+async function applyFileSelection(gid, sec) {
+  const wanted = selectedIndices(sec);
+  if (!wanted.length) return;
+  const running = sec.querySelector(".detail-select")?.dataset.running === "true";
+  await whilePaused(gid, running, () =>
+    rpc("aria2.changeOption", [gid, { "select-file": wanted.join(",") }]));
+  fileSelection.delete(gid);
+}
+
 function openDetail(gid) {
   if (!gid) return;
   detailGid = gid;
@@ -1599,6 +1778,7 @@ function openDetail(gid) {
   // next tick rebuilds, and the last download's shape is not this one's.
   body.dataset.shape = "";
   body.textContent = "";
+  fileSelection.clear();
   const row = snapshot.get(gid);
   document.getElementById("detail-title").textContent = row ? fileName(row) : gid;
   document.getElementById("detail-reveal").classList.add("hidden");
@@ -1607,6 +1787,8 @@ function openDetail(gid) {
 }
 
 function closeDetail() {
+  // An unapplied pick is a thought, not a setting: it goes when the panel does.
+  fileSelection.clear();
   detailGid = null;
   document.getElementById("detail-overlay").classList.add("hidden");
 }
@@ -1713,7 +1895,7 @@ async function poll(listEl) {
     // are regrouped by status — the only place a drop position can come from.
     queueOrder = waiting.map((d) => d.gid);
 
-    const raw = [...active, ...waiting, ...stopped];
+    const raw = [...active, ...waiting, ...stopped].map(withSeeding);
     // Where each half actually landed, kept before the pairs are folded away —
     // the merge needs both paths, and only aria2 knows them.
     rawPaths.clear();
@@ -1731,7 +1913,7 @@ async function poll(listEl) {
 
     const all = collapseJobs(raw);
     runPendingMerges(all);
-    const tally = { all: all.length, active: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0 };
+    const tally = { all: all.length, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     const seen = new Set();
 
     for (const dl of all) {
@@ -1741,12 +1923,11 @@ async function poll(listEl) {
 
       // The transition, not the state: a row sits at "complete" for as long as
       // it's on screen, and only the tick it arrived on is worth announcing.
-      if (
-        settings.notifyOnComplete &&
-        !firstPoll &&
-        dl.status === "complete" &&
-        before?.status !== "complete"
-      ) {
+      // A torrent lands when its files do — it then seeds for as long as the
+      // rules say, and the end of that is not a second arrival.
+      const landed = dl.status === "complete" || dl.status === "seeding";
+      const hadLanded = before?.status === "complete" || before?.status === "seeding";
+      if (settings.notifyOnComplete && !firstPoll && landed && !hadLanded) {
         notifyComplete(dl);
         countCompletion();
       }
@@ -1754,6 +1935,7 @@ async function poll(listEl) {
       const counted = dl.status === "merging" ? "active" : dl.status;
       if (tally[counted] !== undefined) tally[counted]++;
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
+      if (dl.status === "seeding") tally.upspeed += Number(dl.uploadSpeed) || 0;
 
       let li = listEl.querySelector(`[data-gid="${dl.gid}"]`);
       if (!li) {
@@ -2136,6 +2318,10 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       if (action === "stop")   await Promise.all(gids.map(g => rpc("aria2.pause",   [g])));
       if (action === "resume") await Promise.all(gids.map(g => rpc("aria2.unpause", [g])));
+      // aria2 has no "stop seeding": the seeding *is* the download still
+      // running, so ending it is a removal. The bytes are all there, which is
+      // what files the row under Completed rather than losing it.
+      if (action === "unseed") await Promise.all(gids.map(g => rpc("aria2.remove", [g])));
       if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
       if (action !== "reveal") await pollAndSync();
@@ -2263,6 +2449,30 @@ window.addEventListener("DOMContentLoaded", () => {
       for (const b of buttons) b.disabled = false;
       refreshDetail();
       await pollAndSync();   // the chip on the row behind the panel
+      return;
+    }
+
+    // A tick on a file inside a torrent. Remembered against the gid so the
+    // next poll redraws what the user chose rather than what aria2 still says.
+    const box = e.target.closest("input[data-file-index]");
+    if (box) {
+      const sec = box.closest(".detail-part");
+      fileSelection.set(sec.dataset.gid, new Set(selectedIndices(sec)));
+      updateSelectBar(sec);
+      return;
+    }
+
+    const apply = e.target.closest(".detail-select-apply");
+    if (apply) {
+      const sec = apply.closest(".detail-part");
+      apply.disabled = true;
+      try {
+        await applyFileSelection(apply.dataset.gid, sec);
+      } catch (err) {
+        console.error(err);
+      }
+      refreshDetail();
+      await pollAndSync();
       return;
     }
 
@@ -2518,6 +2728,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsMedium  = document.getElementById("settings-medium");
   const settingsLight   = document.getElementById("settings-light");
   const settingsConc    = document.getElementById("settings-concurrency");
+  const settingsRatio   = document.getElementById("settings-seed-ratio");
+  const settingsSeedFor = document.getElementById("settings-seed-time");
   const settingsNotify  = document.getElementById("settings-notify");
   const settingsSmart   = document.getElementById("settings-smart-folders");
   const settingsCatch   = document.getElementById("settings-catch");
@@ -2539,6 +2751,8 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsMedium.value = inMB(modeLimit("medium"));
     settingsLight.value = inMB(modeLimit("light"));
     settingsConc.value = String(settings.maxConcurrentDownloads || 5);
+    settingsRatio.value = String(Number(settings.seedRatio) || 0);
+    settingsSeedFor.value = String(Number(settings.seedTimeMinutes) || 0);
     settingsNotify.checked = settings.notifyOnComplete !== false;
     settingsSmart.checked = settings.smartFolders === true;
     settingsCatch.checked = settings.catchClipboard !== false;
@@ -2559,6 +2773,8 @@ window.addEventListener("DOMContentLoaded", () => {
       trafficMode: currentMode(),
       mediumLimit: toBytes(settingsMedium.value),
       lightLimit: toBytes(settingsLight.value),
+      seedRatio: Math.min(Math.max(parseFloat(settingsRatio.value) || 0, 0), 100),
+      seedTimeMinutes: Math.max(parseInt(settingsSeedFor.value, 10) || 0, 0),
       smartFolders: settingsSmart.checked,
       notifyOnComplete: settingsNotify.checked,
       catchClipboard: settingsCatch.checked,

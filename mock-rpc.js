@@ -53,12 +53,12 @@ const torrent = (t) => {
     path: `${dir}/${name}`,
     length: String(length),
     completedLength: String(Math.round(length * Math.min(1, share * (done / total) * 2.2))),
-    selected: i === 2 ? "false" : "true",
+    selected: isPicked("eeee1111", i + 1) ? "true" : "false",
     uris: [],
   }));
   return {
     gid: "eeee1111",
-    status: "active",
+    status: paused.has("eeee1111") ? "paused" : "active",
     totalLength: String(total),
     completedLength: String(Math.round(done)),
     downloadSpeed: String(Math.round(2.6 * MB)),
@@ -159,9 +159,28 @@ function changePosition(gid, pos, how = "POS_SET") {
 // chip and a pressed segment are on screen without anyone clicking first.
 const limits = new Map([["aaaa2222", String(512 * 1024)]]);
 
+// Which files inside a torrent are being taken, as aria2's --select-file
+// string. Undefined means all of them, which is aria2's own default.
+const picks = new Map([["eeee1111", "1,2"]]);
+
+function isPicked(gid, index) {
+  const spec = picks.get(gid);
+  if (spec === undefined) return true;
+  return spec.split(",").some((part) => {
+    const [from, to] = part.split("-").map(Number);
+    return to === undefined ? from === index : index >= from && index <= to;
+  });
+}
+
 function changeOption(gid, options = {}) {
   if ("max-download-limit" in options) {
     limits.set(gid, String(options["max-download-limit"]));
+  }
+  if ("select-file" in options) {
+    // The real aria2 refuses this on a download it is actively working, which
+    // is the whole reason the UI pauses first.
+    if (paused.has(gid)) picks.set(gid, String(options["select-file"]));
+    else return { error: `Cannot change select-file on an active download` };
   }
   return "OK";
 }
@@ -169,11 +188,17 @@ function changeOption(gid, options = {}) {
 function getOption(gid) {
   return {
     dir: "/Users/me/Downloads",
+    "select-file": picks.get(gid) ?? "",
     "max-download-limit": limits.get(gid) ?? "0",
     "max-connection-per-server": "16",
     split: "16",
   };
 }
+
+// Downloads the UI has paused or stopped seeding, so the mock can answer the
+// way aria2 would between a forcePause and the unpause after it.
+const paused = new Set();
+const removed = new Set();
 
 function snapshot() {
   // Let the two active downloads creep forward so progress bars animate.
@@ -209,8 +234,27 @@ function snapshot() {
     half("ffff2222", "A Very Long Talk About Nothing.f251.webm", 42 * MB, 1, 0.6 * MB),
   );
 
+  // A torrent that is done downloading and is still uploading — `active` with
+  // `seeder`, which is the only way aria2 says "seeding". Stopping the seeding
+  // is a removal, and what aria2 keeps afterwards is a `removed` record with
+  // every byte present.
+  const seedSize = 740 * MB;
+  const seeding = {
+    ...item("eeee2222", removed.has("eeee2222") ? "removed" : "active",
+      "/Users/me/Downloads/nixos-25.05-x86_64.iso", seedSize, seedSize, 0),
+    seeder: "true",
+    uploadLength: String(Math.round(seedSize * (0.3 + t / 600))),
+    uploadSpeed: removed.has("eeee2222") ? "0" : String(Math.round(1.4 * MB)),
+    numSeeders: "12",
+    connections: removed.has("eeee2222") ? "0" : "9",
+    infoHash: "8c4f3d2a19b6e05c7d81f4a2b3c9e0d5f6a7b8c9",
+    bittorrent: { mode: "single", info: { name: "nixos-25.05-x86_64.iso" } },
+  };
+  if (!removed.has("eeee2222")) active.push(seeding);
+
   const waiting = queueOrder.map((gid) => QUEUE.get(gid)());
   const stopped = [
+    ...(removed.has("eeee2222") ? [seeding] : []),
     ...(landing.status === "complete" ? [landing] : []),
     item("cccc2222", "complete", "/Users/me/Downloads/annual-report.pdf", 18 * MB, 18 * MB, 0),
     // quotes + angle brackets: proves filenames are no longer injected as HTML
@@ -254,6 +298,10 @@ createServer((req, res) => {
       method === "aria2.changePosition" ? changePosition(params[0], params[1], params[2]) :
       method === "aria2.changeOption" ? changeOption(params[0], params[1]) :
       method === "aria2.getOption"    ? getOption(params[0]) :
+      method === "aria2.pause" || method === "aria2.forcePause"
+        ? (paused.add(params[0]), "OK") :
+      method === "aria2.unpause"      ? (paused.delete(params[0]), "OK") :
+      method === "aria2.remove"       ? (removed.add(params[0]), "OK") :
       method === "aria2.tellActive"  ? s.active  :
       method === "aria2.tellWaiting" ? s.waiting :
       method === "aria2.tellStopped" ? s.stopped :
@@ -261,6 +309,12 @@ createServer((req, res) => {
       method === "aria2.getServers"  ? serversFor(one(params[0]) ?? { downloadSpeed: "0", files: [] }) :
       method === "aria2.getPeers"    ? (one(params[0])?.bittorrent ? peersFor(one(params[0])) : []) :
       "OK";
+    if (result && result.error) {
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({
+        jsonrpc: "2.0", id, error: { code: 1, message: result.error },
+      }));
+    }
     // aria2 answers with an error, not a null, when it has never heard of a gid.
     if (method === "aria2.tellStatus" && !result) {
       res.setHeader("Content-Type", "application/json");

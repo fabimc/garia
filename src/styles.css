@@ -592,6 +592,10 @@ body {
     background: rgba(179, 38, 30, 0.12);
     color: var(--danger);
 }
+.dl-item[data-status="seeding"] .dl-icon {
+    background: rgba(13, 74, 97, 0.1);
+    color: var(--brand);
+}
 
 /* ── Queue reordering ────────────────────────────────────────────────── */
 /* A queued row can be dragged to a different place in the queue. The grip
@@ -727,6 +731,10 @@ body {
     background: rgba(179, 38, 30, 0.12);
     color: var(--danger);
 }
+.dl-status-pill.seeding {
+    background: rgba(13, 74, 97, 0.1);
+    color: var(--brand);
+}
 
 .dl-bar-track {
     height: 8px;
@@ -751,6 +759,10 @@ body {
 }
 .dl-item[data-status="paused"] .dl-bar-fill {
     background: var(--warning);
+}
+/* The bar is full and stays full — what moves on a seeding row is the ratio. */
+.dl-item[data-status="seeding"] .dl-bar-fill {
+    background: var(--brand);
 }
 
 /* Indeterminate state: active download with unknown total size */
@@ -1748,9 +1760,52 @@ body {
     width: 1%;
 }
 
+/* …but a torrent's file names sit in the second column, behind the ticks. */
+[data-pick] .detail-table td:nth-child(2),
+[data-pick] .detail-table th:nth-child(2) {
+    font-family: inherit;
+    text-align: left;
+    width: auto;
+}
+
 .detail-note {
     font-size: 0.78rem;
     color: var(--muted);
+}
+
+/* A torrent is a bundle you can take part of, so its file rows are ticked.
+   The column is as narrow as a checkbox and never grows. */
+.detail-pick {
+    width: 1.6rem;
+    padding-right: 0 !important;
+}
+.detail-pick input {
+    display: block;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.detail-pick input:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+/* Only there once the ticks say something aria2 doesn't. */
+.detail-select {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+.detail-select .detail-select-note {
+    flex: 1;
+    min-width: 0;
+}
+.detail-select-apply {
+    flex-shrink: 0;
 }
 
 /* The row's own share of the line. Same three modes as the status bar, aimed
