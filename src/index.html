@@ -516,6 +516,11 @@
                         />
                     </div>
 
+                    <!-- A URL whose host garia has a login for. Said before
+                         the download starts, because a 401 three seconds
+                         later is a worse way to find out. -->
+                    <p id="modal-login" class="field-hint modal-login hidden"></p>
+
                     <!-- Shown while yt-dlp is reading the page. It can take a
                          few seconds, and a dialog that just sits there looks
                          broken. -->
@@ -856,6 +861,51 @@
                     </div>
 
                     <div class="field">
+                        <div class="modal-label">Logins</div>
+                        <p class="field-hint">
+                            For files that are behind a sign-in. A password
+                            goes into a netrc file only aria2 reads, so it is
+                            never attached to a download and never reaches
+                            aria2's session file; a header is carried on the
+                            request, which means it is written down with it.
+                        </p>
+                        <ul id="settings-logins" class="login-list"></ul>
+                        <button class="btn-secondary login-add" id="settings-login-add">
+                            Add a site…
+                        </button>
+                    </div>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-cookies"
+                            >Cookie file</label
+                        >
+                        <div class="modal-input-row">
+                            <input
+                                id="settings-cookies"
+                                class="field-input is-path"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                                placeholder="No cookie jar"
+                            />
+                            <button
+                                class="btn-secondary"
+                                id="settings-cookies-browse"
+                            >
+                                Choose…
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            A <code>cookies.txt</code> exported from the
+                            browser. aria2 matches it to hosts itself and reads
+                            it once, when it starts — so changing this restarts
+                            the download engine, and unfinished downloads
+                            resume where they were. Nothing is copied: the file
+                            stays where it is. Empty the box to stop using one.
+                        </p>
+                    </div>
+
+                    <div class="field">
                         <div class="modal-label">Video downloads</div>
                         <p id="settings-video" class="field-hint">Checking…</p>
                     </div>
@@ -867,6 +917,101 @@
                         Cancel
                     </button>
                     <button class="btn-primary" id="settings-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── One site's login ─────────────────────────────────────────── -->
+        <div
+            id="login-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-title"
+        >
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="login-title">Add a site</h2>
+                    <button class="modal-close" id="login-close" aria-label="Close">
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body stack">
+                    <div class="field">
+                        <label class="modal-label" for="login-host">Site</label>
+                        <input
+                            id="login-host"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="files.example.com"
+                        />
+                        <p class="field-hint">
+                            The host, exactly as it appears in the URL — that
+                            is what aria2 matches a saved password against.
+                            Paste a whole link and garia takes the host out
+                            of it.
+                        </p>
+                    </div>
+
+                    <div class="field-pair">
+                        <div class="field">
+                            <label class="modal-label" for="login-user"
+                                >User name</label
+                            >
+                            <input
+                                id="login-user"
+                                class="field-input"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                            />
+                        </div>
+                        <div class="field">
+                            <label class="modal-label" for="login-pass"
+                                >Password</label
+                            >
+                            <input
+                                id="login-pass"
+                                class="field-input"
+                                type="password"
+                                autocomplete="new-password"
+                            />
+                        </div>
+                    </div>
+                    <p id="login-pass-hint" class="field-hint"></p>
+
+                    <div class="field">
+                        <label class="modal-label" for="login-headers"
+                            >Headers</label
+                        >
+                        <textarea
+                            id="login-headers"
+                            class="field-input login-headers"
+                            rows="3"
+                            spellcheck="false"
+                            placeholder="Authorization: Bearer …"
+                        ></textarea>
+                        <p class="field-hint">
+                            One per line, written as
+                            <code>Name: value</code>. Unlike a password, a
+                            header is an option on the download itself, so
+                            aria2 writes it into the session file it keeps
+                            unfinished downloads in — which is how a resume
+                            after a quit still gets through, and also means a
+                            token in here is on disk.
+                        </p>
+                    </div>
+
+                    <p id="login-error" class="error hidden"></p>
+                </div>
+                <div class="modal-footer login-footer">
+                    <button class="btn-secondary btn-danger" id="login-delete">
+                        Remove
+                    </button>
+                    <button class="btn-secondary" id="login-cancel">Cancel</button>
+                    <button class="btn-primary" id="login-save">Save</button>
                 </div>
             </div>
         </div>

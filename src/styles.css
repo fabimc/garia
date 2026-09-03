@@ -1527,6 +1527,112 @@ body {
     color: var(--text);
 }
 
+/* Settings has more in it than a short window is tall — it grew a field at a
+   time, and the Save button was the thing that went off the bottom. Same
+   shape as the detail panel: the dialog is capped, and the fields scroll
+   inside it while the header and footer stay where they are. */
+#settings-overlay .modal {
+    max-height: 86vh;
+}
+#settings-overlay .modal-body {
+    overflow-y: auto;
+}
+
+/* ── Logins ──────────────────────────────────────────────────────────── */
+/* One row per site, and the row says which of the two promises the site's
+   password got: netrc, which no download ever sees, or a header, which is
+   written into aria2's session file along with the download. */
+.login-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0.15rem 0 0;
+    padding: 0;
+}
+
+.login-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        background 0.15s;
+}
+.login-row:hover {
+    border-color: var(--border-strong);
+    background: var(--surface);
+}
+
+.login-host {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.login-what {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.login-empty {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0.15rem 0;
+}
+
+.login-add {
+    align-self: flex-start;
+    margin-top: 0.15rem;
+}
+
+.login-headers {
+    resize: vertical;
+    min-height: 3.4rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+/* Remove sits apart from Cancel and Save: it is the one button here that
+   throws something away. */
+.login-footer {
+    justify-content: flex-end;
+}
+.login-footer #login-delete {
+    margin-right: auto;
+}
+
+.btn-danger {
+    color: var(--danger);
+}
+.btn-danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* The add dialog's note that this URL's host is one garia can sign in to. */
+.modal-login {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--brand);
+}
+
 /* ── Detail panel ────────────────────────────────────────────────────── */
 /* Wider than the add dialog and taller than the screen on a torrent with a
    hundred peers, so the body scrolls and the header and footer don't. */

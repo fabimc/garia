@@ -42,6 +42,7 @@ let settings = {
   notifyOnComplete: true,
   catchClipboard: true,
   inOrder: false,
+  cookieFile: "",
 };
 
 async function loadSettings() {
@@ -143,6 +144,9 @@ function addOptions(url) {
   // every torrent carries the rules that were in force when it was added.
   Object.assign(options, seedOptions());
   Object.assign(options, orderOptions());
+  // Headers for a site with a login. A password is not here and never will
+  // be: aria2 reads that out of its own netrc, per host, per request.
+  Object.assign(options, loginOptions(url));
   return options;
 }
 
@@ -162,6 +166,89 @@ function seedOptions() {
   const minutes = Number(settings.seedTimeMinutes) || 0;
   if (minutes > 0) options["seed-time"] = String(minutes);
   return options;
+}
+
+// ── Downloads behind a login ─────────────────────────────────────────────
+// Three ways to prove who you are, and only one of them is garia's to send.
+// A password lives in a netrc file that aria2 reads for itself — it is never
+// an option on a download, which matters because an option on a download is
+// written into aria2's session file and handed back by getOption. A cookie
+// jar is a path aria2 reads at launch. What is left for this side is headers:
+// the ones the user typed, and the Basic line Rust writes when a password has
+// a space in it and netrc, which has no quoting, cannot hold it.
+//
+// Rust owns the list and never sends a password with it, so nothing here can
+// leak one — the most this knows is that a site has one.
+let logins = [];
+
+// Browser dev mode has no Rust to keep them; the preview still has to be able
+// to show both kinds of row.
+const LOGINS_KEY = "garia:logins";
+
+async function loadLogins() {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") {
+    try { logins = JSON.parse(localStorage.getItem(LOGINS_KEY)) || []; } catch { logins = []; }
+    return;
+  }
+  try {
+    logins = await invoker("get_logins");
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// The host part of a URL, a host with a port, or a bare name. This mirrors
+// host_of in Rust deliberately: the two have to agree about what "this site"
+// means, or garia would attach a header where aria2 sends no password. (The
+// detail panel's hostOf is a different thing — that one is for showing which
+// server a byte came from, port and all.)
+function siteOf(input) {
+  let s = String(input || "").trim();
+  const scheme = s.indexOf("://");
+  if (scheme >= 0) s = s.slice(scheme + 3);
+  s = s.split(/[/?#]/)[0];
+  const at = s.lastIndexOf("@");
+  if (at >= 0) s = s.slice(at + 1);
+  let host;
+  if (s.startsWith("[")) {
+    const end = s.indexOf("]");
+    host = end > 0 ? s.slice(0, end + 1) : s;
+  } else {
+    host = s.split(":")[0];
+  }
+  return host.trim().replace(/\.+$/, "").toLowerCase();
+}
+
+// Exact host, because that is what aria2 matches a netrc line against.
+function loginFor(url) {
+  const host = siteOf(url);
+  return host ? logins.find(l => l.host === host) : undefined;
+}
+
+function loginHeaders(url) {
+  const login = loginFor(url);
+  if (!login) return [];
+  return [...(login.headers || []), ...(login.extraHeaders || [])];
+}
+
+// What a download to this URL carries. The password is missing on purpose:
+// aria2 already has it, from a file this side has never seen.
+function loginOptions(url) {
+  const header = loginHeaders(url);
+  return header.length ? { header } : {};
+}
+
+// How a site's password is being sent, in the words the dialog uses.
+function loginSummary(login) {
+  const bits = [];
+  if (login.username) bits.push(login.username);
+  if (login.hasPassword) {
+    bits.push(login.viaHeader ? "password as a header" : "password in netrc");
+  }
+  const count = (login.headers || []).length;
+  if (count) bits.push(count === 1 ? "1 header" : `${count} headers`);
+  return bits.join(" · ") || "nothing saved";
 }
 
 // ── Video downloads (yt-dlp) ─────────────────────────────────────────────
@@ -679,6 +766,9 @@ const ERROR_REASONS = {
 };
 
 function errorReason(dl) {
+  // aria2 says "Authorization failed", which is true and leads nowhere. This
+  // is the one failure with a fix inside the app, so the row names it.
+  if (Number(dl.errorCode) === 24) return "Needs a login — add one in Settings";
   const message = (dl.errorMessage || "").trim();
   if (message) return message;
   const code = Number(dl.errorCode);
@@ -2186,6 +2276,20 @@ window.addEventListener("DOMContentLoaded", () => {
     modalTitle.textContent = mode === "video" ? "Download video" : "Add download";
   }
 
+  // A URL whose host garia has a login for, said before the download starts —
+  // a 401 three seconds later is a worse way to find out, and a site with a
+  // login saved is exactly the one where a typo in the host goes unnoticed.
+  const modalLogin = document.getElementById("modal-login");
+  function renderModalLogin() {
+    const login = loginFor(modalUrlInput.value.trim());
+    modalLogin.classList.toggle("hidden", !login);
+    if (login) {
+      modalLogin.textContent = login.username
+        ? `Signing in to ${login.host} as ${login.username}`
+        : `Sending your saved headers for ${login.host}`;
+    }
+  }
+
   function openModal(url = "") {
     probeToken++;
     probed = null;
@@ -2193,6 +2297,7 @@ window.addEventListener("DOMContentLoaded", () => {
     torrentInput.value  = "";
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
+    renderModalLogin();
     setModalMode("url");
     overlay.classList.remove("hidden");
     setTimeout(() => modalUrlInput.focus(), 50);
@@ -2202,14 +2307,20 @@ window.addEventListener("DOMContentLoaded", () => {
     overlay.classList.add("hidden");
   }
 
+  modalUrlInput.addEventListener("input", renderModalLogin);
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      closeTrafficMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
+    if (e.key !== "Escape") return;
+    // The login editor sits on top of Settings, so Escape there closes it and
+    // leaves what it was opened from where it was.
+    if (!document.getElementById("login-overlay").classList.contains("hidden")) {
+      document.getElementById("login-overlay").classList.add("hidden");
+      return;
     }
+    closeTrafficMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
   });
 
   // Browse → open native file picker for .torrent
@@ -2368,7 +2479,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (choice.formats.length === 1) {
         const f = choice.formats[0];
         await rpc("aria2.addUri", [[f.url], {
-          ...common, ...referer, out: `${base}.${f.ext}`, header: f.headers,
+          ...common, ...referer, out: `${base}.${f.ext}`,
+          header: [...f.headers, ...loginHeaders(f.url)],
         }]);
       } else {
         const [v, a] = choice.formats;
@@ -2377,10 +2489,12 @@ window.addEventListener("DOMContentLoaded", () => {
         const videoName = `${base}.f${v.id}.${v.ext}`;
         const audioName = `${base}.f${a.id}.${a.ext}`;
         const videoGid = await rpc("aria2.addUri", [[v.url], {
-          ...common, ...referer, out: videoName, header: v.headers,
+          ...common, ...referer, out: videoName,
+          header: [...v.headers, ...loginHeaders(v.url)],
         }]);
         const audioGid = await rpc("aria2.addUri", [[a.url], {
-          ...common, ...referer, out: audioName, header: a.headers,
+          ...common, ...referer, out: audioName,
+          header: [...a.headers, ...loginHeaders(a.url)],
         }]);
         jobs.set(videoGid, {
           audioGid,
@@ -2476,7 +2590,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const dl = snapshot.get(gid);
     const uris = dl ? retryUris(dl) : [];
     if (!uris.length) return;
-    await rpc("aria2.addUri", [uris, { ...(dl.dir ? { dir: dl.dir } : {}), ...orderOptions() }]);
+    // A download that failed for want of a login is the one most likely to be
+    // retried, so the retry is added with whatever has been saved since.
+    await rpc("aria2.addUri", [uris, {
+      ...(dl.dir ? { dir: dl.dir } : {}), ...orderOptions(), ...loginOptions(uris[0]),
+    }]);
     await purgeResult(gid);
   }
 
@@ -2876,6 +2994,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsSmart   = document.getElementById("settings-smart-folders");
   const settingsCatch   = document.getElementById("settings-catch");
   const settingsInOrder = document.getElementById("settings-in-order");
+  const settingsCookies = document.getElementById("settings-cookies");
+  const settingsLogins  = document.getElementById("settings-logins");
   const settingsError   = document.getElementById("settings-error");
 
   const MB = 1024 * 1024;
@@ -2900,6 +3020,8 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsSmart.checked = settings.smartFolders === true;
     settingsCatch.checked = settings.catchClipboard !== false;
     settingsInOrder.checked = settings.inOrder === true;
+    settingsCookies.value = settings.cookieFile || "";
+    renderLogins();
     settingsOverlay.classList.remove("hidden");
     setTimeout(() => settingsDir.focus(), 50);
   }
@@ -2923,6 +3045,9 @@ window.addEventListener("DOMContentLoaded", () => {
       notifyOnComplete: settingsNotify.checked,
       catchClipboard: settingsCatch.checked,
       inOrder: settingsInOrder.checked,
+      // aria2 only reads a jar at launch, so Rust restarts it when this
+      // changes. A path that isn't a file comes back as no jar at all.
+      cookieFile: settingsCookies.value.trim(),
     };
 
     // Switching notifications off should take the count on the dock with it.
@@ -3034,6 +3159,215 @@ window.addEventListener("DOMContentLoaded", () => {
       console.error(err);
     }
   });
+
+  document.getElementById("settings-cookies-browse").addEventListener("click", async () => {
+    const pick = window.__TAURI__?.dialog?.open;
+    if (typeof pick !== "function") {
+      settingsError.textContent = "No file picker here — type the path instead.";
+      settingsError.classList.remove("hidden");
+      return;
+    }
+    try {
+      const chosen = await pick({
+        multiple: false,
+        title: "Choose a cookies.txt",
+        filters: [{ name: "Cookies", extensions: ["txt"] }],
+        defaultPath: settingsCookies.value.trim() || undefined,
+      });
+      if (typeof chosen === "string" && chosen) settingsCookies.value = chosen;
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  // ── Logins ───────────────────────────────────────────────────────────────
+  // The list in Settings, and the editor behind one row of it. Rust owns both
+  // files and hands back the list as it stored it, so nothing here decides
+  // what a login is — it sends what was typed and re-renders the answer.
+  const loginOverlay   = document.getElementById("login-overlay");
+  const loginTitle     = document.getElementById("login-title");
+  const loginHost      = document.getElementById("login-host");
+  const loginUser      = document.getElementById("login-user");
+  const loginPass      = document.getElementById("login-pass");
+  const loginPassHint  = document.getElementById("login-pass-hint");
+  const loginHeadersEl = document.getElementById("login-headers");
+  const loginDelete    = document.getElementById("login-delete");
+  const loginError     = document.getElementById("login-error");
+
+  // The site being edited, or "" for a new one. It is what tells Save that an
+  // empty password box means "keep the one Rust is holding" rather than "no
+  // password" — this side is never sent one, so it cannot put it back.
+  let editingHost = "";
+
+  function renderLogins() {
+    settingsLogins.textContent = "";
+    if (!logins.length) {
+      const li = document.createElement("li");
+      li.className = "login-empty";
+      li.textContent = "No sites yet.";
+      settingsLogins.append(li);
+      return;
+    }
+    for (const login of logins) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "login-row";
+      btn.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+      btn.querySelector(".login-host").textContent = login.host;
+      btn.querySelector(".login-what").textContent = loginSummary(login);
+      btn.addEventListener("click", () => openLogin(login.host));
+      li.append(btn);
+      settingsLogins.append(li);
+    }
+  }
+
+  // The password field says where the password it is about to take will live,
+  // because that is the whole difference between the two ways of sending one.
+  function renderPassHint(login) {
+    if (login?.hasPassword && login.viaHeader) {
+      loginPassHint.textContent =
+        "This one has a space in it, and netrc has no way to quote a space — so " +
+        "garia sends it as an Authorization header instead, which aria2 writes " +
+        "into its session file. Leave the box empty to keep it.";
+    } else if (login?.hasPassword) {
+      loginPassHint.textContent =
+        "Saved in a netrc file only aria2 reads. Leave the box empty to keep it.";
+    } else {
+      loginPassHint.textContent =
+        "Kept in a netrc file aria2 reads for itself, so it is never attached to " +
+        "a download and never reaches the session file. A password with a space " +
+        "in it can't go in a netrc — that one becomes a header, and says so here.";
+    }
+  }
+
+  function openLogin(host = "") {
+    const login = logins.find(l => l.host === host);
+    editingHost = login ? login.host : "";
+    loginTitle.textContent = login ? "Edit site" : "Add a site";
+    loginHost.value = login ? login.host : host;
+    loginUser.value = login ? login.username : "";
+    loginPass.value = "";
+    loginHeadersEl.value = login ? (login.headers || []).join("\n") : "";
+    loginDelete.classList.toggle("hidden", !login);
+    loginError.classList.add("hidden");
+    renderPassHint(login);
+    loginOverlay.classList.remove("hidden");
+    setTimeout(() => (login ? loginUser : loginHost).focus(), 50);
+  }
+
+  function closeLogin() { loginOverlay.classList.add("hidden"); }
+
+  function loginBusy(busy) {
+    document.getElementById("login-save").disabled = busy;
+    loginDelete.disabled = busy;
+  }
+
+  async function saveLogin() {
+    loginError.classList.add("hidden");
+    loginBusy(true);
+    try {
+      const typed = loginPass.value;
+      await putLogin({
+        host: loginHost.value,
+        username: loginUser.value.trim(),
+        // A blank box on a site that already has one means leave it alone;
+        // on a new site it means there is no password.
+        password: typed ? typed : (editingHost ? null : ""),
+        headers: loginHeadersEl.value.split("\n"),
+      });
+      renderLogins();
+      closeLogin();
+    } catch (err) {
+      loginError.textContent = String(err?.message || err);
+      loginError.classList.remove("hidden");
+    } finally {
+      loginBusy(false);
+    }
+  }
+
+  async function removeLogin() {
+    loginError.classList.add("hidden");
+    loginBusy(true);
+    try {
+      await dropLogin(editingHost || loginHost.value);
+      renderLogins();
+      closeLogin();
+    } catch (err) {
+      loginError.textContent = String(err?.message || err);
+      loginError.classList.remove("hidden");
+    } finally {
+      loginBusy(false);
+    }
+  }
+
+  // Saving a login can restart aria2 — a netrc is read once, at launch — so
+  // these wait for Rust and take the list it returns rather than guessing.
+  async function putLogin(entry) {
+    const invoker = window.__TAURI__?.core?.invoke;
+    if (typeof invoker === "function") {
+      logins = await invoker("save_login", entry);
+      return;
+    }
+    logins = mockLogins(entry, "save");
+  }
+
+  async function dropLogin(host) {
+    const invoker = window.__TAURI__?.core?.invoke;
+    if (typeof invoker === "function") {
+      logins = await invoker("delete_login", { host });
+      return;
+    }
+    logins = mockLogins({ host }, "delete");
+  }
+
+  // Browser dev mode only. Rust is the real implementation of all of this;
+  // this exists so the dialog can be worked on without a build, and mirrors
+  // the one rule that changes what the dialog says: netrc cannot hold a
+  // password with whitespace in it, so that one becomes a header.
+  function mockLogins(entry, verb) {
+    const host = siteOf(entry.host);
+    const next = logins.filter(l => l.host !== host);
+    if (verb === "save") {
+      if (!host) throw new Error("Which site is this for? Paste a URL or type a host name.");
+      const was = logins.find(l => l.host === host);
+      const headers = (entry.headers || []).map(h => h.trim()).filter(Boolean);
+      for (const h of headers) {
+        if (!h.split(":")[0]?.trim() || !h.includes(":")) {
+          throw new Error(`"${h}" is not a header — write it as Name: value`);
+        }
+      }
+      const username = entry.username;
+      const password = entry.password === null ? (was?.password ?? "") : entry.password;
+      if (!username && entry.password) throw new Error("A password needs a user name to go with it.");
+      if (!username && !headers.length) {
+        throw new Error("Nothing to save — give the site a user name, a header, or both.");
+      }
+      const kept = username ? password : "";
+      const viaHeader = !!kept && /\s/.test(kept);
+      next.push({
+        host,
+        username,
+        password: kept,              // the mock keeps it; Rust never sends it back
+        hasPassword: !!kept,
+        viaHeader,
+        headers,
+        extraHeaders: viaHeader ? [`Authorization: Basic ${btoa(`${username}:${kept}`)}`] : [],
+      });
+      next.sort((a, b) => a.host.localeCompare(b.host));
+    }
+    localStorage.setItem(LOGINS_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  document.getElementById("settings-login-add").addEventListener("click", () => openLogin());
+  document.getElementById("login-save").addEventListener("click", saveLogin);
+  document.getElementById("login-cancel").addEventListener("click", closeLogin);
+  document.getElementById("login-close").addEventListener("click", closeLogin);
+  loginDelete.addEventListener("click", removeLogin);
+  loginOverlay.addEventListener("click", (e) => { if (e.target === loginOverlay) closeLogin(); });
+  loginPass.addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
+  loginHost.addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
 
   // ── Sidebar collapse ─────────────────────────────────────────────────────
   const shell = document.querySelector(".app-shell");
@@ -3189,6 +3523,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   loadSettings();
+  loadLogins();
   loadVideoTools();
   pollAndSync();
   setInterval(pollAndSync, 1000);

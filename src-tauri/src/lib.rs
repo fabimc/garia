@@ -9,13 +9,19 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 mod catch;
+mod logins;
 
-/// The aria2c child process plus the RPC secret it was started with.
+/// The aria2c child process plus the RPC secret it was started with. The two
+/// paths are here because they are launch-time inputs and nothing else: aria2
+/// reads a netrc and a cookie jar once, when it starts, so changing either is
+/// a restart — and a restart has to be able to rebuild the same command line.
 struct Aria2 {
     child: Mutex<Option<Child>>,
     secret: String,
     port: u16,
     pid_file: PathBuf,
+    session: PathBuf,
+    netrc: PathBuf,
 }
 
 /// A cap nobody can find is a cap nobody uses. FDM frames the one number as
@@ -82,6 +88,11 @@ struct Settings {
     /// Nothing here reads it — it goes on each download as it is added, since
     /// aria2 will not change a piece selector on a download it is working.
     in_order: bool,
+    /// A Netscape cookies.txt exported from the browser, read by aria2 at
+    /// launch and matched to hosts by aria2 itself. A path, not a copy: the
+    /// jar stays the browser's file, and garia holds nothing from it. Empty
+    /// means no jar, which is the default.
+    cookie_file: String,
 }
 
 impl Default for Settings {
@@ -100,6 +111,7 @@ impl Default for Settings {
             notify_on_complete: true,
             catch_clipboard: true,
             in_order: false,
+            cookie_file: String::new(),
         }
     }
 }
@@ -139,6 +151,14 @@ impl Settings {
         self.medium_limit = clamp_limit(self.medium_limit, DEFAULT_MEDIUM_LIMIT);
         self.light_limit = clamp_limit(self.light_limit, DEFAULT_LIGHT_LIMIT);
 
+        // A jar that isn't there is no jar: aria2 takes --load-cookies on a
+        // missing file without complaint and simply sends no cookies, which
+        // looks exactly like the login not working.
+        self.cookie_file = self.cookie_file.trim().to_string();
+        if !self.cookie_file.is_empty() && !Path::new(&self.cookie_file).is_file() {
+            self.cookie_file = String::new();
+        }
+
         // The overall cap is the mode's number, always — the frontend sends it
         // back with the rest and never gets to disagree with the mode.
         self.traffic_mode = Some(mode);
@@ -171,6 +191,16 @@ fn clamp_limit(bytes: u64, fallback: u64) -> u64 {
 struct SettingsState {
     file: PathBuf,
     current: Mutex<Settings>,
+}
+
+/// garia's own credential store, and the netrc derived from it. Two files
+/// because they answer to two different readers: the first is garia's, holds
+/// the passwords, and is never handed to anything; the second is aria2's, and
+/// holds only what aria2 can act on.
+struct LoginsState {
+    file: PathBuf,
+    netrc: PathBuf,
+    current: Mutex<Vec<logins::Login>>,
 }
 
 fn default_download_dir() -> PathBuf {
@@ -256,7 +286,23 @@ fn save_settings(
     state: tauri::State<SettingsState>,
     settings: Settings,
 ) -> Result<Settings, String> {
+    // Checked before normalising, which drops a jar that isn't there: a path
+    // that was typed rather than chosen can be wrong, and silently having no
+    // cookies looks exactly like the login not working.
+    let jar = settings.cookie_file.trim();
+    if !jar.is_empty() && !Path::new(jar).is_file() {
+        return Err(format!("No cookie file at {jar}"));
+    }
+
     let settings = settings.normalised();
+
+    // Read before anything is written: the cookie jar is the one setting aria2
+    // will not take while it is running, so a change to it is a restart.
+    let jar_changed = state
+        .current
+        .lock()
+        .map(|current| current.cookie_file != settings.cookie_file)
+        .unwrap_or(false);
 
     // The folder is the one setting that can be wrong in a way the user has to
     // fix: everything else is clamped into range above.
@@ -291,7 +337,132 @@ fn save_settings(
     if let Ok(mut guard) = state.current.lock() {
         *guard = settings.clone();
     }
+
+    if jar_changed {
+        restart_aria2(&aria2, &settings).map_err(|e| {
+            format!("The settings are saved, but {e}. Unfinished downloads are in the session file.")
+        })?;
+    }
+
     Ok(settings)
+}
+
+/// ── Downloads behind a login ─────────────────────────────────────────────
+/// The store is garia's; the netrc is aria2's copy of the part it can use. The
+/// frontend is told about neither file — it gets a list with no passwords in
+/// it, and the headers to put on a download for a given host.
+#[tauri::command]
+fn get_logins(state: tauri::State<LoginsState>) -> Vec<logins::LoginView> {
+    state
+        .current
+        .lock()
+        .map(|current| logins::views(&current))
+        .unwrap_or_default()
+}
+
+/// Add a site or change one. A `None` password is "leave the one that's
+/// there" — the dialog can say a site has a password without ever being sent
+/// it, so it has to be able to save the rest without asking for it again.
+#[tauri::command]
+fn save_login(
+    aria2: tauri::State<Aria2>,
+    settings: tauri::State<SettingsState>,
+    state: tauri::State<LoginsState>,
+    host: String,
+    username: String,
+    password: Option<String>,
+    headers: Vec<String>,
+) -> Result<Vec<logins::LoginView>, String> {
+    let host = logins::host_of(&host);
+    if host.is_empty() {
+        return Err("Which site is this for? Paste a URL or type a host name.".to_string());
+    }
+    let headers = logins::tidy_headers(&headers)?;
+    let username = username.trim().to_string();
+
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "the login list is in an unknown state".to_string())?
+        .clone();
+
+    let kept = current
+        .iter()
+        .find(|l| l.host == host)
+        .map(|l| l.password.clone())
+        .unwrap_or_default();
+    if username.is_empty() && password.as_deref().is_some_and(|p| !p.is_empty()) {
+        return Err("A password needs a user name to go with it.".to_string());
+    }
+    if username.is_empty() && headers.is_empty() {
+        return Err("Nothing to save — give the site a user name, a header, or both.".to_string());
+    }
+
+    // Clearing the user name is how a password is taken back off a site: a
+    // netrc line is a pair, so half of one is not a credential to keep.
+    let password = if username.is_empty() {
+        String::new()
+    } else {
+        password.unwrap_or(kept)
+    };
+
+    let entry = logins::Login { host: host.clone(), username, password, headers };
+    match current.iter_mut().find(|l| l.host == host) {
+        Some(existing) => *existing = entry,
+        None => current.push(entry),
+    }
+    current.sort_by(|a, b| a.host.cmp(&b.host));
+
+    commit(&aria2, &settings, &state, current)
+}
+
+#[tauri::command]
+fn delete_login(
+    aria2: tauri::State<Aria2>,
+    settings: tauri::State<SettingsState>,
+    state: tauri::State<LoginsState>,
+    host: String,
+) -> Result<Vec<logins::LoginView>, String> {
+    let host = logins::host_of(&host);
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "the login list is in an unknown state".to_string())?
+        .clone();
+    current.retain(|l| l.host != host);
+    commit(&aria2, &settings, &state, current)
+}
+
+/// Write both files, and restart aria2 only if the one *it* reads changed —
+/// editing a header is a change to what garia sends, which needs no restart at
+/// all, and paying for one anyway would make every edit cost a reconnect.
+fn commit(
+    aria2: &Aria2,
+    settings: &SettingsState,
+    state: &LoginsState,
+    next: Vec<logins::Login>,
+) -> Result<Vec<logins::LoginView>, String> {
+    logins::write(&state.file, &next)
+        .map_err(|e| format!("could not write {}: {e}", state.file.display()))?;
+
+    let before = fs::read(&state.netrc).ok();
+    logins::write_netrc(&state.netrc, &next)
+        .map_err(|e| format!("could not write {}: {e}", state.netrc.display()))?;
+    let after = fs::read(&state.netrc).ok();
+
+    let views = logins::views(&next);
+    if let Ok(mut guard) = state.current.lock() {
+        *guard = next;
+    }
+
+    if before != after {
+        let current = settings.current.lock().map(|s| s.clone()).unwrap_or_default();
+        restart_aria2(aria2, &current).map_err(|e| {
+            format!("The login is saved, but {e}. It will be in force from the next launch.")
+        })?;
+    }
+
+    Ok(views)
 }
 
 /// Deleting a row can take the downloaded file with it. Trash, not unlink: a
@@ -1164,7 +1335,13 @@ fn aria2c_candidates() -> Vec<String> {
 /// Everything aria2 is started with. A Vec rather than an array because one
 /// of them is conditional: `--seed-time=0` does not mean "no time limit", it
 /// means "never seed", so the option has to be absent rather than zero.
-fn aria2_args(port: u16, secret: &str, session_file: &Path, settings: &Settings) -> Vec<String> {
+fn aria2_args(
+    port: u16,
+    secret: &str,
+    session_file: &Path,
+    netrc_file: &Path,
+    settings: &Settings,
+) -> Vec<String> {
     let mut args = vec![
         "--enable-rpc".to_string(),
         "--rpc-listen-all=false".to_string(),
@@ -1203,17 +1380,38 @@ fn aria2_args(port: u16, secret: &str, session_file: &Path, settings: &Settings)
     if settings.seed_time_minutes > 0 {
         args.push(format!("--seed-time={}", settings.seed_time_minutes));
     }
+
+    // The two credentials aria2 will only take at launch. Both are named here
+    // and nowhere else: measured against aria2 1.37, `load-cookies` sent to
+    // `changeGlobalOption` or carried on `addUri` is accepted, answers OK, and
+    // loads nothing — and netrc is read once, so a login saved after this
+    // process started is not one it knows about. That is why saving a login
+    // restarts aria2 rather than pushing anything at it.
+    if netrc_file.is_file() {
+        // Only when there is one. Without this, garia would be overriding the
+        // user's own ~/.netrc with an empty file on every machine.
+        args.push(format!("--netrc-path={}", netrc_file.display()));
+    }
+    if !settings.cookie_file.is_empty() {
+        args.push(format!("--load-cookies={}", settings.cookie_file));
+    }
     args
 }
 
-fn spawn_aria2(port: u16, secret: &str, session_file: &Path, settings: &Settings) -> Option<Child> {
+fn spawn_aria2(
+    port: u16,
+    secret: &str,
+    session_file: &Path,
+    netrc_file: &Path,
+    settings: &Settings,
+) -> Option<Child> {
     for bin in aria2c_candidates() {
         if bin.contains('/') && !Path::new(&bin).exists() {
             continue;
         }
 
         let child = Command::new(&bin)
-            .args(aria2_args(port, secret, session_file, settings))
+            .args(aria2_args(port, secret, session_file, netrc_file, settings))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
@@ -1231,6 +1429,74 @@ fn spawn_aria2(port: u16, secret: &str, session_file: &Path, settings: &Settings
     }
 
     None
+}
+
+/// Credentials are launch-time state in aria2 — a netrc and a cookie jar are
+/// both read once, when it starts — so changing one means starting it again.
+/// That is the same move as quitting and relaunching garia, which already
+/// resumes every unfinished download mid-file from the session file, so this
+/// borrows it whole: ask aria2 to write the session, stop it, start it on the
+/// same port with the same secret, and wait until it answers before saying so.
+fn restart_aria2(aria2: &Aria2, settings: &Settings) -> Result<(), String> {
+    // kill() is a SIGKILL and aria2 would never get to write the session.
+    if let Err(e) = aria2_request(
+        aria2.port,
+        &aria2.secret,
+        "aria2.saveSession",
+        serde_json::json!([]),
+    ) {
+        eprintln!("[garia] Could not save the aria2 session before restarting: {e}");
+    }
+
+    let mut guard = aria2
+        .child
+        .lock()
+        .map_err(|_| "the aria2 process is in an unknown state".to_string())?;
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    // The port it just let go of is the port it is about to take back, and a
+    // just-killed process can hold it a moment longer than it takes to ask.
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let Some(child) =
+            spawn_aria2(aria2.port, &aria2.secret, &aria2.session, &aria2.netrc, settings)
+        else {
+            return Err("no aria2c to start".to_string());
+        };
+        let pid = child.id();
+        *guard = Some(child);
+
+        // Spawning is not binding: an aria2 that cannot have the port exits a
+        // moment later, so the proof is that it answers.
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if aria2_request(
+                aria2.port,
+                &aria2.secret,
+                "aria2.getVersion",
+                serde_json::json!([]),
+            )
+            .is_ok()
+            {
+                if let Err(e) = fs::write(&aria2.pid_file, pid.to_string()) {
+                    eprintln!("[garia] Could not record the aria2c pid: {e}");
+                }
+                return Ok(());
+            }
+        }
+
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    Err("aria2 did not come back — quit and reopen garia".to_string())
 }
 
 /// A force-quit or a crash leaves aria2c running: it outlives the app, keeps
@@ -1321,6 +1587,9 @@ pub fn run() {
             trash_files,
             get_settings,
             save_settings,
+            get_logins,
+            save_login,
+            delete_login,
             set_badge,
             take_pending_catch,
             copy_text,
@@ -1345,10 +1614,21 @@ pub fn run() {
             let settings_file = dir.join("settings.json");
             let settings = read_settings(&settings_file);
 
+            let logins_file = dir.join("logins.json");
+            let netrc_file = dir.join("netrc");
+            let saved_logins = logins::read(&logins_file);
+            // The netrc is derived, so it is rebuilt at every launch rather
+            // than trusted: a store edited by hand, or one written by a build
+            // that stored passwords differently, still ends up with an aria2
+            // that reads exactly what garia holds.
+            if let Err(e) = logins::write_netrc(&netrc_file, &saved_logins) {
+                eprintln!("[garia] Could not write {}: {e}", netrc_file.display());
+            }
+
             let secret = random_secret();
             let session = session_path(&dir);
             let port = pick_port();
-            let child = spawn_aria2(port, &secret, &session, &settings);
+            let child = spawn_aria2(port, &secret, &session, &netrc_file, &settings);
 
             match &child {
                 Some(c) => {
@@ -1367,10 +1647,17 @@ pub fn run() {
                 secret,
                 port,
                 pid_file,
+                session,
+                netrc: netrc_file.clone(),
             });
             app.manage(SettingsState {
                 file: settings_file,
                 current: Mutex::new(settings),
+            });
+            app.manage(LoginsState {
+                file: logins_file,
+                netrc: netrc_file,
+                current: Mutex::new(saved_logins),
             });
 
             // The bundled zipapp. Missing it is not fatal — it is the second
@@ -1520,13 +1807,48 @@ mod tests {
     #[test]
     fn no_seed_time_means_no_seed_time_option() {
         let settings = settings_from(r#"{"downloadDir":"/tmp","seedTimeMinutes":0}"#);
-        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &settings);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &settings);
         assert!(!args.iter().any(|a| a.starts_with("--seed-time")));
         assert!(args.iter().any(|a| a == "--seed-ratio=1"));
 
         let settings = settings_from(r#"{"downloadDir":"/tmp","seedTimeMinutes":90}"#);
-        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &settings);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &settings);
         assert!(args.iter().any(|a| a == "--seed-time=90"));
+    }
+
+    /// Both credentials aria2 will only take at launch. The netrc is named
+    /// only when there is one — otherwise garia would be quietly overriding
+    /// the user's own ~/.netrc with a file that isn't there.
+    #[test]
+    fn credentials_are_named_only_when_they_exist() {
+        let dir = std::env::temp_dir().join("garia-netrc-test");
+        let _ = fs::create_dir_all(&dir);
+        let netrc = dir.join("netrc");
+        let _ = fs::remove_file(&netrc);
+
+        let settings = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &netrc, &settings);
+        assert!(!args.iter().any(|a| a.starts_with("--netrc-path")));
+        assert!(!args.iter().any(|a| a.starts_with("--load-cookies")));
+
+        fs::write(&netrc, "machine example.com\n").unwrap();
+        let jar = dir.join("cookies.txt");
+        fs::write(&jar, "# Netscape HTTP Cookie File\n").unwrap();
+        let settings = settings_from(&format!(
+            r#"{{"downloadDir":"/tmp","cookieFile":"{}"}}"#,
+            jar.display()
+        ));
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), &netrc, &settings);
+        assert!(args
+            .iter()
+            .any(|a| a == &format!("--netrc-path={}", netrc.display())));
+        assert!(args
+            .iter()
+            .any(|a| a == &format!("--load-cookies={}", jar.display())));
+
+        // A jar that has been moved or deleted is no jar at all.
+        let settings = settings_from(r#"{"downloadDir":"/tmp","cookieFile":"/nope/gone.txt"}"#);
+        assert_eq!(settings.cookie_file, "");
     }
 
     #[test]

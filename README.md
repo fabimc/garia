@@ -22,6 +22,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
 - Settings: download folder, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
 - Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
+- Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
 - Status badges: Downloading, Seeding, Merging, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -105,6 +106,22 @@ A row's detail panel then says how much of the *front* of the file is on disk, a
 
 Having the bytes still isn't enough for MP4 and its relatives, which carry an index — the `moov` box — that a player has to read before it can start, and which plenty of encoders write *after* the video. So garia walks the file's top-level boxes as far as the bytes actually go, and only offers to play it once the whole index is there. Matroska, WebM, Ogg and MPEG-TS are built to be read from the first byte and need no such check. (garia's own merged videos are written with `+faststart`, which puts the index in front — so a merged download is playable as soon as it starts arriving.)
 
+## Downloads behind a login
+
+A file behind a sign-in needs one of three things, and garia keeps them in three different places on purpose — because they are not the same promise.
+
+**A password** goes into a netrc file in garia's app data, at `0600`, which aria2 reads for itself: per request, per host, matched by aria2 rather than by garia. It is never an option on a download. That distinction is the whole point of the netrc — a password passed to `aria2.addUri` as `http-passwd` is written verbatim into the session file that keeps unfinished downloads across a quit, and is handed back by `getOption` to anything holding the RPC token. Measured against aria2 1.37, not assumed.
+
+**A header** is a literal aria2 has to put on the request, so it *is* an option on the download, and it does land in the session file — which is how a resume after a quit still gets through, and also means a bearer token in one is written to disk. The dialog says so rather than pretending otherwise.
+
+**A cookie jar** is a path to a `cookies.txt` exported from the browser. Nothing is copied: the file stays where it is, and aria2 matches its cookies to hosts itself.
+
+Two things netrc will not do, both found by trying them. It has no quoting at all — `password "two words"` is read as the literal `"two` — so a password with whitespace in it cannot go in one; garia sends that one as an `Authorization:` header instead and says which of the two it did. And aria2 ignores a netrc that anyone but its owner can read, silently, with no auth header on the wire.
+
+Saving a login **restarts aria2**. Both the netrc and the cookie jar are read once, when it starts: `load-cookies` sent to `aria2.changeGlobalOption` or carried on `addUri` is accepted, answers `OK`, and loads nothing, and a netrc written after aria2 started is a file it has already read. So garia does what quitting and reopening does — saves the session, stops aria2, starts it on the same port, and waits until it answers — and every unfinished download resumes mid-file, the same way it does across a relaunch. Editing only a site's headers changes nothing aria2 reads, and restarts nothing.
+
+A download that fails for want of a login says so: aria2's error 24 is the one failure with a fix inside the app, so the row reads *Needs a login — add one in Settings* rather than *Authorization failed*, and Retry re-queues it with whatever has been saved since.
+
 ## Build
 
 Produce an optimised, self-contained `.app` bundle in `src-tauri/target/release/bundle/`:
@@ -129,6 +146,7 @@ garia/
     ├── src/
     │   ├── lib.rs        # App setup — spawns and stops aria2
     │   ├── catch.rs      # Clipboard file URLs and garia://add?url=…
+    │   ├── logins.rs     # Site credentials, and the netrc aria2 reads
     │   └── main.rs       # Binary entry point
     ├── Cargo.toml        # Rust dependencies
     └── tauri.conf.json   # Tauri configuration
@@ -153,6 +171,8 @@ Clicking a row opens its detail panel, which asks aria2 for the full key set —
 A queued row can be dragged to a different place in the queue, which is `aria2.changePosition` underneath. The position it sends is not the row's place on screen: aria2's queue holds paused downloads too — they keep their slot without taking a turn — and the list shows those in a section of their own. So the drop is read off its neighbours instead. The row it was dropped above is looked up in the queue that `tellWaiting` last reported, and that index is the position. A merged video is two downloads in one row, so it moves as two, back to front, because aria2 renumbers the queue on every move. The row goes where it was put before aria2 is asked, and the list holds still while a row is in hand — a drag that waited on a round trip would drop the row back for a tick, which reads as a refusal. Only queued rows move: a running download has already left the queue, and a paused one is not waiting for a turn.
 
 Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
+
+Credentials are the one kind of setting aria2 will not take while it is running. A netrc and a cookie jar are both read once, at launch, so garia keeps its own store in `logins.json` (at `0600`, holding the passwords) and *derives* the netrc from it — rebuilt at every launch and after every edit, and deleted rather than left empty when the last login goes, so a machine with no logins leaves aria2 reading the user's own `~/.netrc` exactly as it would have. Saving one restarts aria2 on the same port and waits for it to answer; unfinished downloads come back from the session file mid-file, the same as across a relaunch. The frontend is never sent a password — it gets the list with a `hasPassword` flag and the headers to put on a download for a given host, and that is all it can leak.
 
 A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` (the bookmarklet in Settings, or an extension later) is queued, or opened on the quality picker when it's a video page.
 
