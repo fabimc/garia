@@ -2225,3 +2225,64 @@ body {
     font-size: 0.78rem;
     color: var(--danger);
 }
+
+/* ── Schedule ────────────────────────────────────────────────────────── */
+/* The two ends of the window sit side by side because they are one setting
+   read left to right — "from 02:00 until 08:00" — rather than two numbers
+   that happen to be near each other. */
+.field-times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+}
+.field-time {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.field-time-label {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+.field-time .field-input {
+    width: auto;
+    min-width: 7.5rem;
+}
+
+/* A window that is holding downloads back has to say so where the app is
+   always saying things: the status bar, next to the counts it is the reason
+   for. Open reads as ordinary; shut is the state that needs explaining, so it
+   takes the warning colour the paused chip already uses. */
+.status-schedule {
+    white-space: nowrap;
+    color: var(--muted);
+}
+.status-schedule[data-state="shut"] {
+    color: var(--warning);
+}
+
+/* Paused and paused-by-the-clock are the same thing to aria2 and two very
+   different things to the person waiting. */
+.dl-status-pill.scheduled {
+    background: rgba(168, 121, 31, 0.12);
+    color: var(--warning);
+}
+
+.detail-start {
+    gap: 0.5rem;
+}
+.detail-start-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.detail-start-input {
+    flex: 1;
+    min-width: 11rem;
+}
+.detail-start-set,
+.detail-start-clear {
+    flex-shrink: 0;
+}

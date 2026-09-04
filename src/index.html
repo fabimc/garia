@@ -390,6 +390,10 @@
                 <span id="conn-text">Connecting…</span>
                 <span class="status-sep">·</span>
                 <span id="stat-counts">no downloads</span>
+                <!-- Only there when a schedule is. A window that is holding
+                     downloads back has to say so somewhere always visible, or
+                     the app just looks broken. -->
+                <span id="stat-schedule" class="status-schedule hidden"></span>
                 <span class="status-sep">·</span>
                 <button
                     type="button"
@@ -853,6 +857,48 @@
                             <span class="field-suffix">files</span>
                         </div>
                         <p class="field-hint">The rest wait in the queue.</p>
+                    </div>
+
+                    <!-- ── Schedule ─────────────────────────────────────── -->
+                    <div class="field">
+                        <div class="modal-label">Schedule</div>
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-schedule" />
+                            <span>Only download between these times</span>
+                        </label>
+                        <div class="field-times">
+                            <label class="field-time">
+                                <span class="field-time-label">From</span>
+                                <input
+                                    id="settings-schedule-start"
+                                    class="field-input"
+                                    type="time"
+                                />
+                            </label>
+                            <label class="field-time">
+                                <span class="field-time-label">Until</span>
+                                <input
+                                    id="settings-schedule-end"
+                                    class="field-input"
+                                    type="time"
+                                />
+                            </label>
+                        </div>
+                        <p id="settings-schedule-sum" class="field-hint"></p>
+                        <p class="field-hint">
+                            Outside the window downloads are paused, and
+                            anything queued is held rather than started. Only
+                            what garia stopped is started again — a download
+                            you paused yourself stays paused, and one you
+                            resume during quiet hours is left running.
+                            <strong
+                                >garia has to be open for any of this.</strong
+                            >
+                            The downloads are the download engine's, the engine
+                            is garia's, so a window that opens at 2am opens at
+                            2am or the next time you launch the app — whichever
+                            comes second. Nothing here wakes the Mac up.
+                        </p>
                     </div>
 
                     <div class="field">

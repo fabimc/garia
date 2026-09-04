@@ -10,6 +10,7 @@ use tauri::{Emitter, Manager};
 
 mod catch;
 mod logins;
+mod schedule;
 
 /// The aria2c child process plus the RPC secret it was started with. The two
 /// paths are here because they are launch-time inputs and nothing else: aria2
@@ -123,6 +124,20 @@ struct Settings {
     /// one that persists, because a phone cannot be re-paired every morning.
     #[serde(default)]
     remote_control: bool,
+    /// Run downloads only between two times of day. Off by default, and the
+    /// only setting in here that stops something the user has already asked
+    /// for — which is why the dialog says in words what it will and will not
+    /// do, rather than implying an alarm clock. See `schedule.rs`.
+    #[serde(default)]
+    schedule_enabled: bool,
+    /// The window's ends, as minutes since local midnight. A time of day and
+    /// not a timestamp: 02:00 is 02:00 again after the clocks change, which a
+    /// stored instant would not be. `end` before `start` wraps midnight, which
+    /// is the shape "overnight" actually has.
+    #[serde(default)]
+    schedule_start: u32,
+    #[serde(default)]
+    schedule_end: u32,
 }
 
 impl Default for Settings {
@@ -143,6 +158,11 @@ impl Default for Settings {
             in_order: false,
             cookie_file: String::new(),
             remote_control: false,
+            schedule_enabled: false,
+            // What the card on the roadmap was drawn around, and what people
+            // mean by off-peak: overnight, wrapping midnight.
+            schedule_start: 2 * 60,
+            schedule_end: 8 * 60,
         }
     }
 }
@@ -188,6 +208,17 @@ impl Settings {
         self.cookie_file = self.cookie_file.trim().to_string();
         if !self.cookie_file.is_empty() && !Path::new(&self.cookie_file).is_file() {
             self.cookie_file = String::new();
+        }
+
+        // A time of day that is not one — a hand-edited file, or a frontend
+        // that sent minutes past the end of a day.
+        self.schedule_start %= schedule::DAY;
+        self.schedule_end %= schedule::DAY;
+        // A window with no width is not a window. Read as "always" it is the
+        // setting being off; read as "never" it is a download manager that
+        // never downloads — so rather than pick, it is off.
+        if self.schedule_start == self.schedule_end {
+            self.schedule_enabled = false;
         }
 
         // The overall cap is the mode's number, always — the frontend sends it
@@ -423,13 +454,133 @@ fn aria2_request(
         .map_err(|e| format!("aria2 invalid response: {e}"))
 }
 
+/// Everything the frontend asks of aria2 comes through here, which is what
+/// makes this the right place for the scheduler to stand: a download queued
+/// while the window is shut is added *already paused* rather than started and
+/// stopped a moment later. `pause=true` at `addUri` is honoured — measured, not
+/// assumed, and unlike `pause` sent to `changeGlobalOption`, which answers OK
+/// and does nothing. It is an action rather than a stored option, so `getOption`
+/// never reports it and nothing about it reaches the session file.
+///
+/// The gid is recorded as held on the way back out, because a download nobody
+/// remembers pausing is a download nobody will start again.
 #[tauri::command]
 fn aria2_rpc(
-    state: tauri::State<Aria2>,
+    aria2: tauri::State<Aria2>,
+    settings: tauri::State<SettingsState>,
+    schedule: tauri::State<schedule::Schedule>,
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    aria2_request(state.port, &state.secret(), &method, params)
+    let holding = method == "aria2.addUri" && !window_open(&settings);
+    let params = if holding {
+        schedule::with_pause(params)
+    } else {
+        params
+    };
+
+    let out = aria2_request(aria2.port, &aria2.secret(), &method, params)?;
+
+    if holding {
+        if let Some(gid) = schedule::gid_of(&out) {
+            schedule.hold(&gid);
+        }
+    }
+    Ok(out)
+}
+
+/// The one answer to "may downloads run right now". Everything that asks —
+/// the tick, the `addUri` path, the panel — asks this, so nothing can be
+/// working from a different reading of the same two numbers.
+fn window_open(settings: &tauri::State<SettingsState>) -> bool {
+    settings
+        .current
+        .lock()
+        .map(|s| {
+            !s.schedule_enabled
+                || schedule::open_at(s.schedule_start, s.schedule_end, schedule::minutes_now())
+        })
+        .unwrap_or(true)
+}
+
+/// What the list and the detail panel need in order to say *why* a row is
+/// stopped. The window's state is computed here rather than in the frontend so
+/// there is only ever one clock deciding it.
+#[tauri::command]
+fn schedule_state(
+    settings: tauri::State<SettingsState>,
+    schedule: tauri::State<schedule::Schedule>,
+) -> schedule::ScheduleState {
+    let (enabled, start, end) = settings
+        .current
+        .lock()
+        .map(|s| (s.schedule_enabled, s.schedule_start, s.schedule_end))
+        .unwrap_or((false, 0, 0));
+    let saved = schedule.snapshot();
+
+    schedule::ScheduleState {
+        enabled,
+        open: !enabled || schedule::open_at(start, end, schedule::minutes_now()),
+        start,
+        end,
+        next_change: if enabled {
+            schedule::next_change(start, end)
+        } else {
+            0
+        },
+        held: saved.held.iter().cloned().collect(),
+        starts: saved.starts,
+        now: schedule::epoch_now(),
+    }
+}
+
+/// Give one download an hour of its own, or take it away. Setting a time in
+/// the future stops the download now rather than waiting for the next tick —
+/// the click and the effect belong in the same moment — and clearing one lets
+/// it go again, unless the window is what is holding it.
+#[tauri::command]
+fn set_download_start(
+    aria2: tauri::State<Aria2>,
+    settings: tauri::State<SettingsState>,
+    schedule: tauri::State<schedule::Schedule>,
+    gid: String,
+    at: Option<i64>,
+) -> Result<schedule::ScheduleState, String> {
+    let now = schedule::epoch_now();
+    let pending = at.filter(|at| *at > now);
+    schedule.set_start(&gid, pending);
+
+    let secret = aria2.secret();
+    match pending {
+        Some(_) => {
+            // forcePause takes a `waiting` download as readily as an `active`
+            // one, and both land on `paused` — which is why a queued row and a
+            // running one need no separate handling here.
+            if aria2_request(
+                aria2.port,
+                &secret,
+                "aria2.forcePause",
+                serde_json::json!([gid]),
+            )
+            .is_ok()
+            {
+                schedule.hold(&gid);
+            }
+        }
+        None => {
+            if window_open(&settings) {
+                let _ = aria2_request(
+                    aria2.port,
+                    &secret,
+                    "aria2.unpause",
+                    serde_json::json!([gid]),
+                );
+                schedule.release(&gid);
+            }
+        }
+    }
+
+    Ok(schedule_state(settings, schedule))
 }
 
 /// The status bar names the endpoint it's talking to, and the port is no
@@ -816,6 +967,148 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
     });
 }
 
+
+/// ── The scheduler's tick ─────────────────────────────────────────────────
+/// Reconciles what aria2 is doing against what the clock allows. It runs from
+/// the moment the app starts, before the webview has painted, because that is
+/// the case the frontend cannot cover: aria2 reads its session file and starts
+/// every unfinished download in it within milliseconds of launch, so a window
+/// that is shut has to be shut by something that is already awake.
+///
+/// The first pass happens immediately rather than after a tick's wait, which is
+/// also what makes a launch *into* an open window start downloading at once —
+/// the window is reconciled against the wall clock, not waited for.
+fn spawn_schedule_watch(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        schedule_tick(&app);
+        std::thread::sleep(schedule::TICK);
+    });
+}
+
+fn schedule_tick(app: &tauri::AppHandle) {
+    let (Some(aria2), Some(settings), Some(sched)) = (
+        app.try_state::<Aria2>(),
+        app.try_state::<SettingsState>(),
+        app.try_state::<schedule::Schedule>(),
+    ) else {
+        return;
+    };
+
+    let saved = sched.snapshot();
+    let enabled = settings
+        .current
+        .lock()
+        .map(|s| s.schedule_enabled)
+        .unwrap_or(false);
+    // Nothing to enforce and nothing outstanding: the common case, and it must
+    // cost nothing. A schedule turned off while rows are still held is not that
+    // case — those have to be let go rather than left stopped forever.
+    if !enabled && saved.held.is_empty() && saved.starts.is_empty() {
+        return;
+    }
+
+    let open = window_open(&settings);
+    let now = schedule::epoch_now();
+    let secret = aria2.secret();
+    let ask = |method: &str, params: serde_json::Value| {
+        aria2_request(aria2.port, &secret, method, params).ok()
+    };
+
+    // `seeder` because a finished torrent is `active` to aria2 for as long as
+    // it is uploading, and the window is about downloading. Stopping a seed is
+    // a removal everywhere else in garia — a clock must not quietly make it a
+    // pause instead.
+    let keys = serde_json::json!(["gid", "status", "seeder"]);
+    let mut rows: Vec<schedule::Row> = Vec::new();
+    let mut known: std::collections::BTreeSet<String> = Default::default();
+
+    for (method, params) in [
+        ("aria2.tellActive", serde_json::json!([keys])),
+        ("aria2.tellWaiting", serde_json::json!([0, 500, keys])),
+        ("aria2.tellStopped", serde_json::json!([0, 500, keys])),
+    ] {
+        let Some(answer) = ask(method, params) else {
+            // aria2 unreachable — say nothing and change nothing. Acting on a
+            // half-read picture is how a scheduler loses downloads.
+            return;
+        };
+        let Some(list) = answer.get("result").and_then(|r| r.as_array()) else {
+            return;
+        };
+        for item in list {
+            let gid = item.get("gid").and_then(|g| g.as_str()).unwrap_or_default();
+            let status = item
+                .get("status")
+                .and_then(|s| s.as_str())
+                .unwrap_or_default();
+            if gid.is_empty() {
+                continue;
+            }
+            let seeding = item.get("seeder").and_then(|s| s.as_str()) == Some("true");
+            known.insert(gid.to_string());
+            // Only the two lists a download can be pulled out of or put back
+            // into are worth deciding about; `tellStopped` is read to know
+            // which gids still exist at all.
+            if method != "aria2.tellStopped" && !seeding {
+                rows.push(schedule::Row {
+                    gid: gid.to_string(),
+                    status: status.to_string(),
+                });
+            }
+        }
+    }
+
+    let mut overridden = sched.overridden();
+    let mut hold: Vec<String> = Vec::new();
+    let mut unhold: Vec<String> = Vec::new();
+    // Start times that have come round. Dropped whether the row ran on them or
+    // was already going, so a retry of the same gid is not held a second time
+    // for an hour that has already passed.
+    let mut spent: Vec<String> = Vec::new();
+
+    for row in &rows {
+        let allowed = !enabled || schedule::allowed(&row.gid, open, &saved.starts, now);
+        if allowed && saved.starts.get(&row.gid).is_some_and(|at| now >= *at) {
+            spent.push(row.gid.clone());
+        }
+
+        match schedule::decide(
+            row,
+            allowed,
+            saved.held.contains(&row.gid),
+            overridden.contains(&row.gid),
+        ) {
+            schedule::Act::Hold => {
+                if ask("aria2.forcePause", serde_json::json!([row.gid])).is_some() {
+                    hold.push(row.gid.clone());
+                }
+            }
+            schedule::Act::Release => {
+                if ask("aria2.unpause", serde_json::json!([row.gid])).is_some() {
+                    unhold.push(row.gid.clone());
+                }
+            }
+            // Somebody pressed Resume inside a shut window. That is an answer,
+            // so the row stops being ours: we neither pause it again nor count
+            // ourselves responsible for restarting it later.
+            schedule::Act::Overridden => {
+                overridden.insert(row.gid.clone());
+                unhold.push(row.gid.clone());
+            }
+            schedule::Act::Leave => {}
+        }
+    }
+
+    // An override answers one shut window rather than every future one, so the
+    // window opening clears them all.
+    if open {
+        overridden.clear();
+    } else {
+        overridden.retain(|gid| known.contains(gid));
+    }
+    sched.set_overridden(overridden);
+    sched.reconcile(&hold, &unhold, &spent, &known);
+}
 
 // ── Video (yt-dlp) ───────────────────────────────────────────────────────
 // aria2 downloads files; a video page is not a file. yt-dlp is what turns one
@@ -1953,7 +2246,9 @@ pub fn run() {
             mux_video,
             preview_state,
             preview_file,
-            remote_info
+            remote_info,
+            schedule_state,
+            set_download_start
         ])
         .setup(|app| {
             let dir = app
@@ -2047,6 +2342,7 @@ pub fn run() {
             app.manage(CatchQueue {
                 pending: Mutex::new(Vec::new()),
             });
+            app.manage(schedule::Schedule::new(schedule::state_file(&dir)));
             app.manage(OwnCopy::default());
 
             // `garia://add?url=…` from a bookmarklet, an extension, or anything
@@ -2073,6 +2369,11 @@ pub fn run() {
             }
 
             spawn_clipboard_watch(app.handle().clone());
+            // Started last and running from this moment: aria2 was spawned a
+            // few lines up and is already working through the session file, so
+            // a window that is shut has a fraction of a second of downloads to
+            // stop rather than a whole run of them.
+            spawn_schedule_watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -2154,6 +2455,38 @@ mod tests {
         let s =
             settings_from(r#"{"downloadDir":"/tmp","trafficMode":"full","mediumLimit":262144}"#);
         assert_eq!(s.max_overall_download_limit, 0);
+    }
+
+    /// A window has to have a width. Read as "always" a zero-length one is the
+    /// setting being off; read as "never" it is a download manager that never
+    /// downloads — so it is stored as off rather than as either reading.
+    #[test]
+    fn a_window_with_no_width_is_not_stored_as_a_window() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","scheduleEnabled":true,
+                "scheduleStart":480,"scheduleEnd":480}"#,
+        );
+        assert!(!s.schedule_enabled);
+
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","scheduleEnabled":true,
+                "scheduleStart":1320,"scheduleEnd":360}"#,
+        );
+        assert!(s.schedule_enabled);
+        // An overnight window is stored exactly as typed; wrapping midnight is
+        // the reader's job, not the writer's.
+        assert_eq!((s.schedule_start, s.schedule_end), (1320, 360));
+    }
+
+    /// Minutes past the end of a day come from a hand-edited file, and a
+    /// window nobody can reach is worse than one that has moved.
+    #[test]
+    fn a_time_of_day_past_midnight_wraps_into_one() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","scheduleEnabled":true,
+                "scheduleStart":1500,"scheduleEnd":480}"#,
+        );
+        assert_eq!(s.schedule_start, 60);
     }
 
     /// A blank field is "unset", and anything under a kilobyte a second is a

@@ -307,7 +307,20 @@ function snapshot() {
     item("cccc6666", "error", "/Users/me/Downloads/some-collection.torrent", 0, 0, 0,
       { errorCode: "26", uris: [] }),
   ];
-  return { active, waiting, stopped };
+  // aria2 reports a paused download in tellWaiting, not tellActive, whatever
+  // it was doing a moment before — so anything the UI has paused moves across
+  // rather than merely changing its label. Without this the mock answers OK to
+  // a pause and then keeps reporting the row as active, which is exactly the
+  // shape a scheduler cannot be tested against. A seeding torrent is left
+  // alone: garia models stopping that as a removal, not a pause.
+  const isPaused = (d) => paused.has(d.gid) && d.seeder !== "true";
+  const stillActive = active.filter((d) => !isPaused(d));
+  const held = [...active.filter(isPaused), ...waiting].map((d) =>
+    paused.has(d.gid)
+      ? { ...d, status: "paused", downloadSpeed: "0", connections: "0" }
+      : d);
+
+  return { active: stillActive, waiting: held, stopped };
 }
 
 createServer((req, res) => {

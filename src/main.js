@@ -43,6 +43,9 @@ let settings = {
   catchClipboard: true,
   inOrder: false,
   cookieFile: "",
+  scheduleEnabled: false,
+  scheduleStart: 2 * 60,
+  scheduleEnd: 8 * 60,
 };
 
 async function loadSettings() {
@@ -1044,10 +1047,14 @@ function updateItemEl(li, dl) {
 
   // Downloading rows already say it twice over — the moving bar, the speed, and
   // the Pause button. The chip only earns its place on the other statuses.
+  // "Paused" on a row the schedule stopped is true and useless: the user did
+  // not pause it and cannot tell why it isn't going, so the chip says which of
+  // the two kinds of paused this is and the meta line says until when.
   const pill = li.querySelector(".dl-status-pill");
+  const held = dl.status === "paused" ? heldNote(dl.gid) : "";
   const showChip = dl.status !== "active";
-  pill.className = showChip ? `dl-status-pill ${cls}` : "dl-status-pill hidden";
-  if (showChip) pill.textContent = statusLabel(dl.status);
+  pill.className = showChip ? `dl-status-pill ${held ? "scheduled" : cls}` : "dl-status-pill hidden";
+  if (showChip) pill.textContent = held ? "Scheduled" : statusLabel(dl.status);
 
   // Progress bar
   const isIndeterminate = dl.status === "active" && total === 0;
@@ -1057,8 +1064,9 @@ function updateItemEl(li, dl) {
 
   // Meta line: size · speed · percent · eta — or, once the download is over
   // and the uploading isn't, what has gone back out and how far past even.
-  li.querySelector(".dl-meta").textContent =
-    (dl.status === "seeding" ? seedingMeta(dl) : progressMeta(dl)).join(" · ");
+  const meta = dl.status === "seeding" ? seedingMeta(dl) : progressMeta(dl);
+  if (held) meta.push(held);
+  li.querySelector(".dl-meta").textContent = meta.join(" · ");
 
   // "Failed" on its own is a dead end — say what aria2 actually reported.
   const errEl = li.querySelector(".dl-error");
@@ -1389,6 +1397,116 @@ async function setRowLimit(gid, bytes) {
   for (const g of gids) rowLimits.set(g, bytes);
 }
 
+// ── Schedule ─────────────────────────────────────────────────────────────
+// The window, and every per-download start time, belong to Rust. Not because
+// the frontend could not do the arithmetic — it has the same two numbers in
+// `settings` — but because Rust is the side that is awake before the webview
+// is, and the side actually doing the pausing. Two clocks reading the same
+// window would eventually disagree about which side of a boundary the app is
+// on, and the one that pauses downloads has to be the one that is right. So
+// nothing here recomputes it: the panel and the status bar say what they were
+// told.
+let schedule = {
+  enabled: false, open: true, start: 0, end: 0,
+  nextChange: 0, held: [], starts: {}, now: 0,
+};
+let heldGids = new Set();
+
+async function loadSchedule() {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") return;
+  try {
+    schedule = await invoker("schedule_state");
+    heldGids = new Set(schedule.held || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// Minutes since midnight, which is how both ends of the window are stored: a
+// time of day rather than an instant, so 02:00 is still 02:00 after the clocks
+// change. Also the value an <input type="time"> reads and writes.
+function hhmm(minute) {
+  const m = ((Math.round(minute) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function minutesOf(value) {
+  const [h, m] = String(value || "").split(":").map((n) => parseInt(n, 10));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return (((h * 60 + m) % 1440) + 1440) % 1440;
+}
+
+// `hhmm` is the value an <input type="time"> reads and writes and is never
+// shown as prose. What the user reads is this, which follows their locale — so
+// a window's end and a download's own hour cannot appear side by side in the
+// same column with one of them in 24-hour and the other in 12.
+function clockLabel(minute) {
+  const at = new Date();
+  at.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
+  return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// An instant, said the way a person would read it off a clock — with the date
+// only when it isn't today, because "starts 02:00" on a Tuesday afternoon is
+// ambiguous in exactly the way a scheduler must not be.
+function clockOf(epochSecs) {
+  const at = new Date(Number(epochSecs) * 1000);
+  if (!Number.isFinite(at.getTime())) return "";
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (at.toDateString() === new Date().toDateString()) return time;
+  return `${at.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+}
+
+function secondsUntil(epochSecs) {
+  return Math.max(0, Number(epochSecs) - Math.floor(Date.now() / 1000));
+}
+
+// A merged video is two aria2 downloads under one row, and either half can be
+// the one being held — so the row asks about both.
+function startAt(gid) {
+  for (const id of gidsFor(gid)) {
+    const at = Number(schedule.starts?.[id]) || 0;
+    if (at > 0) return at;
+  }
+  return 0;
+}
+
+function isHeld(gid) {
+  return gidsFor(gid).some((id) => heldGids.has(id));
+}
+
+// Why this row is stopped, in the words a row has space for. Only ever said
+// about a paused row: a held download and a hand-paused one are both `paused`
+// to aria2, and this is the whole of the difference the user can see.
+function heldNote(gid) {
+  if (!isHeld(gid)) return "";
+  const at = startAt(gid);
+  if (at) return `starts ${clockOf(at)}`;
+  if (schedule.enabled && !schedule.open) return `starts ${clockLabel(schedule.start)}`;
+  return "held";
+}
+
+// A window that is holding downloads back has to say so somewhere always
+// visible. Without it the app is simply a list of downloads that aren't going.
+function renderSchedule() {
+  const el = document.getElementById("stat-schedule");
+  if (!el) return;
+  el.classList.toggle("hidden", !schedule.enabled);
+  if (!schedule.enabled) return;
+
+  const span = formatSpan(secondsUntil(schedule.nextChange));
+  const open = schedule.open;
+  el.dataset.state = open ? "open" : "shut";
+  el.textContent = open
+    ? `· downloading until ${clockLabel(schedule.end)}`
+    : `· held until ${clockLabel(schedule.start)}`;
+  el.title = open
+    ? `The window closes at ${clockLabel(schedule.end)}${span ? `, in ${span}` : ""}.`
+    : `Downloads are held until ${clockLabel(schedule.start)}${span ? `, in ${span}` : ""}. `
+      + "garia has to be open then.";
+}
+
 // ── Queue order ──────────────────────────────────────────────────────────
 // What aria2 starts next, and after that: the queue exactly as tellWaiting
 // hands it over. Paused downloads are in it too — they hold their slot without
@@ -1609,7 +1727,10 @@ function detailShape(data) {
     p.status ? (p.status.bittorrent ? "bt" : "http") : "gone",
     (p.status?.files || []).length,
   ].join(":"));
-  return (canLimit(data) ? "cap|" : "") + (data.job ? "job|" : "") + parts.join("|");
+  return (canLimit(data) ? "cap|" : "")
+    + (canSchedule(data) ? "when|" : "")
+    + (data.job ? "job|" : "")
+    + parts.join("|");
 }
 
 function factValues(st) {
@@ -1967,6 +2088,101 @@ function canLimit(data) {
   return data.parts.some((p) => p.status && LIMITABLE.has(p.status.status));
 }
 
+// ── One download's own hour ───────────────────────────────────────────────
+// The window in Settings is a rule about every download; this is one row told
+// to wait. They compose the obvious way and the note says so, because the
+// case that would otherwise look broken is a row whose hour comes at 3am
+// inside a window that does not open until 8.
+//
+// The control is a datetime-local rather than a time, and deliberately: "start
+// at 07:00" on a Tuesday evening is twelve hours away, and a field that cannot
+// say which day cannot say that.
+function buildStartBlock(gid) {
+  const sec = el("section", "detail-part detail-start");
+  sec.appendChild(el("h3", "detail-part-title", "Start at"));
+
+  const row = el("div", "detail-start-row");
+  const input = el("input", "field-input detail-start-input");
+  input.type = "datetime-local";
+  input.setAttribute("aria-label", "The moment this download may start");
+  row.appendChild(input);
+
+  const set = el("button", "btn-secondary detail-start-set", "Hold");
+  set.type = "button";
+  set.dataset.gid = gid;
+  row.appendChild(set);
+
+  const clear = el("button", "btn-secondary detail-start-clear", "Clear");
+  clear.type = "button";
+  clear.dataset.gid = gid;
+  row.appendChild(clear);
+  sec.appendChild(row);
+
+  sec.appendChild(el("p", "detail-note detail-start-note"));
+  return sec;
+}
+
+// A local datetime, in the shape <input type="datetime-local"> wants it, which
+// is the one format that is neither ISO-with-a-Z nor a locale string.
+function localInputValue(at) {
+  const d = new Date(at * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function updateStartBlock(sec, data) {
+  const at = startAt(data.gid);
+  const input = sec.querySelector(".detail-start-input");
+  // Written when the stored time changes, and at no other moment. Refreshing
+  // it every tick — even only while it is unfocused — silently puts the
+  // default hour back under anyone who typed a time and then clicked away
+  // before pressing Hold, which is a scheduler holding a download until an
+  // hour nobody asked for.
+  if (sec.dataset.at !== String(at)) {
+    sec.dataset.at = String(at);
+    input.value = localInputValue(at || defaultStart());
+  }
+  sec.querySelector(".detail-start-clear").classList.toggle("hidden", !at);
+
+  const said = [];
+  if (at) {
+    said.push(`Held until ${clockOf(at)}.`);
+    const span = formatSpan(secondsUntil(at));
+    if (span) said.push(`That is ${span} away.`);
+    if (schedule.enabled) {
+      said.push(
+        schedule.open
+          ? `The window is open until ${clockLabel(schedule.end)}; if the two disagree, the later one wins.`
+          : `The window is shut until ${clockLabel(schedule.start)}, so the row waits for whichever of the two comes second.`,
+      );
+    }
+    said.push("garia has to be open then — nothing here wakes the Mac.");
+  } else if (schedule.enabled && !schedule.open) {
+    said.push(`Already held: the window is shut until ${clockLabel(schedule.start)}. A time here holds it past that.`);
+  } else {
+    said.push("Give this one download an hour of its own. It is paused until then, and started when it comes round — or when garia is next open after it.");
+  }
+  sec.querySelector(".detail-start-note").textContent = said.join(" ");
+}
+
+// The next round hour, which is what an empty field should be offering: a
+// scheduler asked for a time in the past is a scheduler asked for "now".
+function defaultStart() {
+  const at = new Date();
+  at.setMinutes(0, 0, 0);
+  at.setHours(at.getHours() + 1);
+  return Math.floor(at.getTime() / 1000);
+}
+
+// Only a download with somewhere left to go. A finished or failed row has no
+// start to wait for, and a seeding one has already had it.
+const SCHEDULABLE = new Set(["active", "waiting", "paused"]);
+
+function canSchedule(data) {
+  return data.parts.some((p) => p.status && SCHEDULABLE.has(p.status.status));
+}
+
 // A merged video is two aria2 downloads and one file. The pair is the user's
 // download, so it gets the top of the panel and the halves come after it.
 function buildJobBlock() {
@@ -2173,6 +2389,7 @@ async function renderDetail() {
     body.dataset.shape = shape;
     body.textContent = "";
     if (canLimit(data)) body.appendChild(buildLimitBlock());
+    if (canSchedule(data)) body.appendChild(buildStartBlock(data.gid));
     if (data.job) body.appendChild(buildJobBlock());
     for (const part of data.parts) body.appendChild(buildPart(part));
   }
@@ -2187,6 +2404,7 @@ async function renderDetail() {
   const sections = [...body.children];
   let i = 0;
   if (sections[i]?.classList.contains("detail-limit")) updateLimitBlock(sections[i++], data);
+  if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
   if (data.job) updateJobBlock(sections[i++], data);
   for (const part of data.parts) updatePart(sections[i++], part);
 
@@ -2352,9 +2570,14 @@ async function poll(listEl) {
       rpc("aria2.tellActive", [KEYS]),
       rpc("aria2.tellWaiting", [0, 100, KEYS]),
       rpc("aria2.tellStopped", [0, 100, KEYS]),
+      // Asked alongside rather than after: which rows are held changes on the
+      // scheduler's tick, not on this one, but a row that says "Paused" for a
+      // second before it says "Scheduled" is the flicker worth avoiding.
+      loadSchedule(),
     ]);
 
     setConn("ok");
+    renderSchedule();
 
     // aria2's own queue order, kept before the pairs are folded and the rows
     // are regrouped by status — the only place a drop position can come from.
@@ -3262,6 +3485,43 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    // Giving one download an hour, or taking it back. Both are the same Rust
+    // call, and both pause or resume the download then and there rather than
+    // waiting for the scheduler's next tick — a click whose effect arrives
+    // fifteen seconds later reads as a click that did nothing.
+    const when = e.target.closest(".detail-start-set, .detail-start-clear");
+    if (when) {
+      const sec = when.closest(".detail-start");
+      const note = sec.querySelector(".detail-start-note");
+      const clearing = when.classList.contains("detail-start-clear");
+      const typed = sec.querySelector(".detail-start-input").value;
+      const at = clearing ? null : Math.floor(new Date(typed).getTime() / 1000);
+
+      if (!clearing && !Number.isFinite(at)) {
+        note.textContent = "Pick a date and a time for this download to start.";
+        return;
+      }
+      if (!clearing && at <= Math.floor(Date.now() / 1000)) {
+        note.textContent = "That moment has already passed — pick one still to come.";
+        return;
+      }
+
+      when.disabled = true;
+      try {
+        schedule = await window.__TAURI__.core.invoke("set_download_start",
+          { gid: when.dataset.gid, at });
+        heldGids = new Set(schedule.held || []);
+        renderSchedule();
+      } catch (err) {
+        console.error(err);
+        note.textContent = String(err?.message || err);
+      }
+      when.disabled = false;
+      refreshDetail();
+      await pollAndSync();
+      return;
+    }
+
     const apply = e.target.closest(".detail-select-apply");
     if (apply) {
       const sec = apply.closest(".detail-part");
@@ -3567,6 +3827,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsInOrder = document.getElementById("settings-in-order");
   const settingsCookies = document.getElementById("settings-cookies");
   const settingsRemote  = document.getElementById("settings-remote");
+  const settingsSched   = document.getElementById("settings-schedule");
+  const settingsSchedFrom = document.getElementById("settings-schedule-start");
+  const settingsSchedTo   = document.getElementById("settings-schedule-end");
+  const settingsSchedSum  = document.getElementById("settings-schedule-sum");
   const settingsLogins  = document.getElementById("settings-logins");
   const settingsError   = document.getElementById("settings-error");
 
@@ -3594,6 +3858,10 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsInOrder.checked = settings.inOrder === true;
     settingsCookies.value = settings.cookieFile || "";
     settingsRemote.checked = settings.remoteControl === true;
+    settingsSched.checked = settings.scheduleEnabled === true;
+    settingsSchedFrom.value = hhmm(Number(settings.scheduleStart) || 0);
+    settingsSchedTo.value = hhmm(Number(settings.scheduleEnd) || 0);
+    renderScheduleSummary();
     renderLogins();
     loadRemote();
     settingsOverlay.classList.remove("hidden");
@@ -3601,6 +3869,36 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function closeSettings() { settingsOverlay.classList.add("hidden"); }
+
+  const schedFrom = () => minutesOf(settingsSchedFrom.value) ?? 2 * 60;
+  const schedTo   = () => minutesOf(settingsSchedTo.value) ?? 8 * 60;
+
+  // The two times say what they are; how long that leaves and which side of
+  // midnight it falls on, they do not. A window that wraps is the normal case
+  // here and the one most likely to be typed by accident.
+  function renderScheduleSummary() {
+    const from = schedFrom();
+    const to = schedTo();
+    if (!settingsSched.checked) {
+      settingsSchedSum.textContent = "Downloads run whenever garia is open.";
+      return;
+    }
+    if (from === to) {
+      settingsSchedSum.textContent =
+        "Those are the same time, which is not a window — the schedule stays off until they differ.";
+      return;
+    }
+    const width = ((to - from) + 1440) % 1440;
+    const hours = Math.floor(width / 60);
+    const mins = width % 60;
+    const span = [hours ? `${hours}h` : "", mins ? `${mins}m` : ""].filter(Boolean).join(" ");
+    settingsSchedSum.textContent =
+      `${span} a day, ${to < from ? "overnight, from" : "from"} ${clockLabel(from)} to ${clockLabel(to)}.`;
+  }
+
+  for (const input of [settingsSched, settingsSchedFrom, settingsSchedTo]) {
+    input.addEventListener("input", renderScheduleSummary);
+  }
 
   async function saveSettings() {
     settingsError.classList.add("hidden");
@@ -3626,6 +3924,13 @@ window.addEventListener("DOMContentLoaded", () => {
       // changeGlobalOption answers OK to rpc-listen-all and changes nothing —
       // so this is the second setting that restarts the engine.
       remoteControl: settingsRemote.checked,
+      // A window with no width is not a window: read as "always" it is this
+      // box unticked, read as "never" it is a download manager that never
+      // downloads. Rust refuses to store one either way — this only keeps the
+      // dialog from claiming otherwise on its way there.
+      scheduleEnabled: settingsSched.checked && schedFrom() !== schedTo(),
+      scheduleStart: schedFrom(),
+      scheduleEnd: schedTo(),
     };
 
     // Switching notifications off should take the count on the dock with it.

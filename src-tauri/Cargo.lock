@@ -1208,6 +1208,7 @@ name = "garia"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "chrono",
  "dirs 5.0.1",
  "getrandom 0.2.17",
  "qrcode",
