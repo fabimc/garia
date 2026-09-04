@@ -99,6 +99,21 @@ fn is_download_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://") || s.starts_with("magnet:")
 }
 
+/// A URL the user pointed at on purpose — Services, a selected line.
+/// Unlike the clipboard, a page counts: they chose the menu item.
+pub fn url_from_selection(text: &str) -> Option<String> {
+    for raw in text.split_whitespace() {
+        let token = tidy_token(raw);
+        if let Some(url) = url_from_garia_link(token) {
+            return Some(url);
+        }
+        if is_download_url(token) {
+            return Some(token.to_string());
+        }
+    }
+    None
+}
+
 /// A magnet handed to the app as its own URL, not wrapped in `garia://`.
 /// Safari and other clients open `magnet:?xt=…` directly once we claim the
 /// scheme; the bookmarklet still goes through `url_from_garia_link`.
@@ -226,6 +241,19 @@ mod tests {
         assert_eq!(url_from_garia_link("garia://add"), None);
         assert_eq!(url_from_garia_link("https://example.com/file.zip"), None);
         assert_eq!(url_from_garia_link("garia://add?url=ftp://example.com/a"), None);
+    }
+
+    #[test]
+    fn a_selected_page_is_an_instruction() {
+        assert_eq!(
+            url_from_selection("watch https://youtube.com/watch?v=abc later"),
+            Some("https://youtube.com/watch?v=abc".into())
+        );
+        assert_eq!(
+            url_from_selection("magnet:?xt=urn:btih:abc"),
+            Some("magnet:?xt=urn:btih:abc".into())
+        );
+        assert_eq!(url_from_selection("nothing here"), None);
     }
 
     #[test]

@@ -11,6 +11,8 @@ use tauri::{Emitter, Manager};
 mod catch;
 mod logins;
 mod schedule;
+#[cfg(target_os = "macos")]
+mod service;
 
 /// The aria2c child process plus the RPC secret it was started with. The two
 /// paths are here because they are launch-time inputs and nothing else: aria2
@@ -1080,7 +1082,7 @@ fn ingest_opened(app: &tauri::AppHandle, raw: &str) {
     }
 }
 
-fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
+pub(crate) fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
     let event = catch::CatchEvent {
         url,
         source: source.to_string(),
@@ -2605,6 +2607,10 @@ pub fn run() {
             }
             if let Err(e) = install_status_item(app) {
                 eprintln!("[garia] Could not install the menu-bar extra: {e}");
+            }
+            #[cfg(target_os = "macos")]
+            if let Err(e) = service::install(app.handle().clone()) {
+                eprintln!("[garia] Could not install Services: {e}");
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
