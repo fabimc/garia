@@ -1259,6 +1259,45 @@ html.in-app .statusbar {
     width: min(390px, 90vw);
 }
 
+/* In the app, dialogs hang from the titlebar the way a Mac sheet does.
+   The browser mock stays a centered overlay — it has no titlebar to attach to.
+   38px clears the traffic lights; the sheet is centered, so it never
+   reaches them on the min window. */
+html.in-app .modal-overlay {
+    align-items: flex-start;
+    padding: 38px 20px 20px;
+}
+
+html.in-app .modal {
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    border-top-color: transparent;
+    max-height: calc(100vh - 58px);
+    animation: sheet-down 0.18s ease-out;
+}
+
+html.in-app .modal.modal-lg,
+html.in-app #settings-overlay .modal {
+    width: min(640px, 100%);
+    max-height: calc(100vh - 58px);
+}
+
+@keyframes sheet-down {
+    from {
+        transform: translateY(-10px);
+        opacity: 0.7;
+    }
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html.in-app .modal {
+        animation: none;
+    }
+}
+
 .modal-header {
     display: flex;
     align-items: center;
