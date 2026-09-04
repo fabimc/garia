@@ -12,6 +12,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
 - Select rows, right-click them, and use the keyboard — Space pauses, ⌘⌫ deletes, ⌘C copies the URL
+- Follows the system appearance, including a translucent sidebar; drag a finished file out to Finder
 - Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info

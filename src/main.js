@@ -1032,6 +1032,10 @@ function updateItemEl(li, dl) {
 
   li.dataset.status = dl.status;
   li.dataset.name = name;
+  li.classList.toggle(
+    "is-file-draggable",
+    (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
+  );
 
   const iconEl = li.querySelector(".dl-icon");
   if (iconEl.dataset.status !== cls) {
@@ -2724,6 +2728,8 @@ async function poll(listEl) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  if (window.__TAURI__) document.documentElement.classList.add("in-app");
+
   window.__TAURI__?.core
     ?.invoke("aria2_endpoint")
     .then((value) => { endpoint = value; })
@@ -4078,6 +4084,36 @@ window.addEventListener("DOMContentLoaded", () => {
     await pollAndSync();
     focused?.focus({ preventScroll: true });
   }
+
+  // A finished file leaves the list the way it leaves Finder — the row is the
+  // handle, and the drop is the file itself. Queued rows keep the reorder
+  // gesture; this one only arms on complete and seeding rows that wrote a path.
+  listEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !window.__TAURI__) return;
+    if (e.target.closest("[data-action]")) return;
+    const row = e.target.closest(".dl-item");
+    if (!row || !row.classList.contains("is-file-draggable")) return;
+    const origin = { x: e.clientX, y: e.clientY };
+    const onMove = (ev) => {
+      if (Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < PRESS_SLOP) return;
+      cleanup();
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+      if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
+      const paths = selectedDownloads().map(rowPath).filter(Boolean);
+      if (paths.length) {
+        window.__TAURI__.core.invoke("start_file_drag", { paths }).catch((err) => console.error(err));
+      }
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", cleanup);
+      window.removeEventListener("pointercancel", cleanup);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", cleanup);
+    window.addEventListener("pointercancel", cleanup);
+  });
 
   // ── Settings ─────────────────────────────────────────────────────────────
   const settingsOverlay = document.getElementById("settings-overlay");

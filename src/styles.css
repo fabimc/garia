@@ -7,6 +7,8 @@
 }
 
 :root {
+    color-scheme: light;
+
     /* Surfaces */
     --bg: #faf6ef;
     --sidebar-bg: #f4ecdf;
@@ -17,6 +19,7 @@
     /* Ink */
     --text: #2b2520;
     --muted: #8b8075;
+    --on-accent: #fff;
 
     /* Brand — the deep teal of the app icon */
     --brand: #0d4a61;
@@ -25,15 +28,27 @@
     --accent: #cf6a3a;
     --accent-dk: #b2542b;
     --accent-soft: rgba(207, 106, 58, 0.12);
+    --accent-mid: rgba(207, 106, 58, 0.2);
+    --bar-end: #e08a52;
 
     /* Semantic */
     --success: #3f7d4f;
     --warning: #a8791f;
     --danger: #b3261e;
+    --danger-dk: #8f1e17;
+    --success-soft: rgba(63, 125, 79, 0.12);
+    --success-mid: rgba(63, 125, 79, 0.2);
+    --warning-soft: rgba(168, 121, 31, 0.12);
+    --danger-soft: rgba(179, 38, 30, 0.12);
+    --brand-soft: rgba(13, 74, 97, 0.1);
 
     /* Neutral interaction tint (warm, unlike the old white overlays) */
     --tint: rgba(43, 37, 32, 0.05);
     --tint-strong: rgba(43, 37, 32, 0.09);
+    --overlay: rgba(43, 37, 32, 0.35);
+    --drop-fill: rgba(250, 246, 239, 0.7);
+    --wash-green: rgba(139, 168, 129, 0.16);
+    --wash-orange: rgba(224, 138, 82, 0.13);
 
     --radius: 10px;
     --radius-lg: 14px;
@@ -46,14 +61,56 @@
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
 
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+
+        --bg: #1c1916;
+        --sidebar-bg: #161310;
+        --surface: #2a241f;
+        --border: #3d342c;
+        --border-strong: #52483e;
+
+        --text: #f0e6d8;
+        --muted: #9a8c7c;
+
+        --brand: #6fa3b5;
+        --accent: #e08a52;
+        --accent-dk: #cf6a3a;
+        --accent-soft: rgba(224, 138, 82, 0.2);
+        --accent-mid: rgba(224, 138, 82, 0.32);
+
+        --success: #7dae88;
+        --warning: #d4a44a;
+        --danger: #e06a62;
+        --danger-dk: #b3261e;
+        --success-soft: rgba(125, 174, 136, 0.16);
+        --success-mid: rgba(125, 174, 136, 0.26);
+        --warning-soft: rgba(212, 164, 74, 0.16);
+        --danger-soft: rgba(224, 106, 98, 0.16);
+        --brand-soft: rgba(111, 163, 181, 0.16);
+
+        --tint: rgba(240, 230, 216, 0.06);
+        --tint-strong: rgba(240, 230, 216, 0.1);
+        --overlay: rgba(12, 10, 8, 0.55);
+        --drop-fill: rgba(28, 25, 22, 0.72);
+        --wash-green: rgba(125, 174, 136, 0.12);
+        --wash-orange: rgba(224, 138, 82, 0.1);
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+        --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.32);
+        --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+}
+
 html,
 body {
     height: 100%;
+    background: transparent;
 }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: var(--sidebar-bg);
     color: var(--text);
     font-size: 14px;
     line-height: 1.5;
@@ -74,7 +131,16 @@ body {
     grid-template-areas:
         "sidebar main"
         "status  status";
+    background: var(--sidebar-bg);
     transition: grid-template-columns 0.2s ease;
+}
+
+/* The window itself is the sidebar material. The list card stays opaque so
+   the rows don't sit on blur. */
+html.in-app .app-shell,
+html.in-app .sidebar,
+html.in-app .statusbar {
+    background: transparent;
 }
 
 .app-shell.sidebar-collapsed {
@@ -280,12 +346,12 @@ body {
     background:
         radial-gradient(
             42rem 26rem at 12% 118%,
-            rgba(139, 168, 129, 0.16),
+            var(--wash-green),
             transparent 70%
         ),
         radial-gradient(
             38rem 24rem at 88% -12%,
-            rgba(224, 138, 82, 0.13),
+            var(--wash-orange),
             transparent 70%
         );
 }
@@ -429,7 +495,7 @@ body {
     border-radius: var(--radius);
     border: none;
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: 600;
@@ -451,7 +517,7 @@ body {
     border-radius: var(--radius);
     border: none;
     background: var(--danger);
-    color: #fff;
+    color: var(--on-accent);
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: 600;
@@ -461,7 +527,7 @@ body {
     box-shadow: var(--shadow-sm);
 }
 .btn-danger:hover {
-    background: #8f1e17;
+    background: var(--danger-dk);
 }
 
 .btn-secondary {
@@ -561,6 +627,9 @@ body {
 .dl-item.is-selected:hover {
     background: var(--accent-soft);
 }
+.dl-item.is-file-draggable {
+    cursor: grab;
+}
 .dl-item:focus {
     outline: none;
 }
@@ -595,19 +664,19 @@ body {
     color: var(--accent);
 }
 .dl-item[data-status="complete"] .dl-icon {
-    background: rgba(63, 125, 79, 0.12);
+    background: var(--success-soft);
     color: var(--success);
 }
 .dl-item[data-status="paused"] .dl-icon {
-    background: rgba(168, 121, 31, 0.12);
+    background: var(--warning-soft);
     color: var(--warning);
 }
 .dl-item[data-status="error"] .dl-icon {
-    background: rgba(179, 38, 30, 0.12);
+    background: var(--danger-soft);
     color: var(--danger);
 }
 .dl-item[data-status="seeding"] .dl-icon {
-    background: rgba(13, 74, 97, 0.1);
+    background: var(--brand-soft);
     color: var(--brand);
 }
 
@@ -732,7 +801,7 @@ body {
     white-space: nowrap;
     /* The same soft green as the Completed pill it sits next to: the two are
        one piece of good news, not two competing ones. */
-    background: rgba(63, 125, 79, 0.12);
+    background: var(--success-soft);
     color: var(--success);
 }
 .dl-verified::before {
@@ -757,19 +826,19 @@ body {
     color: var(--accent);
 }
 .dl-status-pill.complete {
-    background: rgba(63, 125, 79, 0.12);
+    background: var(--success-soft);
     color: var(--success);
 }
 .dl-status-pill.paused {
-    background: rgba(168, 121, 31, 0.12);
+    background: var(--warning-soft);
     color: var(--warning);
 }
 .dl-status-pill.error {
-    background: rgba(179, 38, 30, 0.12);
+    background: var(--danger-soft);
     color: var(--danger);
 }
 .dl-status-pill.seeding {
-    background: rgba(13, 74, 97, 0.1);
+    background: var(--brand-soft);
     color: var(--brand);
 }
 
@@ -784,7 +853,7 @@ body {
 .dl-bar-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), #e08a52);
+    background: linear-gradient(90deg, var(--accent), var(--bar-end));
     transition: width 0.4s ease;
 }
 
@@ -879,16 +948,16 @@ body {
     color: var(--accent);
 }
 .dl-action-pill.tone-accent:hover {
-    background: rgba(207, 106, 58, 0.2);
+    background: var(--accent-mid);
     border-color: var(--accent);
 }
 
 .dl-action-pill.tone-success {
-    background: rgba(63, 125, 79, 0.12);
+    background: var(--success-soft);
     color: var(--success);
 }
 .dl-action-pill.tone-success:hover {
-    background: rgba(63, 125, 79, 0.2);
+    background: var(--success-mid);
     border-color: var(--success);
 }
 
@@ -915,7 +984,7 @@ body {
     color: var(--text);
 }
 .dl-btn[data-action="remove"]:hover {
-    background: rgba(179, 38, 30, 0.12);
+    background: var(--danger-soft);
     color: var(--danger);
 }
 
@@ -1046,7 +1115,7 @@ body {
 }
 .row-menu-item.is-danger:hover,
 .row-menu-item.is-danger:focus {
-    background: rgba(179, 38, 30, 0.1);
+    background: var(--danger-soft);
 }
 .row-menu-sep {
     height: 1px;
@@ -1161,14 +1230,14 @@ body {
     font-size: 1rem;
     font-weight: 600;
     justify-content: center;
-    background: rgba(250, 246, 239, 0.7);
+    background: var(--drop-fill);
 }
 
 /* ── Modal ───────────────────────────────────────────────────────────── */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(43, 37, 32, 0.35);
+    background: var(--overlay);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
@@ -1959,7 +2028,7 @@ body {
 .detail-bar-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), #e08a52);
+    background: linear-gradient(90deg, var(--accent), var(--bar-end));
     transition: width 0.4s ease;
 }
 .detail-bar-fill[data-status="complete"] {
@@ -2321,7 +2390,7 @@ body {
 /* Paused and paused-by-the-clock are the same thing to aria2 and two very
    different things to the person waiting. */
 .dl-status-pill.scheduled {
-    background: rgba(168, 121, 31, 0.12);
+    background: var(--warning-soft);
     color: var(--warning);
 }
 

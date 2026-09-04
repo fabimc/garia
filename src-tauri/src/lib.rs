@@ -847,6 +847,43 @@ fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
         .map_err(|e| format!("could not set the dock badge: {e}"))
 }
 
+/// A finished file leaves the window the way it leaves Finder: the row is a
+/// handle, and the drop is a real file, not a URL the other app has to guess.
+#[tauri::command]
+fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
+    let files: Vec<PathBuf> = paths
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .filter_map(|p| fs::canonicalize(p).ok())
+        .collect();
+    if files.is_empty() {
+        return Err("nothing on disk to drag".into());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (window, files);
+        return Err("drag-out is only wired on macOS".into());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let win = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let _ = drag::start_drag(
+                    &win,
+                    drag::DragItem::Files(files),
+                    drag::Image::Raw(include_bytes!("../icons/32x32.png").to_vec()),
+                    |_, _| {},
+                    drag::Options::default(),
+                );
+            })
+            .map_err(|e| format!("could not start the drag: {e}"))
+    }
+}
+
 /// URLs that arrived before the frontend was listening. The live `catch-url`
 /// event covers everything after that; this is the ones that beat it.
 struct CatchQueue {
@@ -2365,7 +2402,8 @@ pub fn run() {
             schedule_state,
             set_download_start,
             autostart_enabled,
-            set_autostart
+            set_autostart,
+            start_file_drag
         ])
         .setup(|app| {
             let dir = app
@@ -2485,6 +2523,9 @@ pub fn run() {
                 }
             }
 
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            }
             if let Err(e) = install_menu(app) {
                 eprintln!("[garia] Could not install the menu: {e}");
             }
