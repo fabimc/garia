@@ -859,6 +859,25 @@ const ACTION_TITLES = {
 // Every URI aria2 still has on record for a download. A failed HTTP download
 // keeps the one it was added with; a torrent's files carry none, which is
 // exactly when there is nothing to retry from.
+function sourceUrl(dl) {
+  if (!dl) return "";
+  if (dl.job?.webpageUrl) return dl.job.webpageUrl;
+  return retryUris(dl)[0] || "";
+}
+
+function rowPath(dl) {
+  if (!dl || (dl.job && !dl.onDisk)) return "";
+  return dl.files?.[0]?.path || "";
+}
+
+function rowWroteBytes(dl) {
+  if (!dl || Number(dl.completedLength) <= 0) return false;
+  if (dl.job) {
+    return Boolean(dl.job.videoPath || dl.job.outPath || dl.job.audioPath || snapshotPath(dl.gid));
+  }
+  return (dl.files || []).some((f) => f.path);
+}
+
 function retryUris(dl) {
   const uris = [];
   for (const f of dl.files || []) {
@@ -950,6 +969,8 @@ function createItemEl(dl) {
   const li = document.createElement("li");
   li.className = "dl-item";
   li.dataset.gid = dl.gid;
+  li.setAttribute("aria-selected", "false");
+  li.tabIndex = -1;
   li.innerHTML = `
     <div class="dl-lead">
       <div class="dl-icon"></div>
@@ -2867,7 +2888,7 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("login-overlay").classList.add("hidden");
       return;
     }
-    closeTrafficMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
+    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
   });
 
   // Browse → open native file picker for .torrent
@@ -3290,45 +3311,246 @@ window.addEventListener("DOMContentLoaded", () => {
   modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));
   modalUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitUrl(); });
 
-  // Per-row buttons and section "View all" links
+  // Per-row buttons and section "View all" links. A plain click selects;
+  // the name, a double-click, or Enter opens the panel — a list, not a
+  // stack of buttons that happen to look like rows.
+  const selected = new Set();
+  let selectAnchor = null;
+
+  function visibleItemRows() {
+    return [...listEl.querySelectorAll(".dl-item:not(.hidden)")];
+  }
+
+  function paintSelection() {
+    for (const li of listEl.querySelectorAll(".dl-item")) {
+      const on = selected.has(li.dataset.gid);
+      li.classList.toggle("is-selected", on);
+      li.setAttribute("aria-selected", String(on));
+      li.tabIndex = on && li.dataset.gid === selectAnchor ? 0 : -1;
+    }
+  }
+
+  function pruneSelection() {
+    for (const gid of [...selected]) {
+      if (!listEl.querySelector(`.dl-item[data-gid="${CSS.escape(gid)}"]`)) {
+        selected.delete(gid);
+      }
+    }
+    if (selectAnchor && !selected.has(selectAnchor)) {
+      selectAnchor = [...selected][0] || null;
+    }
+    paintSelection();
+  }
+
+  function selectRow(row, e) {
+    const gid = row.dataset.gid;
+    const rows = visibleItemRows();
+    if (e.shiftKey && selectAnchor) {
+      const a = rows.findIndex((r) => r.dataset.gid === selectAnchor);
+      const b = rows.indexOf(row);
+      if (a >= 0 && b >= 0) {
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        if (!e.metaKey && !e.ctrlKey) selected.clear();
+        for (let i = lo; i <= hi; i++) selected.add(rows[i].dataset.gid);
+      }
+    } else if (e.metaKey || e.ctrlKey) {
+      if (selected.has(gid)) selected.delete(gid);
+      else selected.add(gid);
+      selectAnchor = gid;
+    } else {
+      selected.clear();
+      selected.add(gid);
+      selectAnchor = gid;
+    }
+    paintSelection();
+    row.focus({ preventScroll: true });
+  }
+
+  function selectedDownloads() {
+    return [...selected].map((gid) => snapshot.get(gid)).filter(Boolean);
+  }
+
+  async function runRowAction(gid, action, extra = {}) {
+    if (action === "remove") { openConfirm([gid]); return; }
+    if (action === "reprobe") {
+      if (extra.url) { openModal(extra.url); submitUrl(); }
+      return;
+    }
+    const gids = gidsFor(gid);
+    try {
+      if (action === "stop")   await Promise.all(gids.map((g) => rpc("aria2.pause", [g])));
+      if (action === "resume") await Promise.all(gids.map((g) => rpc("aria2.unpause", [g])));
+      if (action === "unseed") await Promise.all(gids.map((g) => rpc("aria2.remove", [g])));
+      if (action === "retry")  await retryDownload(gid);
+      if (action === "reveal") {
+        const path = extra.path || rowPath(snapshot.get(gid));
+        if (path) await window.__TAURI__.opener.revealItemInDir(path);
+      }
+      if (action !== "reveal" && extra.poll !== false) await pollAndSync();
+    } catch (err) { console.error(err); }
+  }
+
+  async function runOnSelected(action) {
+    const gids = [...selected];
+    if (action === "remove") { openConfirm(gids); return; }
+    if (action === "copy-url") {
+      const urls = selectedDownloads().map(sourceUrl).filter(Boolean);
+      if (urls.length) await copyText(urls.join("\n"));
+      return;
+    }
+    if (action === "details") {
+      const gid = selectAnchor || gids[0];
+      if (gid) openDetail(gid);
+      return;
+    }
+    let changed = false;
+    for (const gid of gids) {
+      const dl = snapshot.get(gid);
+      if (!dl) continue;
+      if (action === "stop" && (dl.status === "active" || dl.status === "waiting")) {
+        await runRowAction(gid, "stop", { poll: false });
+        changed = true;
+      } else if (action === "resume" && dl.status === "paused") {
+        await runRowAction(gid, "resume", { poll: false });
+        changed = true;
+      } else if (action === "unseed" && dl.status === "seeding") {
+        await runRowAction(gid, "unseed", { poll: false });
+        changed = true;
+      } else if (action === "reveal" && rowPath(dl)) {
+        await runRowAction(gid, "reveal", { path: rowPath(dl), poll: false });
+      } else if (action === "retry" && dl.status === "error") {
+        if (dl.job?.webpageUrl) await runRowAction(gid, "reprobe", { url: dl.job.webpageUrl });
+        else { await runRowAction(gid, "retry", { poll: false }); changed = true; }
+      }
+    }
+    if (changed) await pollAndSync();
+  }
+
+  async function toggleSelectedPause() {
+    let changed = false;
+    for (const dl of selectedDownloads()) {
+      if (dl.status === "active" || dl.status === "waiting") {
+        await runRowAction(dl.gid, "stop", { poll: false });
+        changed = true;
+      } else if (dl.status === "paused") {
+        await runRowAction(dl.gid, "resume", { poll: false });
+        changed = true;
+      }
+    }
+    if (changed) await pollAndSync();
+  }
+
   listEl.addEventListener("click", async (e) => {
     const link = e.target.closest(".dl-section-link");
     if (link) { setFilter(link.dataset.filter); return; }
 
-    // Anywhere on a row that isn't one of its buttons — the name is a real
-    // button so the panel is reachable from the keyboard too.
     const btn = e.target.closest("[data-action]");
-    if (!btn) {
-      const row = e.target.closest(".dl-item");
-      if (row) openDetail(row.dataset.gid);
-      return;
-    }
-    const { gid, action, path, url } = btn.dataset;
-    // Delete opens a dialog rather than acting, so it returns before the poll.
-    if (action === "remove") { openConfirm(gid); return; }
-    // So does retrying a video: the URLs have expired, so the page has to be
-    // read again and a quality picked, which is the add dialog's job.
-    if (action === "reprobe") {
-      if (url) { openModal(url); submitUrl(); }
+    if (btn) {
+      await runRowAction(btn.dataset.gid, btn.dataset.action, btn.dataset);
       return;
     }
 
-    // The two halves of a merged download move together or the pair is
-    // meaningless — one paused half stalls the merge indefinitely.
-    const gids = gidsFor(gid);
-
-    try {
-      if (action === "stop")   await Promise.all(gids.map(g => rpc("aria2.pause",   [g])));
-      if (action === "resume") await Promise.all(gids.map(g => rpc("aria2.unpause", [g])));
-      // aria2 has no "stop seeding": the seeding *is* the download still
-      // running, so ending it is a removal. The bytes are all there, which is
-      // what files the row under Completed rather than losing it.
-      if (action === "unseed") await Promise.all(gids.map(g => rpc("aria2.remove", [g])));
-      if (action === "retry")  await retryDownload(gid);
-      if (action === "reveal") await window.__TAURI__.opener.revealItemInDir(path);
-      if (action !== "reveal") await pollAndSync();
-    } catch (err) { console.error(err); }
+    const row = e.target.closest(".dl-item");
+    if (!row) {
+      if (!e.metaKey && !e.shiftKey) {
+        selected.clear();
+        selectAnchor = null;
+        paintSelection();
+      }
+      return;
+    }
+    selectRow(row, e);
+    if (e.target.closest(".dl-name")) openDetail(row.dataset.gid);
   });
+
+  listEl.addEventListener("dblclick", (e) => {
+    if (e.target.closest("[data-action], .dl-section-link")) return;
+    const row = e.target.closest(".dl-item");
+    if (row) openDetail(row.dataset.gid);
+  });
+
+  const rowMenu = document.getElementById("row-menu");
+
+  function closeRowMenu() {
+    rowMenu.classList.add("hidden");
+    rowMenu.innerHTML = "";
+  }
+
+  function menuSpecFor(dls) {
+    const items = [];
+    if (dls.some((d) => d.status === "active" || d.status === "waiting")) {
+      items.push({ action: "stop", label: "Pause" });
+    }
+    if (dls.some((d) => d.status === "paused")) {
+      items.push({ action: "resume", label: "Resume" });
+    }
+    if (dls.some((d) => d.status === "seeding")) {
+      items.push({ action: "unseed", label: "Stop Seeding" });
+    }
+    if (dls.some((d) => d.status === "error")) {
+      items.push({ action: "retry", label: "Retry" });
+    }
+    if (dls.some((d) => rowPath(d))) {
+      items.push({ action: "reveal", label: "Show in Finder" });
+    }
+    if (dls.some((d) => sourceUrl(d))) {
+      items.push({ action: "copy-url", label: dls.length > 1 ? "Copy URLs" : "Copy URL" });
+    }
+    if (dls.length === 1) items.push({ action: "details", label: "Details" });
+    items.push({ separator: true });
+    items.push({ action: "remove", label: "Delete…", danger: true });
+    return items;
+  }
+
+  function openRowMenu(x, y) {
+    const dls = selectedDownloads();
+    if (!dls.length) return;
+    rowMenu.textContent = "";
+    for (const spec of menuSpecFor(dls)) {
+      if (spec.separator) {
+        const sep = document.createElement("div");
+        sep.className = "row-menu-sep";
+        sep.setAttribute("role", "separator");
+        rowMenu.appendChild(sep);
+        continue;
+      }
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = spec.danger ? "row-menu-item is-danger" : "row-menu-item";
+      btn.setAttribute("role", "menuitem");
+      btn.dataset.action = spec.action;
+      btn.textContent = spec.label;
+      rowMenu.appendChild(btn);
+    }
+    rowMenu.classList.remove("hidden");
+    const pad = 8;
+    const { width, height } = rowMenu.getBoundingClientRect();
+    rowMenu.style.left = `${Math.min(x, window.innerWidth - width - pad)}px`;
+    rowMenu.style.top = `${Math.min(y, window.innerHeight - height - pad)}px`;
+  }
+
+  listEl.addEventListener("contextmenu", (e) => {
+    const row = e.target.closest(".dl-item");
+    if (!row) return;
+    e.preventDefault();
+    if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
+    openRowMenu(e.clientX, e.clientY);
+  });
+
+  rowMenu.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    closeRowMenu();
+    await runOnSelected(btn.dataset.action);
+  });
+
+  document.addEventListener("mousedown", (e) => {
+    if (!rowMenu.classList.contains("hidden") && !e.target.closest("#row-menu")) {
+      closeRowMenu();
+    }
+  });
+  document.addEventListener("scroll", closeRowMenu, true);
 
   // ── Retry and delete ─────────────────────────────────────────────────────
   // A stopped download sticks around in aria2's lists until its result is
@@ -3394,7 +3616,7 @@ window.addEventListener("DOMContentLoaded", () => {
     return newGid;
   }
 
-  async function removeDownload(gid, alsoTrash) {
+  async function removeDownload(gid, alsoTrash, { silent } = {}) {
     const dl = snapshot.get(gid);
     const gids = gidsFor(gid);
 
@@ -3426,26 +3648,33 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     if (jobs.delete(gid)) saveJobs();
-    await pollAndSync();
+    selected.delete(gid);
+    if (!silent) await pollAndSync();
   }
 
   const confirmOverlay = document.getElementById("confirm-overlay");
+  const confirmTitle   = document.getElementById("confirm-title");
   const confirmName    = document.getElementById("confirm-name");
   const confirmFileRow = document.getElementById("confirm-file-row");
   const confirmTrash   = document.getElementById("confirm-trash");
   const confirmCancel  = document.getElementById("confirm-cancel");
-  let confirmGid = null;
+  const confirmTrashLabel = confirmFileRow.querySelector("span");
+  let confirmGids = [];
 
-  function openConfirm(gid) {
-    const dl = snapshot.get(gid);
-    if (!dl) return;
-    confirmGid = gid;
-    confirmName.textContent = fileName(dl);
-    // Nothing to offer when the download never wrote a byte.
-    const onDisk = Number(dl.completedLength) > 0 &&
-      (dl.job ? Boolean(dl.job.videoPath || snapshotPath(gid))
-              : (dl.files || []).some(f => f.path));
+  function openConfirm(gids) {
+    const list = (Array.isArray(gids) ? gids : [gids]).filter((g) => snapshot.has(g));
+    if (!list.length) return;
+    confirmGids = list;
+    const many = list.length > 1;
+    confirmTitle.textContent = many ? "Delete downloads" : "Delete download";
+    confirmName.textContent = many
+      ? `${list.length} downloads`
+      : fileName(snapshot.get(list[0]));
+    const onDisk = list.some((g) => rowWroteBytes(snapshot.get(g)));
     confirmFileRow.classList.toggle("hidden", !onDisk);
+    confirmTrashLabel.textContent = many
+      ? "Move the downloaded files to the Trash"
+      : "Move the downloaded file to the Trash";
     confirmTrash.checked = false;
     confirmOverlay.classList.remove("hidden");
     setTimeout(() => confirmCancel.focus(), 50);
@@ -3453,7 +3682,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function closeConfirm() {
     confirmOverlay.classList.add("hidden");
-    confirmGid = null;
+    confirmGids = [];
   }
 
   confirmCancel.addEventListener("click", closeConfirm);
@@ -3461,10 +3690,11 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.target === confirmOverlay) closeConfirm();
   });
   document.getElementById("confirm-delete").addEventListener("click", async () => {
-    const gid = confirmGid;
+    const gids = confirmGids;
     const alsoTrash = confirmTrash.checked && !confirmFileRow.classList.contains("hidden");
     closeConfirm();
-    if (gid) await removeDownload(gid, alsoTrash);
+    for (const gid of gids) await removeDownload(gid, alsoTrash, { silent: true });
+    await pollAndSync();
   });
 
   // ── Detail panel ─────────────────────────────────────────────────────────
@@ -4420,18 +4650,74 @@ window.addEventListener("DOMContentLoaded", () => {
   // Native menu owns these in the app. The browser mock has no menu, so the
   // same shortcuts live here too — and ⌘F is in both, because Find is a
   // custom item rather than the system's.
+  function fieldHasFocus() {
+    return Boolean(document.activeElement?.closest("input, textarea, select, [contenteditable]"));
+  }
+
+  function overlayOpen() {
+    return [...document.querySelectorAll(".modal-overlay")].some((el) => !el.classList.contains("hidden"));
+  }
+
   document.addEventListener("keydown", (e) => {
-    if (!(e.metaKey || e.ctrlKey)) return;
     const key = e.key.toLowerCase();
-    if (key === "f") {
+    if ((e.metaKey || e.ctrlKey) && key === "f") {
       e.preventDefault();
       nameSearch.focus();
       nameSearch.select();
+      return;
     }
-    if (window.__TAURI__) return;
-    if (key === "n") { e.preventDefault(); openModal(); }
-    if (key === ",") { e.preventDefault(); openSettings(); }
-    if (key === "o") { e.preventDefault(); torrentInput.click(); }
+    if (!window.__TAURI__ && (e.metaKey || e.ctrlKey)) {
+      if (key === "n") { e.preventDefault(); openModal(); }
+      if (key === ",") { e.preventDefault(); openSettings(); }
+      if (key === "o") { e.preventDefault(); torrentInput.click(); }
+    }
+
+    if (fieldHasFocus() || overlayOpen()) return;
+
+    const rows = visibleItemRows();
+    if ((e.metaKey || e.ctrlKey) && key === "a" && rows.length) {
+      e.preventDefault();
+      selected.clear();
+      for (const row of rows) selected.add(row.dataset.gid);
+      selectAnchor = rows[rows.length - 1].dataset.gid;
+      paintSelection();
+      return;
+    }
+
+    if (!selected.size && !listEl.contains(document.activeElement)) return;
+
+    if ((e.metaKey || e.ctrlKey) && key === "c") {
+      e.preventDefault();
+      runOnSelected("copy-url");
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "Backspace" || e.key === "Delete")) {
+      e.preventDefault();
+      runOnSelected("remove");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runOnSelected("details");
+      return;
+    }
+    if (e.key === " " || e.code === "Space") {
+      e.preventDefault();
+      toggleSelectedPause();
+      return;
+    }
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey) {
+      e.preventDefault();
+      if (!rows.length) return;
+      const current = selectAnchor
+        ? rows.findIndex((r) => r.dataset.gid === selectAnchor)
+        : -1;
+      const next = e.key === "ArrowDown"
+        ? Math.min(rows.length - 1, current + 1)
+        : Math.max(0, current < 0 ? 0 : current - 1);
+      selectRow(rows[next], e);
+      rows[next].scrollIntoView({ block: "nearest" });
+    }
   });
 
   const listenMenu = window.__TAURI__?.event?.listen;
@@ -4455,6 +4741,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   async function pollAndSync() {
     await poll(listEl);
+    pruneSelection();
   }
 
   // ── Drag & drop ──────────────────────────────────────────────────────────

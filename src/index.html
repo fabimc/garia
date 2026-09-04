@@ -345,7 +345,7 @@
                 </header>
 
                 <div class="content-body">
-                    <ul id="download-list"></ul>
+                    <ul id="download-list" aria-multiselectable="true"></ul>
                     <div id="empty-state" class="empty-state hidden">
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -412,6 +412,8 @@
 
             <!-- Anchored to the status bar button, but outside it: the bar
                  clips its own overflow so the queue counts can't stretch it. -->
+            <div id="row-menu" class="row-menu hidden" role="menu"></div>
+
             <div
                 id="traffic-menu"
                 class="traffic-menu hidden"
