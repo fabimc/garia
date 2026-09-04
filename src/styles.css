@@ -705,6 +705,29 @@ body {
     color: var(--accent);
 }
 
+/* Not garia's claim but aria2's: a download carrying a hash that reached
+   "complete" is one whose bytes were checked on the way in. Green because it
+   is the same good news the Completed pill is already giving. */
+.dl-verified {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    /* The same soft green as the Completed pill it sits next to: the two are
+       one piece of good news, not two competing ones. */
+    background: rgba(63, 125, 79, 0.12);
+    color: var(--success);
+}
+.dl-verified::before {
+    content: "✓";
+    font-weight: 700;
+}
+
 .dl-status-pill {
     flex-shrink: 0;
     font-size: 0.66rem;
@@ -1722,6 +1745,26 @@ body {
 }
 
 /* The add dialog's note that this URL's host is one garia can sign in to. */
+/* Optional, and it looks it: the label carries the word rather than the
+   placeholder, which is doing other work. */
+.modal-checksum {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.modal-optional {
+    font-weight: 400;
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+/* A hash aria2 would refuse is a download that never starts, so the hint that
+   says so is the one place in the dialog that has to be read. */
+.field-hint.is-bad {
+    color: var(--danger);
+}
+
 .modal-login {
     display: flex;
     align-items: center;
@@ -2027,6 +2070,31 @@ body {
     min-width: 0;
 }
 .detail-preview-play {
+    flex-shrink: 0;
+}
+
+/* A hash to check against, and what came of the last one. Stacked rather than
+   in a row like the two bars above it: the digest is 64 characters wide and
+   the sentence explaining it is a paragraph, neither of which shares a line. */
+.detail-check {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+.detail-check-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.detail-check-input {
+    flex: 1;
+    min-width: 0;
+}
+.detail-check-go {
     flex-shrink: 0;
 }
 

@@ -168,6 +168,101 @@ function seedOptions() {
   return options;
 }
 
+// ── Checksums ────────────────────────────────────────────────────────────
+// aria2 hashes the bytes as they arrive and refuses to file a download whose
+// digest doesn't match. So "verified" is not a state garia keeps: it is what
+// `complete` already means on a download that was given a checksum, and the
+// only thing to remember is that it had one.
+//
+// The seven digests and their lengths are aria2's, not a convention borrowed
+// from elsewhere — it rejects a --checksum outright when the digit count and
+// the named algorithm disagree. Which is also what lets a bare hash name its
+// own algorithm: there is exactly one that could have produced it.
+const CHECKSUM_ALGOS = {
+  8: "adler32", 32: "md5", 40: "sha-1", 56: "sha-224",
+  64: "sha-256", 96: "sha-384", 128: "sha-512",
+};
+
+const ALGO_LABELS = {
+  adler32: "Adler-32", md5: "MD5", "sha-1": "SHA-1", "sha-224": "SHA-224",
+  "sha-256": "SHA-256", "sha-384": "SHA-384", "sha-512": "SHA-512",
+};
+
+function algoDigits(algo) {
+  return Number(Object.keys(CHECKSUM_ALGOS).find((n) => CHECKSUM_ALGOS[n] === algo)) || 0;
+}
+
+function normalizeAlgo(text) {
+  const t = text.toLowerCase().replace(/-/g, "");
+  return t === "adler32" || t === "md5" ? t : `sha-${t.slice(3)}`;
+}
+
+// What is actually in the clipboard when someone copies a hash: the digest on
+// its own, a `sha256:` prefix in front of it, the whole `<hash>  <filename>`
+// line out of a SHASUMS file, or certutil's two-digit groups. All four end up
+// as the one string aria2 takes. Returns null for an empty field, an object
+// with `error` for something unusable, and the parsed hash otherwise — the
+// three answers the hint under the field has to tell apart.
+function parseChecksum(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  // An algorithm the user named beats the one the length implies, so that a
+  // disagreement between the two is caught here rather than by aria2 refusing
+  // the download a moment later.
+  const named = raw.match(/\b(adler-?32|md5|sha-?(?:224|256|384|512|1))\b[\s:=]*/i);
+  const claimed = named ? normalizeAlgo(named[1]) : "";
+  const rest = named ? raw.slice(named.index + named[0].length) : raw;
+
+  const hex = (t) => /^[0-9a-f]+$/i.test(t);
+  const tokens = rest.split(/[\s,]+/).filter(Boolean);
+  let digest = tokens.find((t) => hex(t) && CHECKSUM_ALGOS[t.length]);
+  // Joining the pieces is only safe when every one of them is hex — otherwise
+  // the filename on a SHASUMS line would be swallowed into the digest.
+  if (!digest && tokens.length > 1 && tokens.every(hex)) {
+    const joined = tokens.join("");
+    if (CHECKSUM_ALGOS[joined.length]) digest = joined;
+  }
+  if (!digest) {
+    // Someone who named the algorithm has told us how long the digest should
+    // be, so the count is the useful thing to say back rather than the list.
+    const attempt = tokens.find(hex);
+    if (claimed && attempt) {
+      return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${attempt.length}.` };
+    }
+    return { error: "That isn't a hash garia can read. It takes 32, 40, 56, 64, 96 or 128 hex digits — on their own, or after something like sha256=." };
+  }
+
+  digest = digest.toLowerCase();
+  const implied = CHECKSUM_ALGOS[digest.length];
+  if (claimed && claimed !== implied) {
+    return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${digest.length}.` };
+  }
+  const algo = claimed || implied;
+  return { algo, digest, spec: `${algo}=${digest}`, label: ALGO_LABELS[algo] };
+}
+
+function checksumOption(parsed) {
+  return parsed?.spec ? { checksum: parsed.spec } : {};
+}
+
+// The option as aria2 hands it back, taken apart for showing.
+function splitChecksum(spec) {
+  const text = String(spec || "");
+  const at = text.indexOf("=");
+  if (at < 1) return null;
+  const algo = text.slice(0, at).toLowerCase();
+  return { algo, digest: text.slice(at + 1), label: ALGO_LABELS[algo] || algo.toUpperCase(), spec: text };
+}
+
+// A hash is a claim about one file, and neither a torrent nor a magnet is one:
+// they carry their own piece hashes, and aria2 takes --checksum on HTTP and FTP
+// alone. Saying so by hiding the field beats saying so in a sentence nobody
+// reads after the download has failed.
+function takesChecksum(url) {
+  return /^(https?|ftps?|sftp):/i.test(String(url || "").trim());
+}
+
 // ── Downloads behind a login ─────────────────────────────────────────────
 // Three ways to prove who you are, and only one of them is garia's to send.
 // A password lives in a netrc file that aria2 reads for itself — it is never
@@ -798,6 +893,7 @@ const ERROR_REASONS = {
   26: "Torrent file is corrupt",
   27: "Bad magnet link",
   29: "Server is overloaded — try again later",
+  32: "What arrived doesn't match the checksum",
 };
 
 function errorReason(dl) {
@@ -859,6 +955,7 @@ function createItemEl(dl) {
     <div class="dl-content">
       <div class="dl-head">
         <button type="button" class="dl-name"></button>
+        <span class="dl-verified hidden">Verified</span>
         <span class="dl-cap hidden"></span>
         <span class="dl-status-pill"></span>
       </div>
@@ -933,6 +1030,16 @@ function updateItemEl(li, dl) {
   if (capText && capEl.textContent !== capText) {
     capEl.textContent = capText;
     capEl.title = `This download is capped at ${formatSpeed(cap)}`;
+  }
+
+  // aria2 will not file a download as complete unless the checksum matched, so
+  // the chip is not a claim garia is making — it is the one aria2 already made
+  // by letting the download finish at all.
+  const verifiedEl = li.querySelector(".dl-verified");
+  const checked = dl.status === "complete" ? splitChecksum(rowChecksum(dl.gid)) : null;
+  verifiedEl.classList.toggle("hidden", !checked);
+  if (checked) {
+    verifiedEl.title = `${checked.label} matched: ${checked.digest}`;
   }
 
   // Downloading rows already say it twice over — the moving bar, the speed, and
@@ -1231,19 +1338,48 @@ function rowLimit(gid) {
   return 0;
 }
 
-// Asked once per gid, off the poll rather than inside it: the list must not
-// wait on a question whose answer only decorates a row.
-function learnLimits(raw) {
+// gid → the checksum aria2 is holding for that download, "" for none. Same
+// shape as the caps above and for the same reason — the option lives in aria2,
+// rides into its session file, and comes back from getOption. It is also the
+// whole of what garia knows about verification: aria2 will not file a download
+// as complete unless the hash matched, so a completed row with a checksum on
+// it is a verified row, and nothing else has to be recorded.
+const rowChecksums = new Map();
+
+// One question per download, asked once for the life of the run. The cap and
+// the checksum come out of the same getOption, which is why they are learned
+// together — and why the ask is no longer confined to unfinished downloads:
+// a checksum matters most on the row that has already landed.
+const optionsAsked = new Set();
+
+// Asked off the poll rather than inside it: the list must not wait on a
+// question whose answer only decorates a row.
+function learnOptions(raw) {
   for (const dl of raw) {
-    if (!LIMITABLE.has(dl.status) || rowLimits.has(dl.gid)) continue;
-    rowLimits.set(dl.gid, 0);   // uncapped until aria2 says otherwise
+    if (optionsAsked.has(dl.gid)) continue;
+    optionsAsked.add(dl.gid);
+    // Defaults only: a download garia has just added already knows its own.
+    if (!rowLimits.has(dl.gid)) rowLimits.set(dl.gid, 0);
+    if (!rowChecksums.has(dl.gid)) rowChecksums.set(dl.gid, "");
     rpc("aria2.getOption", [dl.gid])
       .then((opt) => {
         const bytes = parseLimit(opt?.["max-download-limit"]);
         if (bytes > 0) rowLimits.set(dl.gid, bytes);
+        if (opt?.checksum) rowChecksums.set(dl.gid, String(opt.checksum));
       })
       .catch(() => { /* finished, or forgotten, between the poll and the ask */ });
   }
+}
+
+// A merged video is two downloads under one row, so the row's checksum is
+// whichever half admits to one — in practice never, since nobody publishes a
+// hash for half of a YouTube video, but the row must not guess.
+function rowChecksum(gid) {
+  for (const g of gidsFor(gid)) {
+    const spec = rowChecksums.get(g);
+    if (spec) return spec;
+  }
+  return "";
 }
 
 async function setRowLimit(gid, bytes) {
@@ -1452,6 +1588,9 @@ async function detailData(gid) {
     parts.push({
       gid: id,
       label: labels[i] || "",
+      // Nobody publishes a hash for half of a merged video, and a pair of
+      // fields offering one would be two ways to say the same nothing.
+      solo: ids.length === 1,
       status,
       preview: status ? await previewOf(status) : null,
       servers: live ? await askQuietly("aria2.getServers", id) : [],
@@ -1651,6 +1790,12 @@ function buildPart(part) {
   preview.appendChild(play);
   sec.appendChild(preview);
 
+  // Built for every single-file HTTP download, shown for most of them: aria2
+  // takes --checksum on HTTP and FTP alone, a torrent already carries a hash
+  // per piece, and whether this one has a hash changes with a click — which is
+  // exactly the kind of change detailShape exists to keep out of a rebuild.
+  if (!bt && part.solo) sec.appendChild(buildCheckBlock(part.gid));
+
   const filesTable = buildTable("files", "Files",
     bt ? ["Take", "File", "Size", "Done"] : ["File", "Size", "Done"]);
   // The tick column pushes the name along one, and the name is the only column
@@ -1699,6 +1844,75 @@ function updatePreview(sec, part) {
     }
   }
   block.querySelector(".detail-preview-note").textContent = said.join(" ");
+}
+
+// ── Checking one download against a hash ─────────────────────────────────
+// The same field in three moments, and aria2 answers a different way in each.
+// Before the bytes land, `changeOption` really does arm the check — one of the
+// few options it applies to a download in flight rather than accepting and
+// ignoring. Once the download is a finished record it refuses outright, and the
+// way in is the download itself: added again, to the same folder under the same
+// name, aria2 finds every byte already on disk, fetches none of them, and
+// answers with the hash alone in a fraction of a second. It does still ask the
+// server how long the file is, so a URL that has expired is a check that can no
+// longer be run.
+function buildCheckBlock(gid) {
+  const block = el("div", "detail-check hidden");
+  block.appendChild(buildField("checksum", "Checksum"));
+  block.appendChild(el("p", "detail-note detail-check-note"));
+
+  const row = el("div", "detail-check-row hidden");
+  const input = el("input", "field-input is-path detail-check-input");
+  input.type = "text";
+  input.placeholder = "Paste a hash";
+  input.setAttribute("aria-label", "Check this download against a hash");
+  row.appendChild(input);
+  const go = el("button", "btn-secondary detail-check-go", "Check");
+  go.type = "button";
+  go.dataset.gid = gid;
+  row.appendChild(go);
+  block.appendChild(row);
+  return block;
+}
+
+// Which downloads are worth offering a hash for. A 404 has no file to check and
+// a mismatch has nothing but — it is the one failure where the bytes are all
+// there and only the verdict is in question.
+const CHECKABLE = new Set(["active", "waiting", "paused", "complete"]);
+
+function updateCheckBlock(sec, part) {
+  const block = sec.querySelector(".detail-check");
+  if (!block) return;
+  const st = part.status;
+  const have = splitChecksum(rowChecksums.get(part.gid) || "");
+  const mismatched = st.status === "error" && Number(st.errorCode) === 32;
+  const offer = CHECKABLE.has(st.status) || mismatched;
+
+  block.classList.toggle("hidden", !have && !offer);
+  if (!have && !offer) return;
+
+  setField(block, "checksum", have ? `${have.label}  ${have.digest}` : "",
+    have ? have.spec : "");
+  // Copy the digest people would paste elsewhere, not the option aria2 took.
+  if (have) block.querySelector(".detail-copy").dataset.value = have.digest;
+
+  const said = [];
+  if (have && st.status === "complete") {
+    said.push("Matched when the file landed — aria2 will not file a download whose hash disagrees, so this one arriving is the check passing.");
+  } else if (mismatched) {
+    said.push("What arrived does not match this hash. Every byte is still on disk: deleting the row can take the file with it, and a different hash can be checked against what is there without downloading it again.");
+  } else if (have) {
+    said.push("aria2 is hashing the bytes as they arrive and will check them against this when the download finishes.");
+  } else if (st.status === "complete") {
+    said.push("aria2 can still hash the file that is already here — nothing is downloaded a second time, though the download URL has to be alive to answer for the file's length.");
+  } else {
+    said.push("Paste a hash and aria2 checks it when the download finishes. It takes one on a download that is already running.");
+  }
+  block.querySelector(".detail-check-note").textContent = said.join(" ");
+
+  // A download that matched has nothing left to ask; one that has not been
+  // checked, or has just failed the check, has.
+  block.querySelector(".detail-check-row").classList.toggle("hidden", Boolean(have) && !mismatched);
 }
 
 // The same three modes as the status bar, aimed at one download. It sits above
@@ -1859,6 +2073,7 @@ function updatePart(sec, part) {
     uris.length > 1 ? uris.join("\n") : "");
   setField(sec, "dest", destinationOf(st));
   updatePreview(sec, part);
+  updateCheckBlock(sec, part);
 
   const files = st.files || [];
   const bt = Boolean(st.bittorrent);
@@ -2154,11 +2369,15 @@ async function poll(listEl) {
       if (path) rawPaths.set(dl.gid, path);
     }
 
-    // Every unfinished download's own cap, learned once per gid — a row that
-    // came back capped from the session file has to be able to say so.
-    learnLimits(raw);
-    for (const gid of rowLimits.keys()) {
-      if (!raw.some((d) => d.gid === gid)) rowLimits.delete(gid);
+    // Each download's own cap and checksum, learned once per gid — a row that
+    // came back capped from the session file has to be able to say so, and a
+    // row that finished has to know whether its hash was checked.
+    learnOptions(raw);
+    for (const gid of optionsAsked) {
+      if (raw.some((d) => d.gid === gid)) continue;
+      optionsAsked.delete(gid);
+      rowLimits.delete(gid);
+      rowChecksums.delete(gid);
     }
 
     const all = collapseJobs(raw);
@@ -2283,6 +2502,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const modalError    = document.getElementById("modal-error");
   const torrentInput  = document.getElementById("torrent-file-input");
 
+  const modalChecksumRow  = document.getElementById("modal-checksum-row");
+  const modalChecksum     = document.getElementById("modal-checksum");
+  const modalChecksumHint = document.getElementById("modal-checksum-hint");
+
   const modalBusy     = document.getElementById("modal-busy");
   const modalBusyText  = document.getElementById("modal-busy-text");
   const modalPlain    = document.getElementById("modal-plain");
@@ -2329,6 +2552,9 @@ window.addEventListener("DOMContentLoaded", () => {
       modalOk.disabled = false;
     }
     modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
+    // Last, and after the OK button has been re-enabled above: the hash is the
+    // one thing in the dialog that can disable it again.
+    renderChecksum();
   }
 
   // One source for the rules, so the list and the reading of it can't drift.
@@ -2353,11 +2579,31 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Three things to say and one field to say them in: nothing yet, the digest
+  // aria2 will check against, or why what is there cannot be one. The OK button
+  // goes with it — a hash aria2 would refuse is a download that never starts,
+  // and finding that out on submit is a worse place to find it out.
+  function renderChecksum() {
+    const forFile = takesChecksum(modalUrlInput.value);
+    modalChecksumRow.classList.toggle("hidden", modalMode !== "url" || !forFile);
+
+    const parsed = forFile ? parseChecksum(modalChecksum.value) : null;
+    modalChecksumHint.classList.toggle("is-bad", Boolean(parsed?.error));
+    modalChecksumHint.textContent = !parsed
+      ? "aria2 hashes the file as it arrives, so checking costs the download nothing."
+      : parsed.error
+        ? parsed.error
+        : `${parsed.label}. The download fails rather than finishing if what lands doesn't match.`;
+
+    if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
+  }
+
   function openModal(url = "") {
     probeToken++;
     probed = null;
     playlist = null;
     modalUrlInput.value = url;
+    modalChecksum.value = "";
     torrentInput.value  = "";
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
@@ -2371,7 +2617,8 @@ window.addEventListener("DOMContentLoaded", () => {
     overlay.classList.add("hidden");
   }
 
-  modalUrlInput.addEventListener("input", renderModalLogin);
+  modalUrlInput.addEventListener("input", () => { renderModalLogin(); renderChecksum(); });
+  modalChecksum.addEventListener("input", renderChecksum);
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
@@ -2415,8 +2662,19 @@ window.addEventListener("DOMContentLoaded", () => {
   // always done, and it stays the fallback for everything yt-dlp declines.
   async function addPlainUrl(url, options = addOptions(url)) {
     modalError.classList.add("hidden");
+    // The hash belongs to the URL as typed, so it rides the same call — and
+    // only this one, because a video is two files and a playlist is forty.
+    const parsed = takesChecksum(url) ? parseChecksum(modalChecksum.value) : null;
+    if (parsed?.error) {
+      modalError.textContent = parsed.error;
+      modalError.classList.remove("hidden");
+      return;
+    }
     try {
-      await rpc("aria2.addUri", [[url], options]);
+      const gid = await rpc("aria2.addUri", [[url], { ...options, ...checksumOption(parsed) }]);
+      // aria2 would answer the same thing a tick later; knowing it now is what
+      // keeps a small file from finishing before its own badge exists.
+      if (parsed?.spec && typeof gid === "string") rowChecksums.set(gid, parsed.spec);
       closeModal();
       await pollAndSync();
     } catch (err) {
@@ -2437,7 +2695,10 @@ window.addEventListener("DOMContentLoaded", () => {
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
 
-    if (!videoTools.version || !looksLikeAPage(url)) {
+    // A hash is a claim that this URL is a file, which is the question the
+    // probe exists to answer. Nobody publishes a SHA-256 for a video page.
+    const hashed = takesChecksum(url) && Boolean(parseChecksum(modalChecksum.value));
+    if (hashed || !videoTools.version || !looksLikeAPage(url)) {
       await addPlainUrl(url);
       return;
     }
@@ -2837,11 +3098,44 @@ window.addEventListener("DOMContentLoaded", () => {
     const uris = dl ? retryUris(dl) : [];
     if (!uris.length) return;
     // A download that failed for want of a login is the one most likely to be
-    // retried, so the retry is added with whatever has been saved since.
-    await rpc("aria2.addUri", [uris, {
+    // retried, so the retry is added with whatever has been saved since. The
+    // hash goes back on too, and on the one failure that is about the hash it
+    // costs nothing to re-run: the bytes and the control file are still there,
+    // so aria2 resumes at the end of a finished file and only hashes it.
+    const spec = rowChecksums.get(gid) || "";
+    const newGid = await rpc("aria2.addUri", [uris, {
       ...(dl.dir ? { dir: dl.dir } : {}), ...orderOptions(), ...loginOptions(uris[0]),
+      ...(spec ? { checksum: spec } : {}),
     }]);
+    if (spec && typeof newGid === "string") rowChecksums.set(newGid, spec);
     await purgeResult(gid);
+  }
+
+  // The hash the detail panel was given, put wherever aria2 will take it. See
+  // buildCheckBlock for why the two halves are different calls.
+  async function checkAgainst(gid, spec) {
+    const st = await rpc("aria2.tellStatus", [gid, ["status", "dir", "files"]]);
+    if (LIMITABLE.has(st.status)) {
+      await rpc("aria2.changeOption", [gid, { checksum: spec }]);
+      rowChecksums.set(gid, spec);
+      return gid;
+    }
+
+    const uris = retryUris(st);
+    if (!uris.length) {
+      throw new Error("aria2 has no URL on record for this download, so there is nothing to check it from.");
+    }
+    // The same folder and the same name, or aria2 writes a second copy beside
+    // the file instead of reading the one that is already there.
+    const path = st.files?.[0]?.path || "";
+    const out = path.slice(path.lastIndexOf("/") + 1);
+    const newGid = await rpc("aria2.addUri", [uris, {
+      ...(st.dir ? { dir: st.dir } : {}), ...(out ? { out } : {}),
+      ...orderOptions(), ...loginOptions(uris[0]), checksum: spec,
+    }]);
+    rowChecksums.set(newGid, spec);
+    await purgeResult(gid);
+    return newGid;
   }
 
   async function removeDownload(gid, alsoTrash) {
@@ -2977,6 +3271,37 @@ window.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         console.error(err);
       }
+      refreshDetail();
+      await pollAndSync();
+      return;
+    }
+
+    // Arming a check on a download in flight, or asking aria2 to re-read one
+    // that has already landed. One sentence to the user, two different calls
+    // underneath, and a new gid in the second case — a finished download is a
+    // record aria2 will not change, so it is the download that is added again.
+    const check = e.target.closest(".detail-check-go");
+    if (check) {
+      const block = check.closest(".detail-check");
+      const note = block.querySelector(".detail-check-note");
+      const parsed = parseChecksum(block.querySelector(".detail-check-input").value);
+      if (!parsed || parsed.error) {
+        note.textContent = parsed?.error || "Paste a hash to check this download against.";
+        return;
+      }
+      check.disabled = true;
+      try {
+        const next = await checkAgainst(check.dataset.gid, parsed.spec);
+        // The panel follows the download rather than the record: a re-check is
+        // a new gid, and the old one is about to be purged out from under it.
+        if (next !== check.dataset.gid) openDetail(next);
+      } catch (err) {
+        console.error(err);
+        note.textContent = String(err?.message || err);
+        check.disabled = false;
+        return;
+      }
+      check.disabled = false;
       refreshDetail();
       await pollAndSync();
       return;

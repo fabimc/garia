@@ -184,9 +184,23 @@ function isPicked(gid, index) {
   });
 }
 
+// Hashes on downloads, kept the way aria2 keeps them: an option set at addUri
+// or with changeOption and read back by getOption. One completed row starts
+// with one so the Verified chip is on screen without anyone adding a download,
+// and one failed row carries the hash it failed against.
+const checksums = new Map([
+  ["cccc2222", "sha-256=3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"],
+  ["cccc7777", "sha-256=b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c"],
+]);
+
 function changeOption(gid, options = {}) {
   if ("max-download-limit" in options) {
     limits.set(gid, String(options["max-download-limit"]));
+  }
+  // Unlike select-file, aria2 really does take this one on a download it is
+  // working — measured against 1.37, and the reason the panel offers it.
+  if ("checksum" in options) {
+    checksums.set(gid, String(options.checksum));
   }
   if ("select-file" in options) {
     // The real aria2 refuses this on a download it is actively working, which
@@ -200,6 +214,7 @@ function changeOption(gid, options = {}) {
 function getOption(gid) {
   return {
     dir: "/Users/me/Downloads",
+    ...(checksums.has(gid) ? { checksum: checksums.get(gid) } : {}),
     "select-file": picks.get(gid) ?? "",
     "max-download-limit": limits.get(gid) ?? "0",
     "max-connection-per-server": "16",
@@ -283,6 +298,11 @@ function snapshot() {
     // …and a bare code when it doesn't, which the UI has to translate
     item("cccc5555", "error", "/Users/me/Downloads/half-written.iso", 1400 * MB, 640 * MB, 0,
       { errorCode: "9" }),
+    // Error 32 is aria2's own code for a hash that didn't match, and it sends
+    // no message with it. Every byte is on disk all the same — aria2 reports
+    // completedLength 0 and leaves the file and its control file where they are.
+    item("cccc7777", "error", "/Users/me/Downloads/alpine-3.21-x86_64.iso", 220 * MB, 0, 0,
+      { errorCode: "32" }),
     // No source URI — a torrent can't be retried by re-adding a URL
     item("cccc6666", "error", "/Users/me/Downloads/some-collection.torrent", 0, 0, 0,
       { errorCode: "26", uris: [] }),
@@ -320,6 +340,9 @@ createServer((req, res) => {
         ? (paused.add(params[0]), "OK") :
       method === "aria2.unpause"      ? (paused.delete(params[0]), "OK") :
       method === "aria2.remove"       ? (removed.add(params[0]), "OK") :
+      // aria2 answers a fresh gid, and the checksum path follows it — the mock
+      // has no row to give it, which is itself the shape a purged gid has.
+      method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :
       method === "aria2.tellActive"  ? s.active  :
       method === "aria2.tellWaiting" ? s.waiting :
       method === "aria2.tellStopped" ? s.stopped :

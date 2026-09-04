@@ -510,6 +510,26 @@
                          later is a worse way to find out. -->
                     <p id="modal-login" class="field-hint modal-login hidden"></p>
 
+                    <!-- Optional, and hidden for a torrent or a magnet, which
+                         carry their own piece hashes. aria2 does the
+                         arithmetic as the bytes arrive, so this costs the
+                         download nothing. -->
+                    <div id="modal-checksum-row" class="modal-checksum">
+                        <label class="modal-label" for="modal-checksum"
+                            >Checksum <span class="modal-optional">optional</span></label
+                        >
+                        <input
+                            id="modal-checksum"
+                            type="text"
+                            class="field-input is-path"
+                            placeholder="Paste a hash from the download page"
+                            autocomplete="off"
+                            spellcheck="false"
+                            aria-describedby="modal-checksum-hint"
+                        />
+                        <p id="modal-checksum-hint" class="field-hint"></p>
+                    </div>
+
                     <!-- Shown while yt-dlp is reading the page. It can take a
                          few seconds, and a dialog that just sits there looks
                          broken. -->

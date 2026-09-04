@@ -23,6 +23,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Settings: download folder, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
 - Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
 - Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
+- Checksum verification: paste a hash beside the URL and aria2 checks the file as it arrives — before it starts, while it runs, or against one already on disk
 - Status badges: Downloading, Seeding, Merging, Queued, Paused, Complete, Error
 
 ## Requirements
@@ -121,6 +122,21 @@ Two things netrc will not do, both found by trying them. It has no quoting at al
 Saving a login **restarts aria2**. Both the netrc and the cookie jar are read once, when it starts: `load-cookies` sent to `aria2.changeGlobalOption` or carried on `addUri` is accepted, answers `OK`, and loads nothing, and a netrc written after aria2 started is a file it has already read. So garia does what quitting and reopening does — saves the session, stops aria2, starts it on the same port, and waits until it answers — and every unfinished download resumes mid-file, the same way it does across a relaunch. Editing only a site's headers changes nothing aria2 reads, and restarts nothing.
 
 A download that fails for want of a login says so: aria2's error 24 is the one failure with a fix inside the app, so the row reads *Needs a login — add one in Settings* rather than *Authorization failed*, and Retry re-queues it with whatever has been saved since.
+
+## Checksum verification
+
+Paste a hash into the add dialog and it goes to aria2 as `--checksum=sha-256=…`. aria2 hashes the bytes as they arrive, so the check costs the download nothing, and it will not file a download as complete unless the digest matches — which is why a *Verified* chip is not a claim garia is making. There is nothing for it to store: a completed download whose `getOption` still carries a `checksum` is a checked one, and the option lives in aria2's session file for as long as the download does.
+
+The field takes what is actually in the clipboard. A bare digest names its own algorithm, because aria2 knows seven of them and each has one digit count — 32 for MD5, 40 for SHA-1, 56, 64, 96, 128 for the SHA-2 family, 8 for Adler-32 — and refuses a `--checksum` whose length and algorithm disagree. So `sha256:…`, `SHA-256 = …`, a whole `<hash>  <filename>` line out of a SHASUMS file, and certutil's two-digit groups all resolve to the one string aria2 takes. A hash that cannot be one says why, and the OK button waits: a `--checksum` aria2 would reject is a download that never starts.
+
+A mismatch is aria2's error 32, which it sends with no message of its own, so the row reads *What arrived doesn't match the checksum*. Every byte is still on disk — aria2 reports `completedLength` 0 and leaves the file and its `.aria2` control file where they are — so deleting the row can take the file with it, and Retry re-runs the check rather than the download: with the control file still there aria2 resumes at the end of a finished file and only hashes it.
+
+The detail panel takes a hash too, and which call it uses depends on when it is asked:
+
+- **While the download runs** — `aria2.changeOption`, which really does apply `checksum` to a download in flight. Most options it accepts and ignores; this is one of the few it doesn't, measured against aria2 1.37.
+- **After it has landed** — `changeOption` is refused outright (*Cannot change option for GID#…*), so the download is added again with the same folder, the same name and the hash. aria2 finds every byte already on disk, fetches none of them, and answers with the digest in a fraction of a second. It does ask the server how long the file is first, so a URL that has expired is a check that can no longer be run.
+
+Torrents never see the field. They carry a hash per piece already, and `--checksum` is HTTP and FTP only.
 
 ## Build
 
