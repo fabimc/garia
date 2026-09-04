@@ -2894,7 +2894,7 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("login-overlay").classList.add("hidden");
       return;
     }
-    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail();
+    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail(); closeLicenses(); closeUpdate();
   });
 
   // Browse → open native file picker for .torrent
@@ -4772,7 +4772,96 @@ window.addEventListener("DOMContentLoaded", () => {
           window.__TAURI__.opener.openPath(dir).catch((err) => console.error(err));
         }
       }
+      if (id === "licenses") openLicenses();
+      if (id === "check-updates") checkForUpdate();
     });
+  }
+
+  const licensesOverlay = document.getElementById("licenses-overlay");
+  function openLicenses() { licensesOverlay.classList.remove("hidden"); }
+  function closeLicenses() { licensesOverlay.classList.add("hidden"); }
+  document.getElementById("licenses-close").addEventListener("click", closeLicenses);
+  document.getElementById("licenses-done").addEventListener("click", closeLicenses);
+  licensesOverlay.addEventListener("click", (e) => {
+    if (e.target === licensesOverlay) closeLicenses();
+  });
+  licensesOverlay.addEventListener("click", (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link || !window.__TAURI__?.opener?.openUrl) return;
+    e.preventDefault();
+    window.__TAURI__.opener.openUrl(link.href).catch((err) => console.error(err));
+  });
+
+  const updateOverlay = document.getElementById("update-overlay");
+  const updateTitle = document.getElementById("update-title");
+  const updateText = document.getElementById("update-text");
+  const updateNotes = document.getElementById("update-notes");
+  const updateLater = document.getElementById("update-later");
+  const updateInstall = document.getElementById("update-install");
+
+  function closeUpdate() { updateOverlay.classList.add("hidden"); }
+
+  function showUpdate(kind, info) {
+    updateNotes.classList.add("hidden");
+    updateNotes.textContent = "";
+    updateLater.textContent = kind === "available" ? "Later" : "OK";
+    updateLater.classList.toggle("hidden", kind === "checking");
+    updateInstall.classList.toggle("hidden", kind !== "available");
+    if (kind === "checking") {
+      updateTitle.textContent = "Updates";
+      updateText.textContent = "Checking…";
+    } else if (kind === "current") {
+      updateTitle.textContent = "You’re up to date";
+      updateText.textContent = info?.currentVersion
+        ? `${info.currentVersion} is the latest.`
+        : "This is the latest version.";
+    } else if (kind === "available") {
+      updateTitle.textContent = `Version ${info.version}`;
+      updateText.textContent = `You have ${info.currentVersion}. Install ${info.version}?`;
+      if (info.notes) {
+        updateNotes.textContent = info.notes;
+        updateNotes.classList.remove("hidden");
+      }
+    } else {
+      updateTitle.textContent = "Updates";
+      updateText.textContent = info?.message || "Could not check for updates.";
+    }
+    updateOverlay.classList.remove("hidden");
+  }
+
+  async function checkForUpdate({ quiet } = {}) {
+    if (!window.__TAURI__?.core?.invoke) return;
+    if (!quiet) showUpdate("checking");
+    try {
+      const info = await window.__TAURI__.core.invoke("check_for_update");
+      if (info) showUpdate("available", info);
+      else if (!quiet) showUpdate("current");
+    } catch (err) {
+      if (!quiet) showUpdate("error", { message: String(err?.message || err) });
+    }
+  }
+
+  updateLater.addEventListener("click", closeUpdate);
+  updateOverlay.addEventListener("click", (e) => {
+    if (e.target === updateOverlay) closeUpdate();
+  });
+  updateInstall.addEventListener("click", async () => {
+    updateInstall.disabled = true;
+    updateLater.disabled = true;
+    updateText.textContent = "Downloading…";
+    try {
+      await window.__TAURI__.core.invoke("install_update");
+    } catch (err) {
+      updateInstall.disabled = false;
+      updateLater.disabled = false;
+      showUpdate("error", { message: String(err?.message || err) });
+    }
+  });
+
+  // A release on GitHub is worth a prompt. A missing latest.json is not —
+  // there has never been one, and the menu is how you ask on purpose.
+  if (window.__TAURI__) {
+    setTimeout(() => checkForUpdate({ quiet: true }), 4000);
   }
 
   async function pollAndSync() {

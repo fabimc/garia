@@ -884,6 +884,48 @@ fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+    current_version: String,
+}
+
+/// What GitHub last published, if it is newer than this build. None is
+/// "you already have it" — a missing latest.json is an error, not that.
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(update)) => Ok(Some(UpdateInfo {
+            version: update.version,
+            notes: update.body.unwrap_or_default(),
+            current_version: app.package_info().version.to_string(),
+        })),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Download the update that check_for_update found and relaunch into it.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("no update available".into());
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
 /// URLs that arrived before the frontend was listening. The live `catch-url`
 /// event covers everything after that; this is the ones that beat it.
 struct CatchQueue {
@@ -2379,6 +2421,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
@@ -2403,7 +2446,9 @@ pub fn run() {
             set_download_start,
             autostart_enabled,
             set_autostart,
-            start_file_drag
+            start_file_drag,
+            check_for_update,
+            install_update
         ])
         .setup(|app| {
             let dir = app
@@ -2532,7 +2577,8 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
                     "settings" | "new-download" | "open-torrent" | "find"
-                    | "pause-all" | "resume-all" | "open-folder" => {
+                    | "pause-all" | "resume-all" | "open-folder"
+                    | "check-updates" | "licenses" => {
                         bring_to_front(app);
                         let _ = app.emit("menu", event.id().as_ref());
                     }
@@ -2628,13 +2674,23 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let pause_all = MenuItemBuilder::with_id("pause-all", "Pause All").build(app)?;
     let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
 
+    let check_updates = MenuItemBuilder::with_id("check-updates", "Check for Updates…")
+        .build(app)?;
+    let licenses = MenuItemBuilder::with_id("licenses", "Licenses…").build(app)?;
+
     let about = AboutMetadata {
         name: Some("Garia".into()),
         version: Some(app.package_info().version.to_string()),
         copyright: Some("A download manager.".into()),
+        website: Some("https://github.com/fabimc/garia".into()),
+        website_label: Some("Source and issue tracker".into()),
         credits: Some(
-            "Downloads run on a bundled aria2.\n\
-             Video merges use ffmpeg, licensed under LGPL-2.1."
+            "Downloads run on a bundled aria2 (GPL-2.0-or-later).\n\
+             Video pages are read by yt-dlp (Unlicense).\n\
+             Video merges use ffmpeg, licensed under LGPL-2.1 — \
+             muxers only, no GPL parts.\n\
+             The window is Tauri (MIT or Apache-2.0).\n\
+             Garia → Licenses lists where the source is."
                 .into(),
         ),
         icon: app.default_window_icon().cloned(),
@@ -2643,8 +2699,10 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
 
     let app_menu = SubmenuBuilder::new(app, "Garia")
         .about(Some(about))
+        .item(&check_updates)
         .separator()
         .item(&settings)
+        .item(&licenses)
         .separator()
         .services()
         .separator()

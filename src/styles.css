@@ -1450,6 +1450,43 @@ html.in-app .statusbar {
     color: var(--text);
 }
 
+.licenses-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+.licenses-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+.licenses-list dt {
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+.licenses-list dd {
+    margin: 0.15rem 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+.licenses-list a {
+    color: var(--accent);
+}
+
+.update-notes {
+    margin-top: 0.7rem;
+    max-height: 10rem;
+    overflow: auto;
+    padding: 0.55rem 0.65rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font: inherit;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    color: var(--text);
+}
+
 /* Settings checkboxes. Same shape as the delete dialog's, but these are
    choices rather than a warning, so they take the accent instead of danger. */
 .field-check {

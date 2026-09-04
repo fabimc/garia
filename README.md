@@ -13,6 +13,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
 - Select rows, right-click them, and use the keyboard — Space pauses, ⌘⌫ deletes, ⌘C copies the URL
 - Follows the system appearance, including a translucent sidebar; drag a finished file out to Finder
+- Check for Updates from the Garia menu, once a signed GitHub release exists
 - Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
@@ -168,6 +169,38 @@ Produce an optimised, self-contained `.app` bundle in `src-tauri/target/release/
 ```sh
 npm run tauri build
 ```
+
+A release build also writes updater artifacts (`Garia.app.tar.gz` and a `.sig`). Those need the updater private key:
+
+```sh
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/.tauri/garia.key"
+```
+
+That file is gitignored. Back it up. Losing it means already-installed copies cannot be updated. Put the same value in the GitHub secret `TAURI_SIGNING_PRIVATE_KEY` (the key contents, not the path) when you want CI to sign a release.
+
+### Signing and notarization
+
+Gatekeeper will warn on an unsigned `.app`. Notarization wants a **Developer ID Application** certificate from an [Apple Developer](https://developer.apple.com) account. Garia is not going to the App Store — the translucent sidebar uses a private API — so Developer ID is the right kind of certificate.
+
+With the certificate in the login keychain:
+
+```sh
+export APPLE_ID="you@example.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="YOURTEAMID"
+npm run tauri build
+```
+
+Tauri picks the Developer ID identity, signs with the hardened runtime and `src-tauri/entitlements.plist`, and submits the bundle for notarization.
+
+### Releasing
+
+1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
+2. Tag `v0.1.1` (or whatever the version is) and push the tag.
+3. The Release workflow builds on macOS, signs the updater payload, and drafts a GitHub release that includes `latest.json`.
+4. Garia → Check for Updates reads that file.
+
+The first published release is what makes Check for Updates have something to find. Until then the menu says it could not check, and a quiet launch check stays quiet.
 
 ## Project Structure
 

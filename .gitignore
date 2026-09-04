@@ -35,3 +35,6 @@ src-tauri/binaries/
 
 # yt-dlp — fetched by scripts/fetch-ytdlp-sidecar.sh
 src-tauri/resources/
+
+# Updater private key — losing this means already-installed apps cannot update
+.tauri/garia.key

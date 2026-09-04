@@ -12,6 +12,7 @@
     "notification:default",
     "deep-link:default",
     "window-state:default",
-    "autostart:default"
+    "autostart:default",
+    "updater:default"
   ]
 }

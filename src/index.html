@@ -1208,6 +1208,90 @@
             </div>
         </div>
 
+        <!-- ── Licenses ─────────────────────────────────────────────────── -->
+        <div
+            id="licenses-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="licenses-title"
+        >
+            <div class="modal modal-sm">
+                <div class="modal-header">
+                    <h2 id="licenses-title">Licenses</h2>
+                    <button
+                        class="modal-close"
+                        id="licenses-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body licenses-body">
+                    <p>
+                        Garia ships other people’s work. The copies in this
+                        app are the ones named here; their licenses are
+                        theirs, not ours.
+                    </p>
+                    <dl class="licenses-list">
+                        <dt>aria2</dt>
+                        <dd>
+                            GPL-2.0-or-later. Built from the 1.37.0 source
+                            and bundled. Source:
+                            <a href="https://github.com/aria2/aria2" target="_blank" rel="noreferrer">github.com/aria2/aria2</a>
+                        </dd>
+                        <dt>ffmpeg</dt>
+                        <dd>
+                            LGPL-2.1. Muxers only — no encoders, no GPL
+                            parts. Source:
+                            <a href="https://ffmpeg.org/download.html#get-sources" target="_blank" rel="noreferrer">ffmpeg.org</a>
+                        </dd>
+                        <dt>yt-dlp</dt>
+                        <dd>
+                            Unlicense. The zipapp in the bundle, or the one
+                            on your PATH if you have one.
+                            <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">github.com/yt-dlp/yt-dlp</a>
+                        </dd>
+                        <dt>Tauri</dt>
+                        <dd>
+                            MIT or Apache-2.0.
+                            <a href="https://github.com/tauri-apps/tauri" target="_blank" rel="noreferrer">github.com/tauri-apps/tauri</a>
+                        </dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-primary" id="licenses-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Update ───────────────────────────────────────────────────── -->
+        <div
+            id="update-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-title"
+        >
+            <div class="modal modal-sm">
+                <div class="modal-header">
+                    <h2 id="update-title">Updates</h2>
+                </div>
+                <div class="modal-body">
+                    <p id="update-text" class="confirm-text"></p>
+                    <pre id="update-notes" class="update-notes hidden"></pre>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" id="update-later">
+                        Later
+                    </button>
+                    <button class="btn-primary" id="update-install">
+                        Install
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- ── Full-window drag overlay ─────────────────────────────────── -->
         <div id="drop-overlay" class="drop-overlay hidden">
             <div class="drop-frame">
