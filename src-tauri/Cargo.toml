@@ -30,4 +30,5 @@ getrandom = "0.2"
 trash = "5"
 tauri-plugin-notification = "2"
 arboard = "3"
+qrcode = { version = "0.14.1", default-features = false }
 

@@ -15,13 +15,32 @@ mod logins;
 /// paths are here because they are launch-time inputs and nothing else: aria2
 /// reads a netrc and a cookie jar once, when it starts, so changing either is
 /// a restart — and a restart has to be able to rebuild the same command line.
+///
+/// The secret is behind a lock because turning remote control on or off
+/// replaces it: an unlisted, per-launch token is right for a socket only this
+/// machine can reach, and wrong for one a phone has to be paired with.
 struct Aria2 {
     child: Mutex<Option<Child>>,
-    secret: String,
+    secret: Mutex<String>,
     port: u16,
     pid_file: PathBuf,
     session: PathBuf,
     netrc: PathBuf,
+    /// Where the token lives while remote control is on. Deleted when it is
+    /// turned off, which is what makes turning it off an un-pairing rather
+    /// than a closed door.
+    remote_secret: PathBuf,
+}
+
+impl Aria2 {
+    /// Every caller wants an owned copy for the length of one request, and
+    /// none of them should be holding the lock across a network call.
+    fn secret(&self) -> String {
+        self.secret
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
+    }
 }
 
 /// A cap nobody can find is a cap nobody uses. FDM frames the one number as
@@ -41,6 +60,10 @@ const DEFAULT_MEDIUM_LIMIT: u64 = 2 * 1024 * 1024;
 const DEFAULT_LIGHT_LIMIT: u64 = 512 * 1024;
 /// Below a kilobyte a second a download is stopped, not limited.
 const MIN_LIMIT: u64 = 1024;
+
+/// aria2's conventional port, and what every aria2 client on a phone offers
+/// first. Named because remote control cares which one was actually taken.
+const DEFAULT_RPC_PORT: u16 = 6800;
 
 /// What the user gets to decide. Kept here rather than read back out of aria2
 /// because these have to survive a restart, and aria2 forgets everything that
@@ -93,6 +116,13 @@ struct Settings {
     /// jar stays the browser's file, and garia holds nothing from it. Empty
     /// means no jar, which is the default.
     cookie_file: String,
+    /// Let anything on the local network reach the RPC port. Off by default,
+    /// and the only setting in here that opens a socket to the outside: aria2
+    /// has no way to bind one chosen interface, so this is `--rpc-listen-all`
+    /// and nothing narrower. Turning it on also swaps the per-launch token for
+    /// one that persists, because a phone cannot be re-paired every morning.
+    #[serde(default)]
+    remote_control: bool,
 }
 
 impl Default for Settings {
@@ -112,6 +142,7 @@ impl Default for Settings {
             catch_clipboard: true,
             in_order: false,
             cookie_file: String::new(),
+            remote_control: false,
         }
     }
 }
@@ -226,6 +257,144 @@ fn random_secret() -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// ── Remote control ───────────────────────────────────────────────────────
+/// Everything in garia already talks to aria2 over JSON-RPC on a port, so
+/// letting a phone do the same is one launch flag. What it is not is one
+/// decision: the token has to stop being per-launch, the socket stops being
+/// this machine's, and the secret has to reach the other device without being
+/// typed. Those three are the feature.
+///
+/// The token lives in its own file rather than in settings.json, for the same
+/// reason the logins do: it is a credential, and settings.json is a file the
+/// user is invited to read. Deleting it is what turning remote control off
+/// means — the next time it goes on, a new token, and every device paired
+/// against the old one is un-paired rather than merely unable to connect.
+fn remote_secret(path: &Path) -> String {
+    if let Some(saved) = fs::read_to_string(path).ok().map(|t| t.trim().to_string()) {
+        // A hand-mangled file is not a token. Anything that isn't the shape
+        // random_secret() writes is replaced rather than handed to aria2,
+        // which would take it and leave the pairing quietly broken.
+        if saved.len() == 32 && saved.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return saved;
+        }
+    }
+
+    let secret = random_secret();
+    if let Err(e) = fs::write(path, &secret) {
+        eprintln!("[garia] Could not write {}: {e}", path.display());
+    }
+    restrict(path);
+    secret
+}
+
+/// 0600, the way the logins file is. A token that anyone with an account on
+/// the machine can read is a token, not a secret.
+#[cfg(unix)]
+fn restrict(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+        eprintln!("[garia] Could not restrict {}: {e}", path.display());
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict(_path: &Path) {}
+
+/// The address a phone on the same network would use. Asking the routing
+/// table beats enumerating interfaces: a UDP socket that is *connected* has
+/// picked a route and therefore a source address, and connecting a UDP socket
+/// sends nothing. The address it is pointed at is from TEST-NET-1, which is
+/// reserved precisely so that it can be named without meaning a real host —
+/// nothing is contacted, and no packet leaves.
+fn local_ip() -> Option<String> {
+    let socket = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    socket.connect(("192.0.2.1", 80)).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        return None;
+    }
+    Some(ip.to_string())
+}
+
+/// What the Settings panel needs to put a pairing in front of someone. The
+/// secret is in here, which is the one place garia hands it to its own
+/// frontend — and only while remote control is on, because a token nobody can
+/// use is a token nobody needs to see.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteInfo {
+    enabled: bool,
+    /// None when the machine is on no network at all, which makes the whole
+    /// panel a promise it cannot keep.
+    host: Option<String>,
+    port: u16,
+    secret: String,
+    /// aria2's conventional port, and the one every client defaults to. When
+    /// something else already held it at launch the pairing still works, but
+    /// it is a different number next time — which is worth saying out loud.
+    default_port: bool,
+    /// The QR as a square of modules, drawn by the frontend rather than here:
+    /// an SVG built in Rust would carry its own colours into a stylesheet that
+    /// already has them.
+    qr_width: usize,
+    qr_modules: Vec<bool>,
+}
+
+/// The secret alone, not a URL with the secret in it. Clients ask for host,
+/// port and token as three fields; the first two are short enough to read off
+/// the screen and type, and the third is the only one that isn't.
+fn qr_of(text: &str) -> (usize, Vec<bool>) {
+    use qrcode::{EcLevel, QrCode};
+    match QrCode::with_error_correction_level(text.as_bytes(), EcLevel::M) {
+        Ok(code) => {
+            let width = code.width();
+            let modules = code
+                .to_colors()
+                .into_iter()
+                .map(|c| c == qrcode::Color::Dark)
+                .collect();
+            (width, modules)
+        }
+        Err(e) => {
+            eprintln!("[garia] Could not encode the pairing QR: {e}");
+            (0, Vec::new())
+        }
+    }
+}
+
+#[tauri::command]
+fn remote_info(aria2: tauri::State<Aria2>, settings: tauri::State<SettingsState>) -> RemoteInfo {
+    let enabled = settings
+        .current
+        .lock()
+        .map(|s| s.remote_control)
+        .unwrap_or(false);
+
+    if !enabled {
+        return RemoteInfo {
+            enabled: false,
+            host: None,
+            port: aria2.port,
+            secret: String::new(),
+            default_port: aria2.port == DEFAULT_RPC_PORT,
+            qr_width: 0,
+            qr_modules: Vec::new(),
+        };
+    }
+
+    let secret = aria2.secret();
+    let (qr_width, qr_modules) = qr_of(&secret);
+    RemoteInfo {
+        enabled: true,
+        host: local_ip(),
+        port: aria2.port,
+        secret,
+        default_port: aria2.port == DEFAULT_RPC_PORT,
+        qr_width,
+        qr_modules,
+    }
+}
+
 fn aria2_request(
     port: u16,
     secret: &str,
@@ -260,7 +429,7 @@ fn aria2_rpc(
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    aria2_request(state.port, &state.secret, &method, params)
+    aria2_request(state.port, &state.secret(), &method, params)
 }
 
 /// The status bar names the endpoint it's talking to, and the port is no
@@ -296,13 +465,22 @@ fn save_settings(
 
     let settings = settings.normalised();
 
-    // Read before anything is written: the cookie jar is the one setting aria2
-    // will not take while it is running, so a change to it is a restart.
-    let jar_changed = state
+    // Read before anything is written: these are the two settings aria2 will
+    // not take while it is running, so a change to either is a restart.
+    // `rpc-listen-all` sent to changeGlobalOption answers OK, leaves the
+    // socket bound exactly as it was, and getGlobalOption still reports the
+    // old value — measured against aria2 1.37, and the same trap the cookie
+    // jar sprang.
+    let (jar_changed, remote_changed) = state
         .current
         .lock()
-        .map(|current| current.cookie_file != settings.cookie_file)
-        .unwrap_or(false);
+        .map(|current| {
+            (
+                current.cookie_file != settings.cookie_file,
+                current.remote_control != settings.remote_control,
+            )
+        })
+        .unwrap_or((false, false));
 
     // The folder is the one setting that can be wrong in a way the user has to
     // fix: everything else is clamped into range above.
@@ -323,7 +501,7 @@ fn save_settings(
     // so they go on each torrent as it is added and into the next launch.
     if let Err(e) = aria2_request(
         aria2.port,
-        &aria2.secret,
+        &aria2.secret(),
         "aria2.changeGlobalOption",
         serde_json::json!([{
             "dir": settings.download_dir,
@@ -338,8 +516,22 @@ fn save_settings(
         *guard = settings.clone();
     }
 
-    if jar_changed {
-        restart_aria2(&aria2, &settings).map_err(|e| {
+    // Turning remote control on or off replaces the token as well as the
+    // socket: a per-launch secret is right for a port only this machine can
+    // reach and useless for one a phone is paired with, and dropping the
+    // saved one on the way out is what makes turning it off an un-pairing
+    // rather than a door that could be opened again on the same key.
+    let next_secret = remote_changed.then(|| {
+        if settings.remote_control {
+            remote_secret(&aria2.remote_secret)
+        } else {
+            let _ = fs::remove_file(&aria2.remote_secret);
+            random_secret()
+        }
+    });
+
+    if jar_changed || remote_changed {
+        restart_aria2(&aria2, &settings, next_secret).map_err(|e| {
             format!("The settings are saved, but {e}. Unfinished downloads are in the session file.")
         })?;
     }
@@ -457,7 +649,7 @@ fn commit(
 
     if before != after {
         let current = settings.current.lock().map(|s| s.clone()).unwrap_or_default();
-        restart_aria2(aria2, &current).map_err(|e| {
+        restart_aria2(aria2, &current, None).map_err(|e| {
             format!("The login is saved, but {e}. It will be in force from the next launch.")
         })?;
     }
@@ -1487,7 +1679,10 @@ fn aria2_args(
 ) -> Vec<String> {
     let mut args = vec![
         "--enable-rpc".to_string(),
-        "--rpc-listen-all=false".to_string(),
+        // The one line that decides whether this socket is the machine's or
+        // the network's. aria2 offers no middle setting — there is no "listen
+        // on this interface only" for the RPC port — so it is all or loopback.
+        format!("--rpc-listen-all={}", settings.remote_control),
         format!("--rpc-listen-port={port}"),
         format!("--rpc-secret={secret}"),
         "--quiet=true".to_string(),
@@ -1580,11 +1775,20 @@ fn spawn_aria2(
 /// resumes every unfinished download mid-file from the session file, so this
 /// borrows it whole: ask aria2 to write the session, stop it, start it on the
 /// same port with the same secret, and wait until it answers before saying so.
-fn restart_aria2(aria2: &Aria2, settings: &Settings) -> Result<(), String> {
+/// `next_secret` is the one case where the process that comes back is not the
+/// one that went away: turning remote control on or off changes the token as
+/// well as the socket. It is swapped in *after* the old aria2 has written its
+/// session and been killed — asking the running one to save with a token it
+/// has never seen is an Unauthorized and a lost queue.
+fn restart_aria2(
+    aria2: &Aria2,
+    settings: &Settings,
+    next_secret: Option<String>,
+) -> Result<(), String> {
     // kill() is a SIGKILL and aria2 would never get to write the session.
     if let Err(e) = aria2_request(
         aria2.port,
-        &aria2.secret,
+        &aria2.secret(),
         "aria2.saveSession",
         serde_json::json!([]),
     ) {
@@ -1600,6 +1804,14 @@ fn restart_aria2(aria2: &Aria2, settings: &Settings) -> Result<(), String> {
         let _ = child.wait();
     }
 
+    if let Some(next) = next_secret {
+        *aria2
+            .secret
+            .lock()
+            .map_err(|_| "the aria2 secret is in an unknown state".to_string())? = next;
+    }
+    let secret = aria2.secret();
+
     // The port it just let go of is the port it is about to take back, and a
     // just-killed process can hold it a moment longer than it takes to ask.
     for attempt in 0..3 {
@@ -1607,7 +1819,7 @@ fn restart_aria2(aria2: &Aria2, settings: &Settings) -> Result<(), String> {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         let Some(child) =
-            spawn_aria2(aria2.port, &aria2.secret, &aria2.session, &aria2.netrc, settings)
+            spawn_aria2(aria2.port, &secret, &aria2.session, &aria2.netrc, settings)
         else {
             return Err("no aria2c to start".to_string());
         };
@@ -1620,7 +1832,7 @@ fn restart_aria2(aria2: &Aria2, settings: &Settings) -> Result<(), String> {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if aria2_request(
                 aria2.port,
-                &aria2.secret,
+                &secret,
                 "aria2.getVersion",
                 serde_json::json!([]),
             )
@@ -1692,8 +1904,8 @@ fn reap_orphan(pid_file: &Path) {
 /// exited on startup and the app sat there reporting "unreachable".
 fn pick_port() -> u16 {
     for _ in 0..20 {
-        if TcpListener::bind(("127.0.0.1", 6800)).is_ok() {
-            return 6800;
+        if TcpListener::bind(("127.0.0.1", DEFAULT_RPC_PORT)).is_ok() {
+            return DEFAULT_RPC_PORT;
         }
         // A just-reaped aria2c can hold the port a moment longer.
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -1702,7 +1914,7 @@ fn pick_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
         .and_then(|l| l.local_addr())
         .map(|a| a.port())
-        .unwrap_or(6800)
+        .unwrap_or(DEFAULT_RPC_PORT)
 }
 
 /// `--input-file` is an error when the path doesn't exist, so the first launch
@@ -1740,7 +1952,8 @@ pub fn run() {
             video_probe,
             mux_video,
             preview_state,
-            preview_file
+            preview_file,
+            remote_info
         ])
         .setup(|app| {
             let dir = app
@@ -1768,7 +1981,16 @@ pub fn run() {
                 eprintln!("[garia] Could not write {}: {e}", netrc_file.display());
             }
 
-            let secret = random_secret();
+            // A launch with remote control already on picks up the token the
+            // devices were paired against; every other launch gets one that
+            // has never been written down.
+            let remote_secret_file = dir.join("remote-secret");
+            let secret = if settings.remote_control {
+                remote_secret(&remote_secret_file)
+            } else {
+                let _ = fs::remove_file(&remote_secret_file);
+                random_secret()
+            };
             let session = session_path(&dir);
             let port = pick_port();
             let child = spawn_aria2(port, &secret, &session, &netrc_file, &settings);
@@ -1787,11 +2009,12 @@ pub fn run() {
 
             app.manage(Aria2 {
                 child: Mutex::new(child),
-                secret,
+                secret: Mutex::new(secret),
                 port,
                 pid_file,
                 session,
                 netrc: netrc_file.clone(),
+                remote_secret: remote_secret_file,
             });
             app.manage(SettingsState {
                 file: settings_file,
@@ -1861,7 +2084,7 @@ pub fn run() {
                     // session itself — ask it to before pulling the plug.
                     if let Err(e) = aria2_request(
                         state.port,
-                        &state.secret,
+                        &state.secret(),
                         "aria2.saveSession",
                         serde_json::json!([]),
                     ) {
@@ -1957,6 +2180,90 @@ mod tests {
         let settings = settings_from(r#"{"downloadDir":"/tmp","seedTimeMinutes":90}"#);
         let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &settings);
         assert!(args.iter().any(|a| a == "--seed-time=90"));
+    }
+
+    /// The one flag that decides whether the RPC port is this machine's or the
+    /// network's. It is always written out, off as well as on: aria2's own
+    /// default is false, but a line that says so is a line nobody has to go
+    /// and check.
+    #[test]
+    fn the_socket_is_loopback_unless_remote_control_says_otherwise() {
+        let off = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &off);
+        assert!(args.iter().any(|a| a == "--rpc-listen-all=false"));
+
+        let on = settings_from(r#"{"downloadDir":"/tmp","remoteControl":true}"#);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &on);
+        assert!(args.iter().any(|a| a == "--rpc-listen-all=true"));
+    }
+
+    /// A settings file from before remote control existed must not read as a
+    /// machine that has opted into it.
+    #[test]
+    fn a_settings_file_without_the_field_keeps_the_port_closed() {
+        let s = settings_from(r#"{"downloadDir":"/tmp","catchClipboard":true}"#);
+        assert!(!s.remote_control);
+    }
+
+    /// The token survives a relaunch — a pairing that had to be redone every
+    /// morning is not a pairing — and anything that isn't one is replaced
+    /// rather than handed to aria2, which would take it and leave every
+    /// paired device quietly locked out.
+    #[test]
+    fn the_remote_token_persists_but_only_while_it_is_a_token() {
+        let dir = std::env::temp_dir().join("garia-remote-test");
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("remote-secret");
+        let _ = fs::remove_file(&file);
+
+        let first = remote_secret(&file);
+        assert_eq!(first.len(), 32);
+        assert!(first.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(remote_secret(&file), first, "a second launch re-pairs nothing");
+
+        fs::write(&file, "not a token").unwrap();
+        assert_ne!(remote_secret(&file), "not a token");
+        assert_eq!(remote_secret(&file).len(), 32);
+
+        // 0600, the way the logins file is: a token every account on the
+        // machine can read is not one.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let _ = fs::remove_file(&file);
+    }
+
+    /// Asking the routing table for the source address it would use, rather
+    /// than walking the interface list. The assertion has to hold on a laptop
+    /// with no network too, which is the case the panel has its own sentence
+    /// for: no address is an answer, a loopback one would be a wrong answer.
+    #[test]
+    fn the_address_offered_is_one_another_device_could_reach() {
+        match local_ip() {
+            None => {}
+            Some(ip) => {
+                let parsed: std::net::IpAddr = ip.parse().expect("not an address");
+                assert!(!parsed.is_loopback());
+                assert!(!parsed.is_unspecified());
+            }
+        }
+    }
+
+    /// The pairing QR carries the secret and nothing else, so it is always the
+    /// same 32 characters and therefore always the same size: 29 modules a
+    /// side, which is version 3 at error-correction level M. Version 2 stops
+    /// at 26 bytes of the byte mode a lowercase hex token has to use.
+    #[test]
+    fn the_pairing_qr_is_a_square_of_modules() {
+        let (width, modules) = qr_of(&random_secret());
+        assert_eq!(width, 29);
+        assert_eq!(modules.len(), width * width);
+        // A finder pattern sits in each of three corners, so the top-left
+        // module is dark in every QR ever made.
+        assert!(modules[0]);
     }
 
     /// Both credentials aria2 will only take at launch. The netrc is named

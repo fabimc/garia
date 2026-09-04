@@ -3566,6 +3566,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsCatch   = document.getElementById("settings-catch");
   const settingsInOrder = document.getElementById("settings-in-order");
   const settingsCookies = document.getElementById("settings-cookies");
+  const settingsRemote  = document.getElementById("settings-remote");
   const settingsLogins  = document.getElementById("settings-logins");
   const settingsError   = document.getElementById("settings-error");
 
@@ -3592,7 +3593,9 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsCatch.checked = settings.catchClipboard !== false;
     settingsInOrder.checked = settings.inOrder === true;
     settingsCookies.value = settings.cookieFile || "";
+    settingsRemote.checked = settings.remoteControl === true;
     renderLogins();
+    loadRemote();
     settingsOverlay.classList.remove("hidden");
     setTimeout(() => settingsDir.focus(), 50);
   }
@@ -3619,6 +3622,10 @@ window.addEventListener("DOMContentLoaded", () => {
       // aria2 only reads a jar at launch, so Rust restarts it when this
       // changes. A path that isn't a file comes back as no jar at all.
       cookieFile: settingsCookies.value.trim(),
+      // Neither does it move the RPC socket once it is bound —
+      // changeGlobalOption answers OK to rpc-listen-all and changes nothing —
+      // so this is the second setting that restarts the engine.
+      remoteControl: settingsRemote.checked,
     };
 
     // Switching notifications off should take the count on the dock with it.
@@ -3639,16 +3646,110 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const opening = next.remoteControl && settings.remoteControl !== true;
     try {
       // Rust returns the settings as they were actually stored, clamped.
       settings = await invoker("save_settings", { settings: next });
       renderTraffic();
-      closeSettings();
+      // Every other save closes the dialog. Turning remote control on is the
+      // one that produces something to look at — the address and the code to
+      // scan only exist once aria2 has come back — so it stays up rather than
+      // making the user reopen Settings to find what they just asked for.
+      if (opening) await loadRemote();
+      else closeSettings();
     } catch (err) {
       settingsError.textContent = String(err?.message || err);
       settingsError.classList.remove("hidden");
     }
   }
+
+  // ── Remote control ───────────────────────────────────────────────────────
+  // The pairing is Rust's to answer for and nothing here caches it: the
+  // address comes off the routing table, the port is the one aria2 actually
+  // got, and the secret is the one it was started with — all three of which a
+  // restart can change. So the panel asks each time it is shown.
+  const remotePair   = document.getElementById("remote-pair");
+  const remoteNote   = document.getElementById("remote-note");
+  const remoteHost   = document.getElementById("remote-host");
+  const remotePort   = document.getElementById("remote-port");
+  const remoteSecret = document.getElementById("remote-secret");
+  const remoteQr     = document.getElementById("remote-qr");
+
+  // A square of modules, drawn as one rect per horizontal run rather than one
+  // per module: a 29-wide code is 841 of them, and a scanner cannot tell the
+  // difference. Black on white whatever else the window is, because that is
+  // the contrast every camera is looking for.
+  const QUIET = 4;   // the margin the QR spec asks for, in modules
+  function qrSvg(width, modules) {
+    const side = width + QUIET * 2;
+    const rects = [];
+    for (let y = 0; y < width; y++) {
+      let run = 0;
+      for (let x = 0; x <= width; x++) {
+        if (x < width && modules[y * width + x]) { run++; continue; }
+        if (run) {
+          rects.push(`<rect x="${x - run + QUIET}" y="${y + QUIET}" width="${run}" height="1"/>`);
+          run = 0;
+        }
+      }
+    }
+    // The namespace is redundant inline and not redundant the moment anyone
+    // copies the code out of the page.
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" role="img" aria-label="The pairing secret as a QR code" shape-rendering="crispEdges">`
+      + `<rect width="${side}" height="${side}" fill="#ffffff"/>`
+      + `<g fill="#000000">${rects.join("")}</g></svg>`;
+  }
+
+  async function loadRemote() {
+    const wanted = settingsRemote.checked;
+    const invoker = window.__TAURI__?.core?.invoke;
+    let info = null;
+    if (typeof invoker === "function") {
+      try { info = await invoker("remote_info"); } catch (err) { console.error(err); }
+    }
+
+    // What is actually open right now, which is not what the checkbox says
+    // until Save has restarted aria2 on the other setting.
+    const open = Boolean(info?.enabled);
+    const paired = open && wanted && Boolean(info.host);
+    remotePair.classList.toggle("hidden", !paired);
+
+    if (paired) {
+      remoteHost.textContent = info.host;
+      remotePort.textContent = String(info.port);
+      remoteSecret.textContent = info.secret;
+      document.getElementById("remote-copy").dataset.value = info.secret;
+      remoteQr.innerHTML = info.qrWidth > 0 ? qrSvg(info.qrWidth, info.qrModules) : "";
+    }
+
+    const said = [];
+    if (wanted && !open) {
+      said.push("Not open yet — Save restarts the download engine with the port open, and the pairing appears here.");
+    } else if (!wanted && open) {
+      said.push("Still open until you Save. Saving deletes the secret, so anything paired against it stops working rather than waiting for the port to come back.");
+    } else if (open && !info.host) {
+      said.push("This machine isn't on a network garia can find an address for, so there is nothing for another device to connect to.");
+    } else if (paired && !info.defaultPort) {
+      said.push(`Something else had aria2's usual port when garia started, so it took ${info.port} instead. The pairing works, but the number can be different next launch.`);
+    }
+    remoteNote.textContent = said.join(" ");
+    remoteNote.classList.toggle("hidden", said.length === 0);
+  }
+
+  settingsRemote.addEventListener("change", loadRemote);
+
+  document.getElementById("remote-copy").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    let copied = true;
+    try {
+      await copyText(btn.dataset.value || "");
+    } catch (err) {
+      copied = false;
+      console.error(err);
+    }
+    btn.textContent = copied ? "Copied" : "Blocked";
+    setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+  });
 
   // ── Traffic mode menu ────────────────────────────────────────────────────
   // Anchored to its button rather than nested in the status bar, which clips

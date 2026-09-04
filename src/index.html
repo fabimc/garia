@@ -972,6 +972,64 @@
                     </div>
 
                     <div class="field">
+                        <div class="modal-label">Remote control</div>
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-remote" />
+                            <span>Let other devices on this network drive garia</span>
+                        </label>
+                        <p class="field-hint">
+                            Opens the aria2 port to the whole network — there
+                            is no narrower setting than that — so any aria2
+                            client on your phone can queue, pause and watch
+                            downloads. The secret below is the only thing
+                            standing in front of it, and it travels in the
+                            clear over plain HTTP: worth having at home, worth
+                            leaving off on a network you don't know. Turning it
+                            off deletes the secret, so every device paired
+                            against it is un-paired rather than merely shut
+                            out. Changing this restarts the download engine,
+                            and unfinished downloads resume where they were.
+                        </p>
+
+                        <!-- Filled in from remote_info, which is the only
+                             place garia hands its own frontend the token —
+                             and only while there is something to use it on. -->
+                        <div id="remote-pair" class="remote-pair hidden">
+                            <div class="remote-fields">
+                                <div class="remote-field">
+                                    <div class="remote-label">Address</div>
+                                    <code id="remote-host" class="remote-value"></code>
+                                </div>
+                                <div class="remote-field">
+                                    <div class="remote-label">Port</div>
+                                    <code id="remote-port" class="remote-value"></code>
+                                </div>
+                                <div class="remote-field remote-field-wide">
+                                    <div class="remote-label">Secret</div>
+                                    <div class="remote-secret-row">
+                                        <code id="remote-secret" class="remote-value"></code>
+                                        <button
+                                            type="button"
+                                            class="detail-copy"
+                                            id="remote-copy"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- The address and the port are short enough to
+                                 read off the screen and type. The secret is
+                                 not, which is the whole reason this is here. -->
+                            <figure class="remote-qr">
+                                <div id="remote-qr" class="remote-qr-box"></div>
+                                <figcaption>Scan for the secret</figcaption>
+                            </figure>
+                        </div>
+                        <p id="remote-note" class="field-hint hidden"></p>
+                    </div>
+
+                    <div class="field">
                         <div class="modal-label">Video downloads</div>
                         <p id="settings-video" class="field-hint">Checking…</p>
                     </div>
