@@ -86,7 +86,8 @@ if ! grep -q '^License: LGPL' "${WORK}/configure.log"; then
   exit 1
 fi
 
-make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" > "${WORK}/make.log" 2>&1 ||
+JOBS="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+make -j"${JOBS:-4}" > "${WORK}/make.log" 2>&1 ||
   { tail -30 "${WORK}/make.log"; exit 1; }
 
 strip -x ffmpeg

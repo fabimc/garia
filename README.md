@@ -68,16 +68,17 @@ npm run tauri dev
 
 ## The bundled aria2
 
-`npm run sidecar` (run for you before every dev run and build) compiles aria2 from the upstream 1.37.0 release into `src-tauri/binaries/`, and Tauri copies it into the app bundle.
+`npm run sidecar` (run for you before every `tauri dev`) compiles aria2 from the upstream 1.37.0 release into `src-tauri/binaries/`, and Tauri copies it into the app bundle. A release build asks for both Mac chips and `lipo`s them; Tauri will not do that for an external binary.
 
 Homebrew's `aria2c` links six Homebrew dylibs, so it stops working the moment it leaves the machine that installed it. The bundled build links nothing but the OS — AppleTLS for HTTPS, CommonCrypto for hashing, the system zlib — which is what makes it safe to ship. The script refuses to install a binary that links anything else.
 
 Trimming those dependencies drops Metalink, SFTP, Firefox cookie import, and async DNS. Garia uses none of them. HTTP, HTTPS, and BitTorrent are all in.
 
-To build for the other Mac architecture, pass a target triple:
+To build for the other Mac architecture, or both at once:
 
 ```sh
 npm run sidecar -- x86_64-apple-darwin
+npm run sidecar -- universal-apple-darwin
 ```
 
 At runtime the bundled binary wins, and a system `aria2c` on `PATH` is the fallback.
@@ -165,11 +166,20 @@ A browser client such as AriaNg is the one thing this does not reach: aria2 send
 
 ## Build
 
-Produce an optimised, self-contained `.app` bundle in `src-tauri/target/release/bundle/`:
+Produce an optimised `.app` and `.dmg` — this is a Mac app, so those are the only bundle targets — in `src-tauri/target/release/bundle/`:
 
 ```sh
 npm run tauri build
 ```
+
+That first build also compiles the Intel sidecars and `lipo`s them with the Apple Silicon ones. The Rust side of a *universal* app is a second target:
+
+```sh
+rustup target add x86_64-apple-darwin
+npm run tauri build -- --target universal-apple-darwin
+```
+
+The result lands under `src-tauri/target/universal-apple-darwin/release/bundle/` and runs natively on both chips. A release tag does this on CI.
 
 A release build also writes updater artifacts (`Garia.app.tar.gz` and a `.sig`). Those need the updater private key:
 
@@ -198,7 +208,7 @@ Tauri picks the Developer ID identity, signs with the hardened runtime and `src-
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
 2. Tag `v0.1.1` (or whatever the version is) and push the tag.
-3. The Release workflow builds on macOS, signs the updater payload, and drafts a GitHub release that includes `latest.json`.
+3. The Release workflow builds a universal Mac app on macOS, signs the updater payload, and drafts a GitHub release that includes `latest.json`.
 4. Garia → Check for Updates reads that file.
 
 The first published release is what makes Check for Updates have something to find. Until then the menu says it could not check, and a quiet launch check stays quiet.
@@ -211,7 +221,7 @@ garia/
 │   ├── index.html        # App shell
 │   ├── styles.css        # Styles and animations
 │   └── main.js           # aria2 JSON-RPC client + UI logic
-├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp
+├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp, lipo for a universal app
 └── src-tauri/            # Tauri / Rust backend
     ├── binaries/         # Bundled aria2c and ffmpeg (built, not committed)
     ├── resources/        # Bundled yt-dlp zipapp (fetched, not committed)

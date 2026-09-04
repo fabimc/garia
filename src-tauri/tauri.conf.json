@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../src",
     "beforeDevCommand": "npm run sidecar",
-    "beforeBuildCommand": "npm run sidecar"
+    "beforeBuildCommand": "npm run sidecar -- universal-apple-darwin"
   },
   "app": {
     "withGlobalTauri": true,
@@ -46,7 +46,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/aria2c", "binaries/ffmpeg"],
     "resources": ["resources/yt-dlp"],
