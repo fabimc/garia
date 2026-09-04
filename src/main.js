@@ -2584,6 +2584,15 @@ function clearBadge() {
   setBadge(0);
 }
 
+let lastTrayActive = -1;
+function syncStatusItem(active) {
+  if (active === lastTrayActive) return;
+  lastTrayActive = active;
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") return;
+  invoker("set_status_item", { active }).catch((err) => console.error(err));
+}
+
 function setConn(state) {
   connState = state;
   const dot = document.getElementById("conn-dot");
@@ -2712,6 +2721,7 @@ async function poll(listEl) {
     listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
 
     renderCounts(tally);
+    syncStatusItem(tally.active);
     // Only a poll that actually reached aria2 counts as having seen the list;
     // a failed first attempt must not silence the real one.
     firstPoll = false;
@@ -2719,6 +2729,7 @@ async function poll(listEl) {
     console.error(err);
     const text = setConn("error");
     if (err?.message) text.title = `${text.title} — ${err.message}`;
+    syncStatusItem(0);
   } finally {
     applyFilter(listEl);
     // Whatever the list did, the open detail panel is looking at the same

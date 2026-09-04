@@ -847,6 +847,34 @@ fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
         .map_err(|e| format!("could not set the dock badge: {e}"))
 }
 
+/// The number next to the menu-bar extra. Zero clears it, the same way a
+/// dock badge of zero would otherwise sit there as a literal "0".
+#[tauri::command]
+fn set_status_item(app: tauri::AppHandle, active: u32) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id("status") else {
+        return Ok(());
+    };
+    let title = if active == 0 {
+        None
+    } else {
+        Some(active.to_string())
+    };
+    #[cfg(target_os = "macos")]
+    tray.set_title(title.as_deref())
+        .map_err(|e| format!("could not set the menu-bar title: {e}"))?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = title;
+    let tip = if active == 0 {
+        "Garia".to_string()
+    } else if active == 1 {
+        "Garia — 1 downloading".to_string()
+    } else {
+        format!("Garia — {active} downloading")
+    };
+    tray.set_tooltip(Some(&tip))
+        .map_err(|e| format!("could not set the menu-bar tooltip: {e}"))
+}
+
 /// A finished file leaves the window the way it leaves Finder: the row is a
 /// handle, and the drop is a real file, not a URL the other app has to guess.
 #[tauri::command]
@@ -2448,7 +2476,8 @@ pub fn run() {
             set_autostart,
             start_file_drag,
             check_for_update,
-            install_update
+            install_update,
+            set_status_item
         ])
         .setup(|app| {
             let dir = app
@@ -2573,6 +2602,9 @@ pub fn run() {
             }
             if let Err(e) = install_menu(app) {
                 eprintln!("[garia] Could not install the menu: {e}");
+            }
+            if let Err(e) = install_status_item(app) {
+                eprintln!("[garia] Could not install the menu-bar extra: {e}");
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
@@ -2756,6 +2788,49 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .build()?;
 
     app.set_menu(menu)?;
+    Ok(())
+}
+
+/// A face while the window is hidden: click the extra for New Download,
+/// Pause All, and Show Garia. The dock icon is still how you come back
+/// without thinking; this is for the moment you do not want the list.
+fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::tray::TrayIconBuilder;
+
+    let new_download = MenuItemBuilder::with_id("new-download", "New Download").build(app)?;
+    let pause_all = MenuItemBuilder::with_id("pause-all", "Pause All").build(app)?;
+    let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
+    let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder").build(app)?;
+    let show = MenuItemBuilder::with_id("show-window", "Show Garia").build(app)?;
+
+    let menu = MenuBuilder::new(app)
+        .item(&new_download)
+        .separator()
+        .item(&pause_all)
+        .item(&resume_all)
+        .separator()
+        .item(&open_folder)
+        .separator()
+        .item(&show)
+        .build()?;
+
+    let mut builder = TrayIconBuilder::with_id("status")
+        .menu(&menu)
+        .tooltip("Garia")
+        .icon_as_template(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show-window" => bring_to_front(app),
+            id @ ("new-download" | "pause-all" | "resume-all" | "open-folder") => {
+                bring_to_front(app);
+                let _ = app.emit("menu", id);
+            }
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
     Ok(())
 }
 
