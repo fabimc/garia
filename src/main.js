@@ -2905,7 +2905,7 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("login-overlay").classList.add("hidden");
       return;
     }
-    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail(); closeLicenses(); closeUpdate();
+    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeSettings(); closeDetail(); closeLicenses(); closeHelp(); closeUpdate();
   });
 
   // Browse → open native file picker for .torrent
@@ -4713,6 +4713,12 @@ window.addEventListener("DOMContentLoaded", () => {
       nameSearch.select();
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && (key === "?" || (key === "/" && e.shiftKey))) {
+      e.preventDefault();
+      if (helpOverlay.classList.contains("hidden")) openHelp();
+      else closeHelp();
+      return;
+    }
     if (!window.__TAURI__ && (e.metaKey || e.ctrlKey)) {
       if (key === "n") { e.preventDefault(); openModal(); }
       if (key === ",") { e.preventDefault(); openSettings(); }
@@ -4784,6 +4790,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
       if (id === "licenses") openLicenses();
+      if (id === "help") openHelp();
       if (id === "check-updates") checkForUpdate();
     });
   }
@@ -4801,6 +4808,15 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!link || !window.__TAURI__?.opener?.openUrl) return;
     e.preventDefault();
     window.__TAURI__.opener.openUrl(link.href).catch((err) => console.error(err));
+  });
+
+  const helpOverlay = document.getElementById("help-overlay");
+  function openHelp() { helpOverlay.classList.remove("hidden"); }
+  function closeHelp() { helpOverlay.classList.add("hidden"); }
+  document.getElementById("help-close").addEventListener("click", closeHelp);
+  document.getElementById("help-done").addEventListener("click", closeHelp);
+  helpOverlay.addEventListener("click", (e) => {
+    if (e.target === helpOverlay) closeHelp();
   });
 
   const updateOverlay = document.getElementById("update-overlay");

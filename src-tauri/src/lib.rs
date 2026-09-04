@@ -2616,7 +2616,7 @@ pub fn run() {
                 match event.id().as_ref() {
                     "settings" | "new-download" | "open-torrent" | "find"
                     | "pause-all" | "resume-all" | "open-folder"
-                    | "check-updates" | "licenses" => {
+                    | "check-updates" | "licenses" | "help" => {
                         bring_to_front(app);
                         let _ = app.emit("menu", event.id().as_ref());
                     }
@@ -2714,6 +2714,9 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
 
     let check_updates = MenuItemBuilder::with_id("check-updates", "Check for Updates…")
         .build(app)?;
+    let garia_help = MenuItemBuilder::with_id("help", "Garia Help")
+        .accelerator("CmdOrCtrl+?")
+        .build(app)?;
     let licenses = MenuItemBuilder::with_id("licenses", "Licenses…").build(app)?;
 
     let about = AboutMetadata {
@@ -2728,7 +2731,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
              Video merges use ffmpeg, licensed under LGPL-2.1 — \
              muxers only, no GPL parts.\n\
              The window is Tauri (MIT or Apache-2.0).\n\
-             Garia → Licenses lists where the source is."
+             Help → Licenses lists where the source is."
                 .into(),
         ),
         icon: app.default_window_icon().cloned(),
@@ -2740,7 +2743,6 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .item(&check_updates)
         .separator()
         .item(&settings)
-        .item(&licenses)
         .separator()
         .services()
         .separator()
@@ -2785,15 +2787,24 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .close_window()
         .build()?;
 
+    let help_menu = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, "Help")
+        .item(&garia_help)
+        .separator()
+        .item(&licenses)
+        .build()?;
+
     let menu = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
         .item(&download_menu)
         .item(&window_menu)
+        .item(&help_menu)
         .build()?;
 
     app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    help_menu.set_as_help_menu_for_nsapp()?;
     Ok(())
 }
 
