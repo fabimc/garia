@@ -32,4 +32,6 @@ tauri-plugin-notification = "2"
 arboard = "3"
 qrcode = { version = "0.14.1", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tauri-plugin-window-state = "2"
+tauri-plugin-autostart = "2"
 

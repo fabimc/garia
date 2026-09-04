@@ -2515,13 +2515,26 @@ async function notifyComplete(dl) {
   try {
     if (!(await n.ready)) return;
     const total = Number(dl.totalLength);
+    const path = dl.files?.[0]?.path || "";
     n.api.sendNotification({
       title: "Download complete",
       body: total > 0 ? `${fileName(dl)} · ${formatBytes(total)}` : fileName(dl),
+      extra: path ? { path } : undefined,
     });
   } catch (err) {
     console.error(err);
   }
+}
+
+function listenNotificationClicks() {
+  const n = notifications();
+  if (!n || typeof n.api.onAction !== "function") return;
+  n.api.onAction((payload) => {
+    const path = payload?.extra?.path;
+    if (path && window.__TAURI__?.opener?.revealItemInDir) {
+      window.__TAURI__.opener.revealItemInDir(path).catch(() => {});
+    }
+  }).catch((err) => console.error(err));
 }
 
 // Cleared when the user comes back to the window — at that point they have
@@ -3845,6 +3858,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsRatio   = document.getElementById("settings-seed-ratio");
   const settingsSeedFor = document.getElementById("settings-seed-time");
   const settingsNotify  = document.getElementById("settings-notify");
+  const settingsAutostart = document.getElementById("settings-autostart");
   const settingsSmart   = document.getElementById("settings-smart-folders");
   const settingsCatch   = document.getElementById("settings-catch");
   const settingsInOrder = document.getElementById("settings-in-order");
@@ -3876,6 +3890,7 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsRatio.value = String(Number(settings.seedRatio) || 0);
     settingsSeedFor.value = String(Number(settings.seedTimeMinutes) || 0);
     settingsNotify.checked = settings.notifyOnComplete !== false;
+    loadAutostart();
     settingsSmart.checked = settings.smartFolders === true;
     settingsCatch.checked = settings.catchClipboard !== false;
     settingsInOrder.checked = settings.inOrder === true;
@@ -3892,6 +3907,20 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function closeSettings() { settingsOverlay.classList.add("hidden"); }
+
+  async function loadAutostart() {
+    const invoker = window.__TAURI__?.core?.invoke;
+    if (typeof invoker !== "function") {
+      settingsAutostart.closest(".field")?.classList.add("hidden");
+      return;
+    }
+    try {
+      settingsAutostart.checked = await invoker("autostart_enabled");
+    } catch (err) {
+      console.error(err);
+      settingsAutostart.closest(".field")?.classList.add("hidden");
+    }
+  }
 
   const schedFrom = () => minutesOf(settingsSchedFrom.value) ?? 2 * 60;
   const schedTo   = () => minutesOf(settingsSchedTo.value) ?? 8 * 60;
@@ -3976,6 +4005,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const opening = next.remoteControl && settings.remoteControl !== true;
     try {
+      await invoker("set_autostart", { enabled: settingsAutostart.checked });
       // Rust returns the settings as they were actually stored, clamped.
       settings = await invoker("save_settings", { settings: next });
       renderTraffic();
@@ -4414,6 +4444,12 @@ window.addEventListener("DOMContentLoaded", () => {
       if (id === "find") { nameSearch.focus(); nameSearch.select(); }
       if (id === "pause-all") pauseAll();
       if (id === "resume-all") resumeAll();
+      if (id === "open-folder") {
+        const dir = settings.downloadDir;
+        if (dir && window.__TAURI__?.opener?.openPath) {
+          window.__TAURI__.opener.openPath(dir).catch((err) => console.error(err));
+        }
+      }
     });
   }
 
@@ -4552,6 +4588,7 @@ window.addEventListener("DOMContentLoaded", () => {
   loadSettings();
   loadLogins();
   loadVideoTools();
+  listenNotificationClicks();
   pollAndSync();
   setInterval(pollAndSync, 1000);
 });

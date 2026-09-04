@@ -897,6 +897,27 @@ fn read_torrent(path: String) -> Result<String, String> {
     Ok(encode_base64(&bytes))
 }
 
+/// Launch at login lives in a LaunchAgent, not in settings.json: the OS is
+/// the source of truth, and System Settings can turn it off without us.
+#[tauri::command]
+fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    if enabled {
+        app.autolaunch().enable()
+    } else {
+        app.autolaunch().disable()
+    }
+    .map_err(|e| e.to_string())
+}
+
 fn encode_base64(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -2305,6 +2326,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
+        // Size and place, not visibility: hide-on-close would otherwise come
+        // back as a launch with no window.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
@@ -2326,7 +2363,9 @@ pub fn run() {
             preview_file,
             remote_info,
             schedule_state,
-            set_download_start
+            set_download_start,
+            autostart_enabled,
+            set_autostart
         ])
         .setup(|app| {
             let dir = app
@@ -2452,7 +2491,7 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
                     "settings" | "new-download" | "open-torrent" | "find"
-                    | "pause-all" | "resume-all" => {
+                    | "pause-all" | "resume-all" | "open-folder" => {
                         bring_to_front(app);
                         let _ = app.emit("menu", event.id().as_ref());
                     }
@@ -2540,6 +2579,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let open_torrent = MenuItemBuilder::with_id("open-torrent", "Open Torrent…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
+    let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder")
+        .build(app)?;
     let find = MenuItemBuilder::with_id("find", "Find")
         .accelerator("CmdOrCtrl+F")
         .build(app)?;
@@ -2576,6 +2617,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_download)
         .item(&open_torrent)
+        .separator()
+        .item(&open_folder)
         .separator()
         .close_window()
         .build()?;
