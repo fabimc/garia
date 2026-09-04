@@ -5,6 +5,8 @@
 /// these two: a copied file URL is offered, and anything sent on purpose
 /// through the scheme is queued.
 
+use std::path::{Path, PathBuf};
+
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]
@@ -95,6 +97,37 @@ pub fn url_from_garia_link(link: &str) -> Option<String> {
 
 fn is_download_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://") || s.starts_with("magnet:")
+}
+
+/// A magnet handed to the app as its own URL, not wrapped in `garia://`.
+/// Safari and other clients open `magnet:?xt=…` directly once we claim the
+/// scheme; the bookmarklet still goes through `url_from_garia_link`.
+pub fn magnet_url(link: &str) -> Option<String> {
+    let link = link.trim();
+    link.starts_with("magnet:").then(|| link.to_string())
+}
+
+/// A `.torrent` the system asked us to open — Finder, Open With, or a
+/// `file://` from `RunEvent::Opened`. The path is what the frontend reads;
+/// we only decide whether it is one.
+pub fn torrent_path(link: &str) -> Option<PathBuf> {
+    let link = link.trim();
+    let raw = if let Some(rest) = link.strip_prefix("file://") {
+        let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+        percent_decode(rest)
+    } else if Path::new(link).is_absolute() {
+        link.to_string()
+    } else {
+        return None;
+    };
+    let path = PathBuf::from(raw);
+    is_torrent(&path).then_some(path)
+}
+
+pub fn is_torrent(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("torrent"))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -201,5 +234,30 @@ mod tests {
             url_from_garia_link("garia:add?url=https://example.com/a.iso"),
             Some("https://example.com/a.iso".into())
         );
+    }
+
+    #[test]
+    fn a_bare_magnet_is_taken() {
+        let magnet = "magnet:?xt=urn:btih:abc&dn=x";
+        assert_eq!(magnet_url(magnet), Some(magnet.into()));
+        assert_eq!(magnet_url(" https://example.com/a.iso "), None);
+    }
+
+    #[test]
+    fn a_file_url_to_a_torrent_is_a_path() {
+        let path = torrent_path("file:///tmp/ubuntu.torrent").unwrap();
+        assert_eq!(path, std::path::PathBuf::from("/tmp/ubuntu.torrent"));
+    }
+
+    #[test]
+    fn a_percent_encoded_torrent_name_survives() {
+        let path = torrent_path("file:///tmp/My%20Disk.torrent").unwrap();
+        assert_eq!(path, std::path::PathBuf::from("/tmp/My Disk.torrent"));
+    }
+
+    #[test]
+    fn a_plain_file_is_not_a_torrent() {
+        assert_eq!(torrent_path("file:///tmp/movie.iso"), None);
+        assert_eq!(torrent_path("relative.torrent"), None);
     }
 }

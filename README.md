@@ -2,11 +2,13 @@
 
 A lightweight desktop download manager built on top of [aria2](https://aria2.github.io/), wrapped in a [Tauri](https://tauri.app/) native app.
 
-Garia manages aria2 automatically — it ships its own copy inside the app and starts and stops it alongside the window, so you never have to touch the command line to download a file.
+Garia manages aria2 automatically — it ships its own copy inside the app and starts it with the app. Closing the window leaves downloads running; Quit is what stops them. You never have to touch the command line to download a file.
 
 ## Features
 
-- Add downloads by URL, magnet link, or `.torrent` file — typed, or dropped on the window
+- Add downloads by URL, magnet link, or `.torrent` file — typed, dropped on the window, or opened from Finder
+- Close the window and downloads keep going; Quit (⌘Q) is what stops them
+- A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,)
 - Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
 - Live progress bars with speed and size info
@@ -207,9 +209,11 @@ Completion is noticed by the same one-second poll that drives the progress bars:
 
 Credentials are the one kind of setting aria2 will not take while it is running. A netrc and a cookie jar are both read once, at launch, so garia keeps its own store in `logins.json` (at `0600`, holding the passwords) and *derives* the netrc from it — rebuilt at every launch and after every edit, and deleted rather than left empty when the last login goes, so a machine with no logins leaves aria2 reading the user's own `~/.netrc` exactly as it would have. Saving one restarts aria2 on the same port and waits for it to answer; unfinished downloads come back from the session file mid-file, the same as across a relaunch. The frontend is never sent a password — it gets the list with a `hasPassword` flag and the headers to put on a download for a given host, and that is all it can leak.
 
-A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` (the bookmarklet in Settings, or an extension later) is queued, or opened on the quality picker when it's a video page.
+A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` (the bookmarklet in Settings, or an extension later) is queued, or opened on the quality picker when it's a video page. A `magnet:` link or a `.torrent` file the system opens — Safari, Finder, Open With — is an instruction, the same as the scheme.
 
-The `garia://` scheme is declared in `src-tauri/Info.plist`, which Tauri merges into the bundle. macOS only routes the scheme to an app it has registered, so the bookmarklet works from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
+The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
+
+On a Mac, the red button and ⌘W hide the window. aria2 keeps running, the dock icon stays, and clicking it (or a `garia://` link) brings the window back. ⌘Q is the only thing that saves the session and stops the engine.
 
 Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 

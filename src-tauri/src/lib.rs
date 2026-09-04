@@ -868,11 +868,87 @@ fn take_pending_catch(state: tauri::State<CatchQueue>) -> Vec<catch::CatchEvent>
         .unwrap_or_default()
 }
 
+/// `.torrent` files the system opened before the list was listening — Finder
+/// double-click, Open With, File → Open. Same shape as the URL catch queue.
+struct TorrentQueue {
+    pending: Mutex<Vec<String>>,
+}
+
+#[tauri::command]
+fn take_pending_torrents(state: tauri::State<TorrentQueue>) -> Vec<String> {
+    state
+        .pending
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+/// The torrent bytes as aria2 wants them. The frontend already knows how to
+/// add one (folder, seed rules, in-order); this is just the file, checked so
+/// a path that is not a torrent never becomes an RPC payload.
+#[tauri::command]
+fn read_torrent(path: String) -> Result<String, String> {
+    let path = PathBuf::from(&path);
+    if !catch::is_torrent(&path) {
+        return Err("that isn't a .torrent file".into());
+    }
+    let bytes = fs::read(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    Ok(encode_base64(&bytes))
+}
+
+fn encode_base64(data: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let a = chunk[0] as u32;
+        let b = chunk.get(1).copied().unwrap_or(0) as u32;
+        let c = chunk.get(2).copied().unwrap_or(0) as u32;
+        let n = (a << 16) | (b << 8) | c;
+        out.push(T[(n >> 18) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 fn bring_to_front(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn dispatch_torrent(app: &tauri::AppHandle, path: PathBuf) {
+    let event = path.display().to_string();
+    if let Some(queue) = app.try_state::<TorrentQueue>() {
+        if let Ok(mut pending) = queue.pending.lock() {
+            pending.push(event.clone());
+            let overflow = pending.len().saturating_sub(MAX_PENDING_CATCHES);
+            pending.drain(..overflow);
+        }
+    }
+    let _ = app.emit("open-torrent", &event);
+    bring_to_front(app);
+}
+
+/// Files and magnets the system handed us — Finder, a browser, Open With.
+/// `garia://` stays with the deep-link plugin so it is not queued twice.
+fn ingest_opened(app: &tauri::AppHandle, raw: &str) {
+    if let Some(path) = catch::torrent_path(raw) {
+        dispatch_torrent(app, path);
+    } else if let Some(url) = catch::magnet_url(raw) {
+        dispatch_catch(app, url, "scheme");
     }
 }
 
@@ -2240,6 +2316,8 @@ pub fn run() {
             delete_login,
             set_badge,
             take_pending_catch,
+            take_pending_torrents,
+            read_torrent,
             copy_text,
             video_tools,
             video_probe,
@@ -2342,65 +2420,201 @@ pub fn run() {
             app.manage(CatchQueue {
                 pending: Mutex::new(Vec::new()),
             });
+            app.manage(TorrentQueue {
+                pending: Mutex::new(Vec::new()),
+            });
             app.manage(schedule::Schedule::new(schedule::state_file(&dir)));
             app.manage(OwnCopy::default());
 
-            // `garia://add?url=…` from a bookmarklet, an extension, or anything
-            // else that wants to hand garia a download. macOS delivers these
-            // to the running instance; a cold launch is `get_current` below.
+            // `garia://add?url=…` from a bookmarklet, and `magnet:` from the
+            // browser or Finder. macOS delivers these to the running instance;
+            // a cold launch is `get_current` below. `.torrent` files arrive
+            // as `RunEvent::Opened`, not through this plugin.
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     for link in event.urls() {
-                        if let Some(url) = catch::url_from_garia_link(link.as_str()) {
-                            dispatch_catch(&handle, url, "scheme");
-                        }
+                        ingest_deep_link(&handle, link.as_str());
                     }
                 });
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
                     let handle = app.handle().clone();
                     for link in urls {
-                        if let Some(url) = catch::url_from_garia_link(link.as_str()) {
-                            dispatch_catch(&handle, url, "scheme");
-                        }
+                        ingest_deep_link(&handle, link.as_str());
                     }
                 }
             }
 
+            if let Err(e) = install_menu(app) {
+                eprintln!("[garia] Could not install the menu: {e}");
+            }
+            app.on_menu_event(|app, event| {
+                match event.id().as_ref() {
+                    "settings" | "new-download" | "open-torrent" | "find"
+                    | "pause-all" | "resume-all" => {
+                        bring_to_front(app);
+                        let _ = app.emit("menu", event.id().as_ref());
+                    }
+                    _ => {}
+                }
+            });
+
             spawn_clipboard_watch(app.handle().clone());
             // Started last and running from this moment: aria2 was spawned a
-            // few lines up and is already working through the session file, so
-            // a window that is shut has a fraction of a second of downloads to
-            // stop rather than a whole run of them.
+            // few lines up and is already working through the session file.
+            // Closing the window no longer stops it — only Quit does — so a
+            // schedule that opens at 2am has a process to talk to.
             spawn_schedule_watch(app.handle().clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // The red button and ⌘W hide the window. Downloads keep going;
+            // the dock icon is how you come back. ⌘Q is the one that exits.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<Aria2>() {
-                    // kill() is a SIGKILL, so aria2 never gets to write the
-                    // session itself — ask it to before pulling the plug.
-                    if let Err(e) = aria2_request(
-                        state.port,
-                        &state.secret(),
-                        "aria2.saveSession",
-                        serde_json::json!([]),
-                    ) {
-                        eprintln!("[garia] Could not save the aria2 session: {e}");
-                    }
-                    if let Ok(mut guard) = state.child.lock() {
-                        if let Some(mut child) = guard.take() {
-                            let _ = child.kill();
-                            let _ = child.wait();
+            match event {
+                tauri::RunEvent::Exit => {
+                    if let Some(state) = app.try_state::<Aria2>() {
+                        // kill() is a SIGKILL, so aria2 never gets to write the
+                        // session itself — ask it to before pulling the plug.
+                        if let Err(e) = aria2_request(
+                            state.port,
+                            &state.secret(),
+                            "aria2.saveSession",
+                            serde_json::json!([]),
+                        ) {
+                            eprintln!("[garia] Could not save the aria2 session: {e}");
                         }
+                        if let Ok(mut guard) = state.child.lock() {
+                            if let Some(mut child) = guard.take() {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                            }
+                        }
+                        let _ = fs::remove_file(&state.pid_file);
                     }
-                    let _ = fs::remove_file(&state.pid_file);
                 }
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => bring_to_front(app),
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                tauri::RunEvent::Opened { urls } => {
+                    for url in urls {
+                        ingest_opened(app, url.as_str());
+                    }
+                }
+                _ => {}
             }
         });
+}
+
+fn ingest_deep_link(app: &tauri::AppHandle, link: &str) {
+    if let Some(url) = catch::url_from_garia_link(link) {
+        dispatch_catch(app, url, "scheme");
+    } else if let Some(url) = catch::magnet_url(link) {
+        dispatch_catch(app, url, "scheme");
+    }
+}
+
+/// The menu a Mac app is expected to have: the app name, File, Edit, Window,
+/// and the shortcuts that belong on them. Replacing Tauri's default is what
+/// makes Settings land on ⌘, and New Download on ⌘N rather than nowhere.
+fn install_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+
+    let settings = MenuItemBuilder::with_id("settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+    let new_download = MenuItemBuilder::with_id("new-download", "New Download")
+        .accelerator("CmdOrCtrl+N")
+        .build(app)?;
+    let open_torrent = MenuItemBuilder::with_id("open-torrent", "Open Torrent…")
+        .accelerator("CmdOrCtrl+O")
+        .build(app)?;
+    let find = MenuItemBuilder::with_id("find", "Find")
+        .accelerator("CmdOrCtrl+F")
+        .build(app)?;
+    let pause_all = MenuItemBuilder::with_id("pause-all", "Pause All").build(app)?;
+    let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
+
+    let about = AboutMetadata {
+        name: Some("Garia".into()),
+        version: Some(app.package_info().version.to_string()),
+        copyright: Some("A download manager.".into()),
+        credits: Some(
+            "Downloads run on a bundled aria2.\n\
+             Video merges use ffmpeg, licensed under LGPL-2.1."
+                .into(),
+        ),
+        icon: app.default_window_icon().cloned(),
+        ..Default::default()
+    };
+
+    let app_menu = SubmenuBuilder::new(app, "Garia")
+        .about(Some(about))
+        .separator()
+        .item(&settings)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&new_download)
+        .item(&open_torrent)
+        .separator()
+        .close_window()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .separator()
+        .item(&find)
+        .build()?;
+
+    let download_menu = SubmenuBuilder::new(app, "Download")
+        .item(&pause_all)
+        .item(&resume_all)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .fullscreen()
+        .close_window()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&download_menu)
+        .item(&window_menu)
+        .build()?;
+
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2419,6 +2633,14 @@ mod tests {
 
     fn settings_from(json: &str) -> Settings {
         serde_json::from_str::<Settings>(json).unwrap().normalised()
+    }
+
+    #[test]
+    fn torrent_bytes_are_what_aria2_expects() {
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"Man"), "TWFu");
+        assert_eq!(encode_base64(b"Ma"), "TWE=");
+        assert_eq!(encode_base64(b"M"), "TQ==");
     }
 
     /// The upgrade case: a settings file written before the modes existed

@@ -1504,7 +1504,7 @@ function renderSchedule() {
   el.title = open
     ? `The window closes at ${clockLabel(schedule.end)}${span ? `, in ${span}` : ""}.`
     : `Downloads are held until ${clockLabel(schedule.start)}${span ? `, in ${span}` : ""}. `
-      + "garia has to be open then.";
+      + "Garia has to be running then.";
 }
 
 // ── Queue order ──────────────────────────────────────────────────────────
@@ -2157,11 +2157,11 @@ function updateStartBlock(sec, data) {
           : `The window is shut until ${clockLabel(schedule.start)}, so the row waits for whichever of the two comes second.`,
       );
     }
-    said.push("garia has to be open then — nothing here wakes the Mac.");
+    said.push("Garia has to be running then — nothing here wakes the Mac.");
   } else if (schedule.enabled && !schedule.open) {
     said.push(`Already held: the window is shut until ${clockLabel(schedule.start)}. A time here holds it past that.`);
   } else {
-    said.push("Give this one download an hour of its own. It is paused until then, and started when it comes round — or when garia is next open after it.");
+    said.push("Give this one download an hour of its own. It is paused until then, and started when it comes round — or when Garia is next running after it.");
   }
   sec.querySelector(".detail-start-note").textContent = said.join(" ");
 }
@@ -2878,6 +2878,26 @@ window.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       modalError.textContent = err.message;
       modalError.classList.remove("hidden");
+    }
+  }
+
+  // A .torrent the system opened — Finder, Open With, File → Open Torrent.
+  // The bytes come from Rust so the webview never has to read an arbitrary path.
+  // The same path can arrive twice (the live event and the pending drain);
+  // one add is enough.
+  const recentlyOpened = new Set();
+  async function ingestTorrentPath(path) {
+    if (!path || recentlyOpened.has(path)) return;
+    recentlyOpened.add(path);
+    setTimeout(() => recentlyOpened.delete(path), 2500);
+    const invoker = window.__TAURI__?.core?.invoke;
+    if (typeof invoker !== "function") return;
+    try {
+      const b64 = await invoker("read_torrent", { path });
+      await rpc("aria2.addTorrent", [b64, [], addOptions()]);
+      await pollAndSync();
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -3603,14 +3623,17 @@ window.addEventListener("DOMContentLoaded", () => {
     await pollAndSync();
   }
 
-  document.getElementById("pause-all").addEventListener("click", () => {
+  function pauseAll() {
     const gids = [...listEl.querySelectorAll(".dl-item[data-status='active']")].map(li => li.dataset.gid);
     bulkAction(gids, "pause");
-  });
-  document.getElementById("resume-all").addEventListener("click", () => {
+  }
+  function resumeAll() {
     const gids = [...listEl.querySelectorAll(".dl-item[data-status='paused']")].map(li => li.dataset.gid);
     bulkAction(gids, "resume");
-  });
+  }
+
+  document.getElementById("pause-all").addEventListener("click", pauseAll);
+  document.getElementById("resume-all").addEventListener("click", resumeAll);
 
   // ── Queue reordering ─────────────────────────────────────────────────────
   // A queue is an order, so it has to be draggable. The rows move under the
@@ -3880,7 +3903,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const from = schedFrom();
     const to = schedTo();
     if (!settingsSched.checked) {
-      settingsSchedSum.textContent = "Downloads run whenever garia is open.";
+      settingsSchedSum.textContent = "Downloads run whenever Garia is running.";
       return;
     }
     if (from === to) {
@@ -4364,14 +4387,35 @@ window.addEventListener("DOMContentLoaded", () => {
   // nothing left to tell them.
   window.addEventListener("focus", clearBadge);
 
-  // ⌘F / Ctrl-F focuses the search field
+  // Native menu owns these in the app. The browser mock has no menu, so the
+  // same shortcuts live here too — and ⌘F is in both, because Find is a
+  // custom item rather than the system's.
   document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const key = e.key.toLowerCase();
+    if (key === "f") {
       e.preventDefault();
       nameSearch.focus();
       nameSearch.select();
     }
+    if (window.__TAURI__) return;
+    if (key === "n") { e.preventDefault(); openModal(); }
+    if (key === ",") { e.preventDefault(); openSettings(); }
+    if (key === "o") { e.preventDefault(); torrentInput.click(); }
   });
+
+  const listenMenu = window.__TAURI__?.event?.listen;
+  if (typeof listenMenu === "function") {
+    listenMenu("menu", (event) => {
+      const id = event.payload;
+      if (id === "new-download") openModal();
+      if (id === "settings") openSettings();
+      if (id === "open-torrent") torrentInput.click();
+      if (id === "find") { nameSearch.focus(); nameSearch.select(); }
+      if (id === "pause-all") pauseAll();
+      if (id === "resume-all") resumeAll();
+    });
+  }
 
   async function pollAndSync() {
     await poll(listEl);
@@ -4491,11 +4535,17 @@ window.addEventListener("DOMContentLoaded", () => {
   const listen = window.__TAURI__?.event?.listen;
   if (typeof listen === "function") {
     listen("catch-url", (event) => handleCatch(event.payload));
+    listen("open-torrent", (event) => {
+      if (event.payload) ingestTorrentPath(event.payload);
+    });
   }
   const invoker = window.__TAURI__?.core?.invoke;
   if (typeof invoker === "function") {
     invoker("take_pending_catch").then((pending) => {
       for (const event of pending || []) handleCatch(event);
+    }).catch(() => {});
+    invoker("take_pending_torrents").then((pending) => {
+      for (const path of pending || []) ingestTorrentPath(path);
     }).catch(() => {});
   }
 
