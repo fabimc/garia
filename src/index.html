@@ -14,8 +14,8 @@
     <body>
         <div class="app-shell">
             <!-- ── Sidebar ──────────────────────────────────────────────── -->
-            <aside class="sidebar">
-                <div class="sidebar-header" data-tauri-drag-region>
+            <aside class="sidebar" data-tauri-drag-region="deep">
+                <div class="sidebar-header" data-tauri-drag-region="deep">
                     <img
                         class="logo-mark"
                         src="assets/logo.png"
@@ -264,7 +264,7 @@
 
             <!-- ── Main content ─────────────────────────────────────────── -->
             <main class="content">
-                <header class="content-header" data-tauri-drag-region>
+                <header class="content-header" data-tauri-drag-region="deep">
                     <button
                         class="panel-toggle content-panel-toggle"
                         id="sidebar-show"
@@ -324,7 +324,7 @@
                             </svg>
                             Resume all
                         </button>
-                        <div class="search-field">
+                        <div class="search-field" data-tauri-drag-region="false">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="13"
@@ -390,7 +390,7 @@
             </main>
 
             <!-- ── Status bar ───────────────────────────────────────────── -->
-            <footer class="statusbar">
+            <footer class="statusbar" data-tauri-drag-region="deep">
                 <span id="conn-dot" class="conn-dot conn-waiting"></span>
                 <span id="conn-text">Connecting…</span>
                 <span class="status-sep">·</span>
