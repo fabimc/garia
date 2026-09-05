@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 mod catch;
+#[cfg(target_os = "macos")]
+mod dock;
 mod logins;
 mod schedule;
 #[cfg(target_os = "macos")]
@@ -1051,7 +1053,7 @@ fn encode_base64(data: &[u8]) -> String {
     out
 }
 
-fn bring_to_front(app: &tauri::AppHandle) {
+pub(crate) fn bring_to_front(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -2611,6 +2613,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let Err(e) = service::install(app.handle().clone()) {
                 eprintln!("[garia] Could not install Services: {e}");
+            }
+            #[cfg(target_os = "macos")]
+            if let Err(e) = dock::install(app.handle().clone()) {
+                eprintln!("[garia] Could not install the dock menu: {e}");
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {

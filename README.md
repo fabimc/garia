@@ -9,6 +9,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Add downloads by URL, magnet link, or `.torrent` file — typed, dropped on the window, or opened from Finder
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
 - A menu-bar extra while the window is hidden — New Download, Pause All, and how many are running
+- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Open Download Folder
 - A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,)
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
@@ -261,7 +262,7 @@ A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner r
 
 The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
 
-On a Mac, the red button and ⌘W hide the window. aria2 keeps running, the dock icon stays, and clicking it (or a `garia://` link) brings the window back. ⌘Q is the only thing that saves the session and stops the engine. The window's size and place survive a quit. Launch at login is a LaunchAgent, turned on from Settings, so an overnight schedule does not wait for you to open the app.
+On a Mac, the red button and ⌘W hide the window. aria2 keeps running, the dock icon stays, and clicking it (or a `garia://` link) brings the window back. Right-clicking the icon offers New Download, Pause All, Resume All, and Open Download Folder. ⌘Q is the only thing that saves the session and stops the engine. The window's size and place survive a quit. Launch at login is a LaunchAgent, turned on from Settings, so an overnight schedule does not wait for you to open the app.
 
 Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 
