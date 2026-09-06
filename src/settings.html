@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en" class="prefs">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Settings</title>
+        <link rel="stylesheet" href="styles.css" />
+        <script>
+            if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
+                document.documentElement.classList.add("in-app");
+            }
+        </script>
+    </head>
+    <body>
+        <div class="prefs-shell" data-tauri-drag-region="deep">
+            <nav class="prefs-nav" aria-label="Settings">
+                <div class="prefs-nav-title">Settings</div>
+                <button type="button" class="prefs-item active" data-pane="general">
+                    General
+                </button>
+                <button type="button" class="prefs-item" data-pane="speed">
+                    Speed
+                </button>
+                <button type="button" class="prefs-item" data-pane="torrents">
+                    Torrents
+                </button>
+                <button type="button" class="prefs-item" data-pane="schedule">
+                    Schedule
+                </button>
+                <button type="button" class="prefs-item" data-pane="capture">
+                    Capture
+                </button>
+                <button type="button" class="prefs-item" data-pane="access">
+                    Access
+                </button>
+                <button type="button" class="prefs-item" data-pane="about">
+                    About
+                </button>
+            </nav>
+
+            <main class="prefs-main">
+                <p id="settings-error" class="error hidden"></p>
+
+                <section class="prefs-pane" id="pane-general" data-pane="general">
+                    <h1 class="prefs-heading">General</h1>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-dir"
+                            >Download folder</label
+                        >
+                        <div class="modal-input-row">
+                            <input
+                                id="settings-dir"
+                                class="field-input is-path"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                            />
+                            <button class="btn-secondary" id="settings-browse">
+                                Choose…
+                            </button>
+                        </div>
+                        <p class="field-hint">Where new downloads go.</p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Anything already in the list keeps the folder it
+                                was added with.
+                            </p>
+                        </details>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input
+                                type="checkbox"
+                                id="settings-smart-folders"
+                            />
+                            <span>Sort new downloads into folders by type</span>
+                        </label>
+                        <p class="field-hint">
+                            Video, Music, Documents, and Archives, inside the
+                            folder above.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Anything else — and every torrent, which doesn't
+                                name its files until it starts — lands in the
+                                folder itself. Nothing already downloaded
+                                moves.
+                            </p>
+                        </details>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-notify" />
+                            <span>Tell me when a download finishes</span>
+                        </label>
+                        <p class="field-hint">
+                            A banner as each one lands, and a count on the dock
+                            icon while you are elsewhere.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-autostart" />
+                            <span>Open Garia when I log in</span>
+                        </label>
+                        <p class="field-hint">
+                            Overnight schedules and unfinished downloads do not
+                            wait for you to launch the app.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Closing the window is still fine; this is about
+                                the Mac starting, not about leaving a window
+                                open.
+                            </p>
+                        </details>
+                    </div>
+                </section>
+
+                <section class="prefs-pane hidden" id="pane-speed" data-pane="speed">
+                    <h1 class="prefs-heading">Speed</h1>
+
+                    <div class="field">
+                        <div class="field-pair">
+                            <div class="field">
+                                <label class="modal-label" for="settings-medium"
+                                    >Medium</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-medium"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                    />
+                                    <span class="field-suffix">MB/s</span>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label class="modal-label" for="settings-light"
+                                    >Light</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-light"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                    />
+                                    <span class="field-suffix">MB/s</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="field-hint">
+                            The two speeds the status bar switches between. The
+                            third mode is full speed.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-concurrency"
+                            >Downloads at once</label
+                        >
+                        <div class="field-unit is-narrow">
+                            <input
+                                id="settings-concurrency"
+                                class="field-input"
+                                type="number"
+                                min="1"
+                                max="16"
+                                step="1"
+                            />
+                            <span class="field-suffix">files</span>
+                        </div>
+                        <p class="field-hint">The rest wait in the queue.</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-in-order" />
+                            <span
+                                >Download in order, so files play before they
+                                finish</span
+                            >
+                        </label>
+                        <p class="field-hint">
+                            The file fills from the beginning. Applies to
+                            downloads added from now on.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                aria2 normally takes whichever piece keeps a
+                                connection busiest, which finishes soonest but
+                                leaves holes near the front. In order costs some
+                                of that speed.
+                            </p>
+                        </details>
+                    </div>
+                </section>
+
+                <section
+                    class="prefs-pane hidden"
+                    id="pane-torrents"
+                    data-pane="torrents"
+                >
+                    <h1 class="prefs-heading">Torrents</h1>
+
+                    <div class="field">
+                        <div class="field-pair">
+                            <div class="field">
+                                <label
+                                    class="modal-label"
+                                    for="settings-seed-ratio"
+                                    >Seed until ratio</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-seed-ratio"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                    />
+                                    <span class="field-suffix">×</span>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label
+                                    class="modal-label"
+                                    for="settings-seed-time"
+                                    >or for</label
+                                >
+                                <div class="field-unit">
+                                    <input
+                                        id="settings-seed-time"
+                                        class="field-input"
+                                        type="number"
+                                        min="0"
+                                        step="10"
+                                    />
+                                    <span class="field-suffix">minutes</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="field-hint">
+                            When a finished torrent stops uploading — whichever
+                            comes first.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                A ratio of 0 seeds until you stop it yourself,
+                                and so does a time of 0. Torrents already
+                                running keep the rules they started under.
+                            </p>
+                        </details>
+                    </div>
+                </section>
+
+                <section
+                    class="prefs-pane hidden"
+                    id="pane-schedule"
+                    data-pane="schedule"
+                >
+                    <h1 class="prefs-heading">Schedule</h1>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-schedule" />
+                            <span>Only download between these times</span>
+                        </label>
+                        <div class="field-times">
+                            <label class="field-time">
+                                <span class="field-time-label">From</span>
+                                <input
+                                    id="settings-schedule-start"
+                                    class="field-input"
+                                    type="time"
+                                />
+                            </label>
+                            <label class="field-time">
+                                <span class="field-time-label">Until</span>
+                                <input
+                                    id="settings-schedule-end"
+                                    class="field-input"
+                                    type="time"
+                                />
+                            </label>
+                        </div>
+                        <p id="settings-schedule-sum" class="field-hint"></p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Outside the window downloads are paused, and
+                                anything queued is held rather than started.
+                                Only what Garia stopped is started again — a
+                                download you paused yourself stays paused.
+                                <strong>Garia has to be running</strong> for any
+                                of this. Closing the window is fine. Quit is
+                                what stops them. Nothing here wakes the Mac up.
+                            </p>
+                        </details>
+                    </div>
+                </section>
+
+                <section
+                    class="prefs-pane hidden"
+                    id="pane-capture"
+                    data-pane="capture"
+                >
+                    <h1 class="prefs-heading">Capture</h1>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-catch" />
+                            <span>Watch the clipboard for file URLs</span>
+                        </label>
+                        <p class="field-hint">
+                            When you copy a download link, Garia offers to take
+                            it. Pages are left alone.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Catch from the browser</div>
+                        <p class="field-hint">
+                            Drag this onto the bookmarks bar, then click it on a
+                            page to send it here.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                The same
+                                <code>garia://add?url=…</code> scheme is what an
+                                extension would call. From another app, select a
+                                URL and choose Services → Download with Garia.
+                            </p>
+                        </details>
+                        <a
+                            id="catch-bookmarklet"
+                            class="bookmarklet"
+                            href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
+                            >Send this page to garia</a
+                        >
+                    </div>
+                </section>
+
+                <section
+                    class="prefs-pane hidden"
+                    id="pane-access"
+                    data-pane="access"
+                >
+                    <h1 class="prefs-heading">Access</h1>
+
+                    <p class="prefs-banner">
+                        Changing a cookie jar, a login, or remote control
+                        restarts the download engine. Unfinished downloads
+                        resume where they were.
+                    </p>
+
+                    <div class="field">
+                        <div class="modal-label">Logins</div>
+                        <p class="field-hint">
+                            For files that are behind a sign-in.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                A password goes into a netrc file only aria2
+                                reads, so it is never attached to a download. A
+                                header is carried on the request, which means it
+                                is written down with it.
+                            </p>
+                        </details>
+                        <ul id="settings-logins" class="login-list"></ul>
+                        <button
+                            class="btn-secondary login-add"
+                            id="settings-login-add"
+                        >
+                            Add a site…
+                        </button>
+                    </div>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-cookies"
+                            >Cookie file</label
+                        >
+                        <div class="modal-input-row">
+                            <input
+                                id="settings-cookies"
+                                class="field-input is-path"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                                placeholder="No cookie jar"
+                            />
+                            <button
+                                class="btn-secondary"
+                                id="settings-cookies-browse"
+                            >
+                                Choose…
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            A <code>cookies.txt</code> exported from the
+                            browser. Empty the box to stop using one.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Remote control</div>
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-remote" />
+                            <span
+                                >Let other devices on this network drive
+                                Garia</span
+                            >
+                        </label>
+                        <p class="field-hint">
+                            Opens the aria2 port to the whole network. The
+                            secret below is the only thing standing in front of
+                            it, and it travels in the clear over HTTP.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Worth having at home, worth leaving off on a
+                                network you don't know. Turning it off deletes
+                                the secret, so every paired device is un-paired.
+                            </p>
+                        </details>
+
+                        <div id="remote-pair" class="remote-pair hidden">
+                            <div class="remote-fields">
+                                <div class="remote-field">
+                                    <div class="remote-label">Address</div>
+                                    <code
+                                        id="remote-host"
+                                        class="remote-value"
+                                    ></code>
+                                </div>
+                                <div class="remote-field">
+                                    <div class="remote-label">Port</div>
+                                    <code
+                                        id="remote-port"
+                                        class="remote-value"
+                                    ></code>
+                                </div>
+                                <div class="remote-field remote-field-wide">
+                                    <div class="remote-label">Secret</div>
+                                    <div class="remote-secret-row">
+                                        <code
+                                            id="remote-secret"
+                                            class="remote-value"
+                                        ></code>
+                                        <button
+                                            type="button"
+                                            class="detail-copy"
+                                            id="remote-copy"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <figure class="remote-qr">
+                                <div id="remote-qr" class="remote-qr-box"></div>
+                                <figcaption>Scan for the secret</figcaption>
+                            </figure>
+                        </div>
+                        <p id="remote-note" class="field-hint hidden"></p>
+                    </div>
+                </section>
+
+                <section
+                    class="prefs-pane hidden"
+                    id="pane-about"
+                    data-pane="about"
+                >
+                    <h1 class="prefs-heading">About</h1>
+
+                    <div class="field">
+                        <div class="modal-label">Video downloads</div>
+                        <p id="settings-video" class="field-hint">Checking…</p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Licenses</div>
+                        <p class="field-hint">
+                            Garia ships other people's work. The copies in this
+                            app are the ones named here.
+                        </p>
+                        <dl class="licenses-list">
+                            <dt>aria2</dt>
+                            <dd>
+                                GPL-2.0-or-later. Built from the 1.37.0 source
+                                and bundled.
+                                <a
+                                    href="https://github.com/aria2/aria2"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    >github.com/aria2/aria2</a
+                                >
+                            </dd>
+                            <dt>ffmpeg</dt>
+                            <dd>
+                                LGPL-2.1. Muxers only — no encoders, no GPL
+                                parts.
+                                <a
+                                    href="https://ffmpeg.org/download.html#get-sources"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    >ffmpeg.org</a
+                                >
+                            </dd>
+                            <dt>yt-dlp</dt>
+                            <dd>
+                                Unlicense. The zipapp in the bundle, or the one
+                                on your PATH if you have one.
+                                <a
+                                    href="https://github.com/yt-dlp/yt-dlp"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    >github.com/yt-dlp/yt-dlp</a
+                                >
+                            </dd>
+                            <dt>Tauri</dt>
+                            <dd>
+                                MIT or Apache-2.0.
+                                <a
+                                    href="https://github.com/tauri-apps/tauri"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    >github.com/tauri-apps/tauri</a
+                                >
+                            </dd>
+                        </dl>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <div
+            id="login-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-title"
+        >
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="login-title">Add a site</h2>
+                    <button
+                        class="modal-close"
+                        id="login-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body stack">
+                    <div class="field">
+                        <label class="modal-label" for="login-host">Site</label>
+                        <input
+                            id="login-host"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="files.example.com"
+                        />
+                        <p class="field-hint">
+                            The host, exactly as it appears in the URL.
+                        </p>
+                    </div>
+
+                    <div class="field-pair">
+                        <div class="field">
+                            <label class="modal-label" for="login-user"
+                                >User name</label
+                            >
+                            <input
+                                id="login-user"
+                                class="field-input"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                            />
+                        </div>
+                        <div class="field">
+                            <label class="modal-label" for="login-pass"
+                                >Password</label
+                            >
+                            <input
+                                id="login-pass"
+                                class="field-input"
+                                type="password"
+                                autocomplete="new-password"
+                            />
+                        </div>
+                    </div>
+                    <p id="login-pass-hint" class="field-hint"></p>
+
+                    <div class="field">
+                        <label class="modal-label" for="login-headers"
+                            >Headers</label
+                        >
+                        <textarea
+                            id="login-headers"
+                            class="field-input login-headers"
+                            rows="3"
+                            spellcheck="false"
+                            placeholder="Authorization: Bearer …"
+                        ></textarea>
+                        <p class="field-hint">
+                            One per line, written as
+                            <code>Name: value</code>. A header is written into
+                            aria2's session file with the download.
+                        </p>
+                    </div>
+
+                    <p id="login-error" class="error hidden"></p>
+                </div>
+                <div class="modal-footer login-footer">
+                    <button class="btn-secondary btn-danger" id="login-delete">
+                        Remove
+                    </button>
+                    <button class="btn-secondary" id="login-cancel">
+                        Cancel
+                    </button>
+                    <button class="btn-primary" id="login-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="settings.js"></script>
+    </body>
+</html>

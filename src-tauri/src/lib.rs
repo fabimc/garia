@@ -606,6 +606,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 /// folders route by file type without touching this global.
 #[tauri::command]
 fn save_settings(
+    app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     state: tauri::State<SettingsState>,
     settings: Settings,
@@ -685,6 +686,8 @@ fn save_settings(
         }
     });
 
+    let _ = app.emit("settings-changed", &settings);
+
     if jar_changed || remote_changed {
         restart_aria2(&aria2, &settings, next_secret).map_err(|e| {
             format!("The settings are saved, but {e}. Unfinished downloads are in the session file.")
@@ -712,6 +715,7 @@ fn get_logins(state: tauri::State<LoginsState>) -> Vec<logins::LoginView> {
 /// it, so it has to be able to save the rest without asking for it again.
 #[tauri::command]
 fn save_login(
+    app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
     state: tauri::State<LoginsState>,
@@ -760,11 +764,12 @@ fn save_login(
     }
     current.sort_by(|a, b| a.host.cmp(&b.host));
 
-    commit(&aria2, &settings, &state, current)
+    commit(&app, &aria2, &settings, &state, current)
 }
 
 #[tauri::command]
 fn delete_login(
+    app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
     state: tauri::State<LoginsState>,
@@ -777,13 +782,14 @@ fn delete_login(
         .map_err(|_| "the login list is in an unknown state".to_string())?
         .clone();
     current.retain(|l| l.host != host);
-    commit(&aria2, &settings, &state, current)
+    commit(&app, &aria2, &settings, &state, current)
 }
 
 /// Write both files, and restart aria2 only if the one *it* reads changed —
 /// editing a header is a change to what garia sends, which needs no restart at
 /// all, and paying for one anyway would make every edit cost a reconnect.
 fn commit(
+    app: &tauri::AppHandle,
     aria2: &Aria2,
     settings: &SettingsState,
     state: &LoginsState,
@@ -801,6 +807,8 @@ fn commit(
     if let Ok(mut guard) = state.current.lock() {
         *guard = next;
     }
+
+    let _ = app.emit("logins-changed", &views);
 
     if before != after {
         let current = settings.current.lock().map(|s| s.clone()).unwrap_or_default();
@@ -1059,6 +1067,48 @@ pub(crate) fn bring_to_front(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Settings is its own window so a pairing QR can stay up while the list is
+/// visible, and so the form can stop being a modal that grew a field at a time.
+/// Hide-on-close matches the main window: the webview stays warm for the next
+/// ⌘,. Creating it here rather than in tauri.conf.json keeps launch as one
+/// window.
+fn show_settings(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title("Settings")
+    .inner_size(780.0, 600.0)
+    .min_inner_size(680.0, 480.0)
+    .resizable(true)
+    .accept_first_mouse(true)
+    .transparent(true);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .hidden_title(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay);
+
+    let win = builder
+        .build()
+        .map_err(|e| format!("Could not open Settings: {e}"))?;
+    let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+    Ok(())
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_settings(&app)
 }
 
 fn dispatch_torrent(app: &tauri::AppHandle, path: PathBuf) {
@@ -2478,6 +2528,7 @@ pub fn run() {
             set_download_start,
             autostart_enabled,
             set_autostart,
+            open_settings_window,
             start_file_drag,
             check_for_update,
             install_update,
@@ -2620,7 +2671,12 @@ pub fn run() {
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
-                    "settings" | "new-download" | "open-torrent" | "find"
+                    "settings" => {
+                        if let Err(e) = show_settings(app) {
+                            eprintln!("[garia] Could not open Settings: {e}");
+                        }
+                    }
+                    "new-download" | "open-torrent" | "find"
                     | "pause-all" | "resume-all" | "open-folder"
                     | "check-updates" | "licenses" | "help" => {
                         bring_to_front(app);

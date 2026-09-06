@@ -9,12 +9,14 @@
 :root {
     color-scheme: light;
 
-    /* Surfaces */
+    /* Panna cotta — cooked cream, vanilla, caramel. Chrome and canvas
+       stay in this family; the sidebar must not fall back to a cool
+       system material. */
     --bg: #faf6ef;
-    --sidebar-bg: #f4ecdf;
-    --surface: #ffffff;
-    --border: #e9dfcf;
-    --border-strong: #dccbb4;
+    --sidebar-bg: #f3e6d4;
+    --surface: #fffdf8;
+    --border: #eadcc8;
+    --border-strong: #dcc4a8;
 
     /* Ink */
     --text: #2b2520;
@@ -109,6 +111,11 @@ body {
     background: transparent;
 }
 
+html.in-app,
+html.in-app body {
+    background: var(--sidebar-bg);
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: var(--text);
@@ -135,9 +142,9 @@ body {
     transition: grid-template-columns 0.2s ease;
 }
 
-/* The window itself is the sidebar material. The list card stays opaque so
-   the rows don't sit on blur. */
-html.in-app .app-shell,
+/* The list card stays opaque so rows don't sit on a texture. Chrome
+   keeps the cream fill — punching through would reveal the system
+   sidebar material, which is a cool grey and breaks the palette. */
 html.in-app .sidebar,
 html.in-app .statusbar {
     background: transparent;
@@ -1275,8 +1282,7 @@ html.in-app .modal {
     animation: sheet-down 0.18s ease-out;
 }
 
-html.in-app .modal.modal-lg,
-html.in-app #settings-overlay .modal {
+html.in-app .modal.modal-lg {
     width: min(640px, 100%);
     max-height: calc(100vh - 58px);
 }
@@ -1450,6 +1456,15 @@ html.in-app #settings-overlay .modal {
     flex-shrink: 0;
     font-size: 0.78rem;
     color: var(--muted);
+}
+
+.field-unit.is-narrow {
+    width: fit-content;
+    max-width: 11rem;
+}
+
+.modal-input-row .field-input {
+    flex: 1;
 }
 
 .field-hint {
@@ -1931,15 +1946,148 @@ html.in-app #settings-overlay .modal {
     color: var(--text);
 }
 
-/* Settings has more in it than a short window is tall — it grew a field at a
-   time, and the Save button was the thing that went off the bottom. Same
-   shape as the detail panel: the dialog is capped, and the fields scroll
-   inside it while the header and footer stay where they are. */
-#settings-overlay .modal {
-    max-height: 86vh;
+/* ── Settings window ─────────────────────────────────────────────────── */
+/* A real Preferences window, not a modal. The sidebar is the chrome the
+   traffic lights sit on; the pane on the right is the form, and it is the
+   only thing that scrolls. Toggles apply as they are flipped — there is no
+   Save. */
+html.prefs,
+html.prefs body {
+    height: 100%;
+    overflow: hidden;
 }
-#settings-overlay .modal-body {
-    overflow-y: auto;
+
+html.prefs.in-app,
+html.prefs.in-app body {
+    background: var(--sidebar-bg);
+}
+
+.prefs-shell {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    background: var(--sidebar-bg);
+}
+
+.prefs-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 16px 0.55rem 1rem;
+    overflow: hidden auto;
+    -webkit-app-region: drag;
+}
+
+html.in-app .prefs-nav {
+    padding-top: 46px;
+    background: transparent;
+}
+
+.prefs-nav button {
+    -webkit-app-region: no-drag;
+}
+
+.prefs-nav-title {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0.65rem 0.45rem;
+}
+
+.prefs-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.4rem 0.65rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.86rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.prefs-item:hover {
+    background: var(--tint);
+}
+
+.prefs-item.active {
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.prefs-main {
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    overflow: hidden auto;
+    padding: 1.25rem 1.6rem 2rem;
+    -webkit-app-region: no-drag;
+}
+
+html.in-app .prefs-main {
+    background: var(--bg);
+}
+
+.prefs-heading {
+    font-size: 1.15rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: 1.1rem;
+}
+
+.prefs-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+    max-width: 36rem;
+}
+
+.prefs-banner {
+    margin: 0;
+    padding: 0.65rem 0.8rem;
+    border-radius: var(--radius);
+    background: var(--warning-soft);
+    color: var(--text);
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.field-more {
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: var(--muted);
+}
+
+.field-more summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--brand);
+    list-style: none;
+}
+
+.field-more summary::-webkit-details-marker {
+    display: none;
+}
+
+.field-more[open] summary {
+    margin-bottom: 0.25rem;
+}
+
+html.prefs.in-app .modal-overlay {
+    align-items: center;
+    padding: 24px;
+}
+
+html.prefs.in-app .modal {
+    border-radius: var(--radius-lg);
+    border-top-color: var(--border);
+    animation: none;
+    max-height: calc(100vh - 48px);
 }
 
 /* ── Logins ──────────────────────────────────────────────────────────── */
