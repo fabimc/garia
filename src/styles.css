@@ -1565,6 +1565,18 @@ html.in-app .modal.modal-lg {
     margin-top: 0.3rem;
 }
 
+.field-radios {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.capture-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ── Remote control ──────────────────────────────────────────────────── */
 /* Three facts and a code to scan. The facts wrap on a narrow window and the
    QR keeps its size: a code that shrinks with the dialog is one a camera has
@@ -1916,6 +1928,12 @@ html.in-app .modal.modal-lg {
 .catch-banner .btn-secondary {
     padding: 0.32rem 0.75rem;
     font-size: 0.78rem;
+}
+
+#settings-extension {
+    align-self: flex-start;
+    width: fit-content;
+    margin-top: 0.45rem;
 }
 
 .bookmarklet {

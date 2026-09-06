@@ -26,7 +26,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
 - A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
-- Catch a file URL from the clipboard, send a page with the bookmarklet, or pick Services → Download with Garia on a selected URL
+- Catch a download from the browser — click a file, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia
 - Optional smart folders — new downloads sorted into Video, Music, Documents, and Archives by file type
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
 - Settings: download folder, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
@@ -222,6 +222,7 @@ garia/
 │   ├── index.html        # App shell
 │   ├── styles.css        # Styles and animations
 │   └── main.js           # aria2 JSON-RPC client + UI logic
+├── extensions/garia/     # Browser capture — Chromium unpacked, Safari via the converter script
 ├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp, lipo for a universal app
 └── src-tauri/            # Tauri / Rust backend
     ├── binaries/         # Bundled aria2c and ffmpeg (built, not committed)
@@ -258,7 +259,9 @@ Completion is noticed by the same one-second poll that drives the progress bars:
 
 Credentials are the one kind of setting aria2 will not take while it is running. A netrc and a cookie jar are both read once, at launch, so garia keeps its own store in `logins.json` (at `0600`, holding the passwords) and *derives* the netrc from it — rebuilt at every launch and after every edit, and deleted rather than left empty when the last login goes, so a machine with no logins leaves aria2 reading the user's own `~/.netrc` exactly as it would have. Saving one restarts aria2 on the same port and waits for it to answer; unfinished downloads come back from the session file mid-file, the same as across a relaunch. The frontend is never sent a password — it gets the list with a `hasPassword` flag and the headers to put on a download for a given host, and that is all it can leak.
 
-A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` (the bookmarklet in Settings, or an extension later) is queued, or opened on the quality picker when it's a video page. The same is true of Services → Download with Garia on a selected URL in another app: they chose the item, so a page counts. A `magnet:` link or a `.torrent` file the system opens — Safari, Finder, Open With — is an instruction, the same as the scheme.
+A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` is an instruction: the bookmarklet and Services → Download with Garia go straight in, or open the quality picker when the URL is a video page. The browser extension uses the same scheme with `from=extension`, and a file it intercepted gets a sheet for the name, the folder, and start-now vs queue — a video page still goes to the picker, which is its confirm. Hold Option (or Alt) on a file link to leave the download with the browser. A `magnet:` link or a `.torrent` file the system opens — Safari, Finder, Open With — is an instruction, the same as the scheme.
+
+The extension lives in `extensions/garia`. Settings → Capture → Show extension folder opens it. Chrome, Edge, Brave, and Arc load that folder unpacked. Safari cannot cancel its own downloads, so the same package captures file-link clicks and the context menu; `scripts/make-safari-extension.sh` runs Apple's converter. The scheme is registered on a `tauri build` bundle, not on `tauri dev`.
 
 The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
 

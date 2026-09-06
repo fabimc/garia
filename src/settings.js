@@ -15,6 +15,7 @@ let settings = {
   smartFolders: false,
   notifyOnComplete: true,
   catchClipboard: true,
+  confirmCapture: true,
   inOrder: false,
   cookieFile: "",
   remoteControl: false,
@@ -112,6 +113,7 @@ const settingsNotify = document.getElementById("settings-notify");
 const settingsAutostart = document.getElementById("settings-autostart");
 const settingsSmart = document.getElementById("settings-smart-folders");
 const settingsCatch = document.getElementById("settings-catch");
+const settingsConfirmCapture = document.getElementById("settings-confirm-capture");
 const settingsInOrder = document.getElementById("settings-in-order");
 const settingsCookies = document.getElementById("settings-cookies");
 const settingsRemote = document.getElementById("settings-remote");
@@ -181,6 +183,7 @@ function fillForm() {
   settingsNotify.checked = settings.notifyOnComplete !== false;
   settingsSmart.checked = settings.smartFolders === true;
   settingsCatch.checked = settings.catchClipboard !== false;
+  settingsConfirmCapture.checked = settings.confirmCapture !== false;
   settingsInOrder.checked = settings.inOrder === true;
   settingsCookies.value = settings.cookieFile || "";
   settingsRemote.checked = settings.remoteControl === true;
@@ -204,6 +207,7 @@ function formSettings() {
     smartFolders: settingsSmart.checked,
     notifyOnComplete: settingsNotify.checked,
     catchClipboard: settingsCatch.checked,
+    confirmCapture: settingsConfirmCapture.checked,
     inOrder: settingsInOrder.checked,
     cookieFile: settingsCookies.value.trim(),
     remoteControl: settingsRemote.checked,
@@ -217,7 +221,7 @@ function settingsDiffer(a, b) {
   const keys = [
     "downloadDir", "maxConcurrentDownloads", "mediumLimit", "lightLimit",
     "seedRatio", "seedTimeMinutes", "smartFolders", "notifyOnComplete",
-    "catchClipboard", "inOrder", "cookieFile", "remoteControl",
+    "catchClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
   ];
   return keys.some((k) => a[k] !== b[k]);
@@ -582,7 +586,7 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   showPane(item.dataset.pane);
 });
 
-for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsInOrder, settingsSched, settingsRemote]) {
+for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsConfirmCapture, settingsInOrder, settingsSched, settingsRemote]) {
   input.addEventListener("change", persistSettings);
 }
 
@@ -598,6 +602,20 @@ for (const input of [settingsSched, settingsSchedFrom, settingsSchedTo]) {
 
 document.getElementById("catch-bookmarklet").addEventListener("click", (e) => {
   e.preventDefault();
+});
+
+document.getElementById("settings-extension").addEventListener("click", async () => {
+  hideError();
+  const invoke = invoker();
+  if (typeof invoke !== "function") {
+    showError("The extension folder is next to the app — load it from a built Garia.");
+    return;
+  }
+  try {
+    await invoke("browser_extension_dir");
+  } catch (err) {
+    showError(err);
+  }
 });
 
 document.getElementById("settings-browse").addEventListener("click", async () => {

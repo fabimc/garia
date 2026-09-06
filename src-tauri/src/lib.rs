@@ -109,6 +109,12 @@ struct Settings {
     /// default: catching a download that started in the browser is why the
     /// app stays open. Off if the offer gets in the way.
     catch_clipboard: bool,
+    /// Ask for a name, a folder, and start-vs-queue when the browser
+    /// extension sends a file. On by default — a click in Chrome is not
+    /// the same as choosing Services, and the sheet is where those three
+    /// get decided. The bookmarklet and a video page skip it.
+    #[serde(default = "default_true")]
+    confirm_capture: bool,
     /// Ask aria2 for the lowest-numbered piece it can take next, so the file
     /// fills from the front and can be played before it is finished. Off by
     /// default, because it is a real trade: the default selector picks pieces
@@ -159,6 +165,7 @@ impl Default for Settings {
             smart_folders: false,
             notify_on_complete: true,
             catch_clipboard: true,
+            confirm_capture: true,
             in_order: false,
             cookie_file: String::new(),
             remote_control: false,
@@ -241,6 +248,13 @@ impl Settings {
 /// that names Full — the first is migrated, the second is obeyed.
 fn no_mode() -> Option<TrafficMode> {
     None
+}
+
+/// serde's `default` is `false` for a bool. Capture confirmation is the
+/// other way around: a file that predates the field should still ask,
+/// because a click in the browser is not the same as the bookmarklet.
+fn default_true() -> bool {
+    true
 }
 
 /// A mode's number, kept usable: zero means the file never carried one, and
@@ -1111,6 +1125,33 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     show_settings(&app)
 }
 
+/// Folder Chrome / Edge / Brave / Arc load as an unpacked extension, and
+/// what Safari's converter is pointed at. A release build ships it inside
+/// the bundle; `tauri dev` falls back to the copy next to the crate.
+#[tauri::command]
+fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let mut candidates = Vec::new();
+    if let Ok(resources) = app.path().resource_dir() {
+        candidates.push(resources.join("garia"));
+        candidates.push(resources.join("extensions/garia"));
+    }
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../extensions/garia"));
+
+    for path in candidates {
+        if path.join("manifest.json").is_file() {
+            let shown = path.canonicalize().unwrap_or(path);
+            // Finder, on the folder itself — Load unpacked wants this
+            // directory, not its parent with the folder selected.
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("open").arg(&shown).status();
+            }
+            return Ok(shown.display().to_string());
+        }
+    }
+    Err("The browser extension is not in this build.".into())
+}
+
 fn dispatch_torrent(app: &tauri::AppHandle, path: PathBuf) {
     let event = path.display().to_string();
     if let Some(queue) = app.try_state::<TorrentQueue>() {
@@ -1135,10 +1176,19 @@ fn ingest_opened(app: &tauri::AppHandle, raw: &str) {
 }
 
 pub(crate) fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
-    let event = catch::CatchEvent {
-        url,
-        source: source.to_string(),
-    };
+    dispatch_catch_event(
+        app,
+        catch::CatchEvent {
+            url,
+            source: source.to_string(),
+            name: None,
+            referrer: None,
+            confirm: false,
+        },
+    );
+}
+
+fn dispatch_catch_event(app: &tauri::AppHandle, event: catch::CatchEvent) {
     if let Some(queue) = app.try_state::<CatchQueue>() {
         if let Ok(mut pending) = queue.pending.lock() {
             pending.push(event.clone());
@@ -1147,7 +1197,7 @@ pub(crate) fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) 
         }
     }
     let _ = app.emit("catch-url", &event);
-    if source == "scheme" {
+    if event.source == "scheme" || event.source == "extension" {
         bring_to_front(app);
     }
 }
@@ -2529,6 +2579,7 @@ pub fn run() {
             autostart_enabled,
             set_autostart,
             open_settings_window,
+            browser_extension_dir,
             start_file_drag,
             check_for_update,
             install_update,
@@ -2744,8 +2795,8 @@ pub fn run() {
 }
 
 fn ingest_deep_link(app: &tauri::AppHandle, link: &str) {
-    if let Some(url) = catch::url_from_garia_link(link) {
-        dispatch_catch(app, url, "scheme");
+    if let Some(event) = catch::catch_from_garia_link(link) {
+        dispatch_catch_event(app, event);
     } else if let Some(url) = catch::magnet_url(link) {
         dispatch_catch(app, url, "scheme");
     }
@@ -3054,6 +3105,14 @@ mod tests {
     fn a_settings_file_without_the_field_keeps_the_port_closed() {
         let s = settings_from(r#"{"downloadDir":"/tmp","catchClipboard":true}"#);
         assert!(!s.remote_control);
+    }
+
+    /// A settings file from before the confirm sheet existed still asks —
+    /// the extension is new, and a silent add would be the surprising one.
+    #[test]
+    fn a_settings_file_without_confirm_capture_still_asks() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert!(s.confirm_capture);
     }
 
     /// The token survives a relaunch — a pairing that had to be redone every

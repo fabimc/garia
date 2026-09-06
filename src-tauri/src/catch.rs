@@ -13,8 +13,22 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct CatchEvent {
     pub url: String,
-    /// `"clipboard"` is an offer; `"scheme"` is an instruction.
+    /// `"clipboard"` is an offer; `"scheme"` is an instruction;
+    /// `"extension"` is the browser taking a click or a download.
     pub source: String,
+    /// A name the browser already knew — Content-Disposition, or the
+    /// filename on the link. The confirm sheet pre-fills it; aria2 gets it
+    /// as `out` so a URL that ends in `download?id=…` still lands as a file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The page the click came from. aria2 puts it on `Referer`, which is
+    /// what sites that refuse a hotlink are checking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<String>,
+    /// The extension asks; the bookmarklet does not. A page still goes to
+    /// the quality picker — that *is* its confirm.
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 /// Extensions that mean the clipboard holds a file, not a page. A copied
@@ -73,26 +87,78 @@ fn extension_of(url: &str) -> Option<String> {
 /// percent-encoded when it contains `?` (magnets, query strings); a plain
 /// `https://…` with no extra `?` still works unencoded.
 pub fn url_from_garia_link(link: &str) -> Option<String> {
+    catch_from_garia_link(link).map(|event| event.url)
+}
+
+/// The same link, with the extras an extension can send. `from=extension`
+/// or `confirm=1` is how a click in the browser is told apart from the
+/// bookmarklet, which stays a fast `scheme` add.
+pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
     let link = link.trim();
     let rest = link
         .strip_prefix("garia://")
         .or_else(|| link.strip_prefix("garia:"))?;
     let rest = rest.trim_start_matches('/');
     let query = rest.split_once('?')?.1;
+
+    let mut url = None;
+    let mut name = None;
+    let mut referrer = None;
+    let mut confirm = false;
+    let mut from_extension = false;
+
     for pair in query.split('&') {
         let Some((k, v)) = pair.split_once('=') else {
             continue;
         };
-        if k != "url" {
-            continue;
-        }
         let decoded = percent_decode(v);
-        let decoded = decoded.trim();
-        if is_download_url(decoded) {
-            return Some(decoded.to_string());
+        match k {
+            "url" => {
+                let decoded = decoded.trim();
+                if is_download_url(decoded) {
+                    url = Some(decoded.to_string());
+                }
+            }
+            "name" => name = safe_filename(&decoded),
+            "referrer" | "referer" => {
+                if is_download_url(decoded.trim()) {
+                    referrer = Some(decoded.trim().to_string());
+                }
+            }
+            "confirm" => confirm = matches!(decoded.as_str(), "1" | "true" | "yes"),
+            "from" => from_extension = decoded.eq_ignore_ascii_case("extension"),
+            _ => {}
         }
     }
-    None
+
+    let url = url?;
+    let extension = from_extension || confirm;
+    Some(CatchEvent {
+        url,
+        source: if extension {
+            "extension".to_string()
+        } else {
+            "scheme".to_string()
+        },
+        name,
+        referrer,
+        confirm: extension,
+    })
+}
+
+/// aria2's `out` is a filename, not a path. A Content-Disposition that
+/// carried a folder, or a `name` an extension copied off a download item,
+/// is trimmed to the last component so nothing here chooses a directory.
+fn safe_filename(s: &str) -> Option<String> {
+    let name = s.replace('\\', "/");
+    let name = name.rsplit('/').next().unwrap_or("").trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return None;
+    }
+    if name.chars().any(|c| c == '/' || c == '\0') {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 fn is_download_url(s: &str) -> bool {
@@ -262,6 +328,43 @@ mod tests {
             url_from_garia_link("garia:add?url=https://example.com/a.iso"),
             Some("https://example.com/a.iso".into())
         );
+    }
+
+    #[test]
+    fn an_extension_link_carries_the_name_and_asks_to_confirm() {
+        let event = catch_from_garia_link(
+            "garia://add?url=https%3A%2F%2Fexample.com%2Fd%3Fid%3D1&name=disk.iso&referrer=https%3A%2F%2Fexample.com%2Fpage&from=extension",
+        )
+        .unwrap();
+        assert_eq!(event.url, "https://example.com/d?id=1");
+        assert_eq!(event.source, "extension");
+        assert_eq!(event.name.as_deref(), Some("disk.iso"));
+        assert_eq!(event.referrer.as_deref(), Some("https://example.com/page"));
+        assert!(event.confirm);
+    }
+
+    #[test]
+    fn a_path_in_the_name_is_trimmed_to_the_file() {
+        let event = catch_from_garia_link(
+            "garia://add?url=https://example.com/a.zip&name=%2FUsers%2Fme%2FDownloads%2Fa.zip&confirm=1",
+        )
+        .unwrap();
+        assert_eq!(event.name.as_deref(), Some("a.zip"));
+        assert_eq!(event.source, "extension");
+    }
+
+    #[test]
+    fn the_bookmarklet_is_still_a_scheme_instruction() {
+        let event = catch_from_garia_link("garia://add?url=https://example.com/watch?v=1").unwrap();
+        assert_eq!(event.source, "scheme");
+        assert!(!event.confirm);
+        assert!(event.name.is_none());
+    }
+
+    #[test]
+    fn a_dotdot_name_is_dropped() {
+        let event = catch_from_garia_link("garia://add?url=https://example.com/a.zip&name=..").unwrap();
+        assert!(event.name.is_none());
     }
 
     #[test]

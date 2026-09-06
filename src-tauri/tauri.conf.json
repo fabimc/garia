@@ -50,7 +50,7 @@
     "targets": ["app", "dmg"],
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/aria2c", "binaries/ffmpeg"],
-    "resources": ["resources/yt-dlp"],
+    "resources": ["resources/yt-dlp", "../extensions/garia"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

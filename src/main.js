@@ -41,6 +41,7 @@ let settings = {
   smartFolders: false,
   notifyOnComplete: true,
   catchClipboard: true,
+  confirmCapture: true,
   inOrder: false,
   cookieFile: "",
   scheduleEnabled: false,
@@ -140,9 +141,15 @@ function targetDir(url) {
 // Options every new download is added with. Retry passes the folder the failed
 // download already had, so it isn't routed through here — a retry lands where
 // the first attempt was going to, even if the rules have changed since.
-function addOptions(url) {
-  const dir = targetDir(url);
+function addOptions(url, extras = {}) {
+  const dir = extras.dir || targetDir(url);
   const options = dir ? { dir } : {};
+  const name = String(extras.name || "").replace(/^.*[/\\]/, "").trim();
+  if (name && name !== "." && name !== "..") options.out = name;
+  if (extras.referrer) options.referer = extras.referrer;
+  // aria2's pause-after-add. A queued row is a download that has not
+  // taken a turn yet, which is what "Add to queue" on the confirm sheet is.
+  if (extras.queue) options.pause = "true";
   // Seeding rules cannot be pushed at a download that is already going, so
   // every torrent carries the rules that were in force when it was added.
   Object.assign(options, seedOptions());
@@ -2887,7 +2894,7 @@ window.addEventListener("DOMContentLoaded", () => {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeDetail(); closeLicenses(); closeHelp(); closeUpdate();
+    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeCapture(); closeDetail(); closeLicenses(); closeHelp(); closeUpdate();
   });
 
   // Browse → open native file picker for .torrent
@@ -4406,7 +4413,12 @@ window.addEventListener("DOMContentLoaded", () => {
   // greet you.
   const catchBanner = document.getElementById("catch-banner");
   const catchText   = document.getElementById("catch-text");
+  const captureOverlay = document.getElementById("capture-overlay");
+  const captureUrlEl = document.getElementById("capture-url");
+  const captureName = document.getElementById("capture-name");
+  const captureDir = document.getElementById("capture-dir");
   let offeredUrl = "";
+  let capturePending = null;
   const recentlyCaught = new Set();
 
   function hideCatch() {
@@ -4414,13 +4426,39 @@ window.addEventListener("DOMContentLoaded", () => {
     catchBanner.classList.add("hidden");
   }
 
-  async function ingestUrl(url) {
+  function suggestedName(url, given) {
+    const raw = String(given || "").replace(/^.*[/\\]/, "").trim();
+    if (raw && raw !== "." && raw !== "..") return raw;
+    const label = catchLabel(url);
+    return label === "this magnet link" ? "" : label;
+  }
+
+  function openCapture({ url, name, referrer } = {}) {
     hideCatch();
+    capturePending = { url, referrer };
+    captureUrlEl.textContent = url;
+    captureUrlEl.title = url;
+    captureName.value = suggestedName(url, name);
+    captureDir.value = targetDir(url) || settings.downloadDir || "";
+    const now = captureOverlay.querySelector('input[name="capture-when"][value="now"]');
+    if (now) now.checked = true;
+    captureOverlay.classList.remove("hidden");
+    setTimeout(() => captureName.focus(), 50);
+  }
+
+  function closeCapture() {
+    capturePending = null;
+    captureOverlay.classList.add("hidden");
+  }
+
+  async function ingestUrl(url, extras = {}) {
+    hideCatch();
+    closeCapture();
     if (!videoTools.version) await loadVideoTools();
     // A file (or magnet) can go straight in; a page still needs the picker.
     if (!looksLikeAPage(url) || url.startsWith("magnet:")) {
       try {
-        await rpc("aria2.addUri", [[url], addOptions(url)]);
+        await rpc("aria2.addUri", [[url], addOptions(url, extras)]);
         await pollAndSync();
       } catch (err) {
         openModal(url);
@@ -4447,15 +4485,25 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function handleCatch({ url, source } = {}) {
+  function handleCatch({ url, source, name, referrer } = {}) {
     if (!url) return;
     const key = `${source}:${url}`;
     if (recentlyCaught.has(key)) return;
     recentlyCaught.add(key);
     setTimeout(() => recentlyCaught.delete(key), 2500);
 
+    const extras = { name, referrer };
     if (source === "scheme") {
-      ingestUrl(url);
+      ingestUrl(url, extras);
+      return;
+    }
+    if (source === "extension") {
+      const file = !url.startsWith("magnet:") && !looksLikeAPage(url);
+      if (file && settings.confirmCapture !== false) {
+        openCapture({ url, name, referrer });
+        return;
+      }
+      ingestUrl(url, extras);
       return;
     }
     if (settings.catchClipboard === false) return;
@@ -4472,6 +4520,42 @@ window.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hideCatch();
   });
+
+  document.getElementById("capture-close").addEventListener("click", closeCapture);
+  document.getElementById("capture-cancel").addEventListener("click", closeCapture);
+  captureOverlay.addEventListener("click", (e) => {
+    if (e.target === captureOverlay) closeCapture();
+  });
+  document.getElementById("capture-browse").addEventListener("click", async () => {
+    const pick = window.__TAURI__?.dialog?.open;
+    if (typeof pick !== "function") return;
+    try {
+      const chosen = await pick({
+        directory: true,
+        multiple: false,
+        title: "Choose a folder",
+        defaultPath: captureDir.value.trim() || undefined,
+      });
+      if (typeof chosen === "string" && chosen) captureDir.value = chosen;
+    } catch (err) {
+      console.error(err);
+    }
+  });
+  document.getElementById("capture-ok").addEventListener("click", () => {
+    if (!capturePending?.url) return;
+    const queued = captureOverlay.querySelector('input[name="capture-when"][value="queue"]')?.checked;
+    ingestUrl(capturePending.url, {
+      name: captureName.value.trim(),
+      referrer: capturePending.referrer,
+      dir: captureDir.value.trim(),
+      queue: queued,
+    });
+  });
+  captureName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("capture-ok").click();
+  });
+
+  if (!window.__TAURI__) window.__gariaHandleCatch = handleCatch;
 
   const listen = window.__TAURI__?.event?.listen;
   if (typeof listen === "function") {

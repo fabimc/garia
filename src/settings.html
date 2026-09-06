@@ -333,7 +333,49 @@
                     </div>
 
                     <div class="field">
-                        <div class="modal-label">Catch from the browser</div>
+                        <div class="modal-label">Browser extension</div>
+                        <p class="field-hint">
+                            Click a file in the browser and Garia takes it.
+                            Video pages are sent as pages, so yt-dlp can pick
+                            a quality.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                Chrome, Edge, Brave, or Arc — open
+                                <code>chrome://extensions</code>, turn on
+                                Developer mode, Load unpacked, and choose the
+                                folder that opens. Safari cannot cancel its
+                                own downloads, so the same package captures
+                                file-link clicks and the context menu; run
+                                <code>scripts/make-safari-extension.sh</code>
+                                once, then enable it under Safari → Settings →
+                                Extensions. Hold Option while clicking a file
+                                to leave it with the browser.
+                            </p>
+                        </details>
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="settings-extension"
+                        >
+                            Show extension folder
+                        </button>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-confirm-capture" />
+                            <span>Ask where to save captured files</span>
+                        </label>
+                        <p class="field-hint">
+                            Name, folder, and start now vs queue. The
+                            bookmarklet and Services still go straight in.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Bookmarklet</div>
                         <p class="field-hint">
                             Drag this onto the bookmarks bar, then click it on a
                             page to send it here.
@@ -342,8 +384,8 @@
                             <summary>More</summary>
                             <p>
                                 The same
-                                <code>garia://add?url=…</code> scheme is what an
-                                extension would call. From another app, select a
+                                <code>garia://add?url=…</code> scheme is what
+                                the extension calls. From another app, select a
                                 URL and choose Services → Download with Garia.
                             </p>
                         </details>
