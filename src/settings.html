@@ -396,8 +396,9 @@
                         <div class="modal-label">Browser extension</div>
                         <p class="field-hint">
                             Click a file in the browser and Garia takes it.
-                            Video pages are sent as pages, so yt-dlp can pick
-                            a quality.
+                            On a video page a Download button sits on the
+                            player and sends the page, so yt-dlp can pick a
+                            quality.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
@@ -407,13 +408,16 @@
                                 Developer mode, Load unpacked, and choose the
                                 folder that opens. Safari cannot cancel its
                                 own downloads, so the same package captures
-                                file-link clicks and the context menu; run
+                                file-link clicks, the context menu, and the
+                                on-page Download button; run
                                 <code>scripts/make-safari-extension.sh</code>
                                 once, then enable it under Safari → Settings →
                                 Extensions. Right-click the page to send every
                                 link, then uncheck the ones you do not want.
                                 Hold Option while clicking a file to leave it
-                                with the browser.
+                                with the browser. The player button sends the
+                                page, not the stream — × hides it until the
+                                next video.
                             </p>
                         </details>
                         <button

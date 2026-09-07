@@ -86,7 +86,12 @@ api.action.onClicked.addListener((tab) => {
 });
 
 api.runtime.onMessage.addListener((message) => {
-  if (!message || message.type !== "capture" || !message.url) return;
+  if (!message || !message.url) return;
+  if (message.type === "send-page") {
+    if (gariaIsHttpUrl(message.url)) sendToGaria(message.url, { from: "extension" });
+    return;
+  }
+  if (message.type !== "capture") return;
   sendToGaria(message.url, {
     from: "extension",
     name: message.name || gariaBasenameFromUrl(message.url),
