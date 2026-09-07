@@ -20,6 +20,12 @@ let settings = {
   inOrder: false,
   cookieFile: "",
   remoteControl: false,
+  proxyEnabled: false,
+  proxyHost: "",
+  proxyPort: 8080,
+  proxyUser: "",
+  proxyNoProxy: "",
+  hasProxyPassword: false,
   scheduleEnabled: false,
   scheduleStart: 2 * 60,
   scheduleEnd: 8 * 60,
@@ -177,6 +183,13 @@ const settingsConfirmCapture = document.getElementById("settings-confirm-capture
 const settingsInOrder = document.getElementById("settings-in-order");
 const settingsCookies = document.getElementById("settings-cookies");
 const settingsRemote = document.getElementById("settings-remote");
+const settingsProxy = document.getElementById("settings-proxy");
+const settingsProxyHost = document.getElementById("settings-proxy-host");
+const settingsProxyPort = document.getElementById("settings-proxy-port");
+const settingsProxyUser = document.getElementById("settings-proxy-user");
+const settingsProxyPass = document.getElementById("settings-proxy-pass");
+const settingsProxyBypass = document.getElementById("settings-proxy-bypass");
+const settingsProxyPassHint = document.getElementById("settings-proxy-pass-hint");
 const settingsSched = document.getElementById("settings-schedule");
 const settingsSchedFrom = document.getElementById("settings-schedule-start");
 const settingsSchedTo = document.getElementById("settings-schedule-end");
@@ -216,6 +229,10 @@ function renderScheduleSummary() {
     `${span} a day, ${to < from ? "overnight, from" : "from"} ${clockLabel(from)} to ${clockLabel(to)}.`;
 }
 
+function renderProxy() {
+  document.getElementById("proxy-block").classList.toggle("hidden", !settingsProxy.checked);
+}
+
 function renderVideoTools() {
   const el = document.getElementById("settings-video");
   if (!el) return;
@@ -249,6 +266,14 @@ function fillForm() {
   settingsInOrder.checked = settings.inOrder === true;
   settingsCookies.value = settings.cookieFile || "";
   settingsRemote.checked = settings.remoteControl === true;
+  settingsProxy.checked = settings.proxyEnabled === true;
+  settingsProxyHost.value = settings.proxyHost || "";
+  settingsProxyPort.value = String(settings.proxyPort || 8080);
+  settingsProxyUser.value = settings.proxyUser || "";
+  settingsProxyPass.value = "";
+  settingsProxyBypass.value = settings.proxyNoProxy || "";
+  settingsProxyPassHint.classList.toggle("hidden", !settings.hasProxyPassword);
+  renderProxy();
   settingsSched.checked = settings.scheduleEnabled === true;
   settingsSchedFrom.value = hhmm(Number(settings.scheduleStart) || 0);
   settingsSchedTo.value = hhmm(Number(settings.scheduleEnd) || 0);
@@ -285,6 +310,12 @@ function formSettings() {
     inOrder: settingsInOrder.checked,
     cookieFile: settingsCookies.value.trim(),
     remoteControl: settingsRemote.checked,
+    proxyEnabled: settingsProxy.checked,
+    proxyHost: settingsProxyHost.value.trim(),
+    proxyPort: parseInt(settingsProxyPort.value, 10) || 8080,
+    proxyUser: settingsProxyUser.value.trim(),
+    proxyPassword: settingsProxyPass.value,
+    proxyNoProxy: settingsProxyBypass.value.trim(),
     scheduleEnabled: settingsSched.checked && schedFrom() !== schedTo(),
     scheduleStart: schedFrom(),
     scheduleEnd: schedTo(),
@@ -298,10 +329,12 @@ function settingsDiffer(a, b) {
     "downloadDir", "maxConcurrentDownloads", "mediumLimit", "lightLimit",
     "seedRatio", "seedTimeMinutes", "smartFolders", "notifyOnComplete",
     "catchClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
+    "proxyEnabled", "proxyHost", "proxyPort", "proxyUser", "proxyNoProxy",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
     "queueStopped", "doneAction",
   ];
   if (keys.some((k) => a[k] !== b[k])) return true;
+  if (a.proxyPassword) return true;
   return JSON.stringify(a.categories || []) !== JSON.stringify(b.categories || []);
 }
 
@@ -782,7 +815,7 @@ for (const input of document.querySelectorAll('input[name="done-action"]')) {
   input.addEventListener("change", persistSettings);
 }
 
-for (const input of [settingsDir, settingsMedium, settingsLight, settingsConc, settingsRatio, settingsSeedFor, settingsCookies, settingsSchedFrom, settingsSchedTo]) {
+for (const input of [settingsDir, settingsMedium, settingsLight, settingsConc, settingsRatio, settingsSeedFor, settingsCookies, settingsSchedFrom, settingsSchedTo, settingsProxyHost, settingsProxyPort, settingsProxyUser, settingsProxyPass, settingsProxyBypass]) {
   input.addEventListener("change", persistSettings);
 }
 
@@ -791,6 +824,12 @@ settingsAutostart.addEventListener("change", persistAutostart);
 for (const input of [settingsSched, settingsSchedFrom, settingsSchedTo]) {
   input.addEventListener("input", renderScheduleSummary);
 }
+settingsProxy.addEventListener("change", () => {
+  renderProxy();
+  // A switch with nowhere to send traffic is not a proxy. Show the fields
+  // and wait for a host; unchecking still saves.
+  if (!settingsProxy.checked || settingsProxyHost.value.trim()) persistSettings();
+});
 
 document.getElementById("catch-bookmarklet").addEventListener("click", (e) => {
   e.preventDefault();

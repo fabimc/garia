@@ -468,9 +468,9 @@
                     <h1 class="prefs-heading">Access</h1>
 
                     <p class="prefs-banner">
-                        Changing a cookie jar, a login, or remote control
-                        restarts the download engine. Unfinished downloads
-                        resume where they were.
+                        Changing a cookie jar, a login, a proxy, or remote
+                        control restarts the download engine. Unfinished
+                        downloads resume where they were.
                     </p>
 
                     <div class="field">
@@ -520,6 +520,102 @@
                             A <code>cookies.txt</code> exported from the
                             browser. Empty the box to stop using one.
                         </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Proxy</div>
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-proxy" />
+                            <span>Send downloads through an HTTP proxy</span>
+                        </label>
+                        <p class="field-hint">
+                            HTTP, HTTPS, and FTP. Torrents still talk to
+                            peers directly. SOCKS is not something aria2
+                            speaks.
+                        </p>
+                        <details class="field-more">
+                            <summary>More</summary>
+                            <p>
+                                The password is stored next to the logins,
+                                not in settings.json. Video pages use the
+                                same proxy when yt-dlp reads them. Local
+                                hosts in the bypass list skip it.
+                            </p>
+                        </details>
+                        <div id="proxy-block" class="proxy-block hidden">
+                            <div class="proxy-row">
+                                <div class="field">
+                                    <label class="modal-label" for="settings-proxy-host"
+                                        >Host</label
+                                    >
+                                    <input
+                                        id="settings-proxy-host"
+                                        class="field-input"
+                                        type="text"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        placeholder="proxy.example.com"
+                                    />
+                                </div>
+                                <div class="field proxy-port">
+                                    <label class="modal-label" for="settings-proxy-port"
+                                        >Port</label
+                                    >
+                                    <input
+                                        id="settings-proxy-port"
+                                        class="field-input"
+                                        type="number"
+                                        min="1"
+                                        max="65535"
+                                        inputmode="numeric"
+                                    />
+                                </div>
+                            </div>
+                            <div class="proxy-row">
+                                <div class="field">
+                                    <label class="modal-label" for="settings-proxy-user"
+                                        >Username
+                                        <span class="modal-optional">optional</span></label
+                                    >
+                                    <input
+                                        id="settings-proxy-user"
+                                        class="field-input"
+                                        type="text"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                    />
+                                </div>
+                                <div class="field">
+                                    <label class="modal-label" for="settings-proxy-pass"
+                                        >Password
+                                        <span class="modal-optional">optional</span></label
+                                    >
+                                    <input
+                                        id="settings-proxy-pass"
+                                        class="field-input"
+                                        type="password"
+                                        autocomplete="new-password"
+                                    />
+                                    <p id="settings-proxy-pass-hint" class="field-hint hidden">
+                                        Stored. Type a new one to replace it.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label class="modal-label" for="settings-proxy-bypass"
+                                    >Bypass
+                                    <span class="modal-optional">optional</span></label
+                                >
+                                <input
+                                    id="settings-proxy-bypass"
+                                    class="field-input"
+                                    type="text"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    placeholder="localhost, 127.0.0.1, .local"
+                                />
+                            </div>
+                        </div>
                     </div>
 
                     <div class="field">

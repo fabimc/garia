@@ -17,10 +17,11 @@ mod schedule;
 #[cfg(target_os = "macos")]
 mod service;
 
-/// The aria2c child process plus the RPC secret it was started with. The two
+/// The aria2c child process plus the RPC secret it was started with. The
 /// paths are here because they are launch-time inputs and nothing else: aria2
-/// reads a netrc and a cookie jar once, when it starts, so changing either is
-/// a restart — and a restart has to be able to rebuild the same command line.
+/// reads a netrc, a cookie jar, and a proxy once, when it starts, so changing
+/// any of them is a restart — and a restart has to be able to rebuild the
+/// same command line.
 ///
 /// The secret is behind a lock because turning remote control on or off
 /// replaces it: an unlisted, per-launch token is right for a socket only this
@@ -204,6 +205,30 @@ struct Settings {
     /// onto an empty list must not put the Mac to sleep.
     #[serde(default)]
     done_action: DoneAction,
+    /// Send HTTP, HTTPS, and FTP through this host. Off by default. aria2
+    /// has no SOCKS and no NTLM — this is `--all-proxy`, an HTTP proxy, and
+    /// that is the whole setting. BitTorrent peers are not HTTP, so they
+    /// still connect directly.
+    #[serde(default)]
+    proxy_enabled: bool,
+    #[serde(default)]
+    proxy_host: String,
+    #[serde(default = "default_proxy_port")]
+    proxy_port: u16,
+    #[serde(default)]
+    proxy_user: String,
+    /// Hosts that skip the proxy. Comma-separated, handed to aria2 as
+    /// `--no-proxy` and to yt-dlp as `NO_PROXY`.
+    #[serde(default)]
+    proxy_no_proxy: String,
+    /// From the Settings form, or loaded from `proxy-passwd`. Never written
+    /// to settings.json — that file is one the user is invited to read.
+    #[serde(default, skip_serializing)]
+    proxy_password: String,
+    /// For the frontend only: a password is stored. Never read back out of
+    /// a settings file, because one must not have been written there.
+    #[serde(default, skip_deserializing, skip_serializing_if = "is_false")]
+    has_proxy_password: bool,
 }
 
 impl Default for Settings {
@@ -233,6 +258,13 @@ impl Default for Settings {
             schedule_end: 8 * 60,
             queue_stopped: false,
             done_action: DoneAction::None,
+            proxy_enabled: false,
+            proxy_host: String::new(),
+            proxy_port: default_proxy_port(),
+            proxy_user: String::new(),
+            proxy_no_proxy: String::new(),
+            proxy_password: String::new(),
+            has_proxy_password: false,
         }
     }
 }
@@ -311,7 +343,39 @@ impl Settings {
             .into_iter()
             .filter_map(|cat| normalise_category(cat, &mut used))
             .collect();
+
+        let (host, embedded_port) = parse_proxy_authority(&self.proxy_host);
+        self.proxy_host = host;
+        if let Some(port) = embedded_port {
+            self.proxy_port = port;
+        }
+        if self.proxy_port == 0 {
+            self.proxy_port = default_proxy_port();
+        }
+        self.proxy_user = self.proxy_user.trim().to_string();
+        self.proxy_no_proxy = normalise_no_proxy(&self.proxy_no_proxy);
+        // A switch with nowhere to send traffic is not a proxy.
+        if self.proxy_host.is_empty() {
+            self.proxy_enabled = false;
+        }
         self
+    }
+
+    /// What the frontend is allowed to see. The password stays in memory for
+    /// the next aria2 launch; the flag is all the form needs to say one is
+    /// stored without ever being sent it.
+    fn for_frontend(&self) -> Self {
+        let mut s = self.clone();
+        s.has_proxy_password = !s.proxy_password.is_empty();
+        s.proxy_password.clear();
+        s
+    }
+
+    fn for_disk(&self) -> Self {
+        let mut s = self.clone();
+        s.proxy_password.clear();
+        s.has_proxy_password = false;
+        s
     }
 }
 
@@ -326,6 +390,131 @@ fn no_mode() -> Option<TrafficMode> {
 /// because a click in the browser is not the same as the bookmarklet.
 fn default_true() -> bool {
     true
+}
+
+fn default_proxy_port() -> u16 {
+    8080
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+/// Host and optional port from whatever was typed — a URL, `host:port`, or a
+/// bare name. Userinfo is dropped: the password field is where a password
+/// goes, not the host box.
+fn parse_proxy_authority(input: &str) -> (String, Option<u16>) {
+    let mut s = input.trim();
+    if let Some((_, rest)) = s.split_once("://") {
+        s = rest;
+    }
+    s = s.split(['/', '?', '#']).next().unwrap_or(s);
+    if let Some((_, rest)) = s.rsplit_once('@') {
+        s = rest;
+    }
+    if let Some(rest) = s.strip_prefix('[') {
+        if let Some((host, rest)) = rest.split_once(']') {
+            let port = rest
+                .strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .filter(|p| *p > 0);
+            let host = host.trim();
+            if host.is_empty() {
+                return (String::new(), port);
+            }
+            return (format!("[{host}]"), port);
+        }
+    }
+    if let Some((host, port)) = s.rsplit_once(':') {
+        if !host.is_empty() {
+            if let Ok(p) = port.parse::<u16>() {
+                if p > 0 {
+                    return (
+                        host.trim_end_matches('.').to_ascii_lowercase(),
+                        Some(p),
+                    );
+                }
+            }
+        }
+    }
+    (
+        s.trim().trim_end_matches('.').to_ascii_lowercase(),
+        None,
+    )
+}
+
+fn normalise_no_proxy(input: &str) -> String {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for raw in input.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
+        let host = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+        if host.is_empty() || !seen.insert(host.clone()) {
+            continue;
+        }
+        out.push(host);
+    }
+    out.join(",")
+}
+
+/// aria2's `--all-proxy`. User and password are separate flags so a
+/// `:` in the password is not a second host.
+fn proxy_arg(settings: &Settings) -> Option<String> {
+    if !settings.proxy_enabled || settings.proxy_host.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "http://{}:{}",
+        settings.proxy_host, settings.proxy_port
+    ))
+}
+
+/// yt-dlp takes one URL, so the login has to live in it. Percent-encoded,
+/// because a password with `@` would steal the host.
+fn ytdlp_proxy_url(settings: &Settings) -> Option<String> {
+    let base = proxy_arg(settings)?;
+    if settings.proxy_user.is_empty() && settings.proxy_password.is_empty() {
+        return Some(base);
+    }
+    let user = encode_userinfo(&settings.proxy_user);
+    let pass = encode_userinfo(&settings.proxy_password);
+    let rest = base.strip_prefix("http://")?;
+    Some(format!("http://{user}:{pass}@{rest}"))
+}
+
+fn encode_userinfo(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn proxy_passwd_path(settings_file: &Path) -> PathBuf {
+    settings_file
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("proxy-passwd")
+}
+
+fn read_proxy_passwd(path: &Path) -> String {
+    fs::read_to_string(path)
+        .map(|s| s.trim_end_matches(['\n', '\r']).to_string())
+        .unwrap_or_default()
+}
+
+fn write_proxy_passwd(path: &Path, password: &str) -> Result<(), String> {
+    if password.is_empty() {
+        let _ = fs::remove_file(path);
+        return Ok(());
+    }
+    fs::write(path, password).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    restrict(path);
+    Ok(())
 }
 
 /// A mode's number, kept usable: zero means the file never carried one, and
@@ -868,7 +1057,11 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
 
 #[tauri::command]
 fn get_settings(state: tauri::State<SettingsState>) -> Settings {
-    state.current.lock().map(|s| s.clone()).unwrap_or_default()
+    state
+        .current
+        .lock()
+        .map(|s| s.for_frontend())
+        .unwrap_or_default()
 }
 
 /// Saving is three steps: normalise, persist, and push into the running aria2
@@ -891,24 +1084,50 @@ fn save_settings(
         return Err(format!("No cookie file at {jar}"));
     }
 
-    let settings = settings.normalised();
+    let mut settings = settings.normalised();
+    let incoming_pass = settings.proxy_password.clone();
+    let passwd_file = proxy_passwd_path(&state.file);
 
-    // Read before anything is written: these are the two settings aria2 will
-    // not take while it is running, so a change to either is a restart.
+    // Read before anything is written: these are the settings aria2 will
+    // not take while it is running, so a change to any of them is a restart.
     // `rpc-listen-all` sent to changeGlobalOption answers OK, leaves the
     // socket bound exactly as it was, and getGlobalOption still reports the
     // old value — measured against aria2 1.37, and the same trap the cookie
-    // jar sprang.
-    let (jar_changed, remote_changed) = state
+    // jar sprang. `--all-proxy` is the same family: a credential, and one
+    // aria2 reads when it starts.
+    let (jar_changed, remote_changed, proxy_changed, kept_pass) = state
         .current
         .lock()
         .map(|current| {
+            let kept = if incoming_pass.is_empty() {
+                current.proxy_password.clone()
+            } else {
+                incoming_pass.clone()
+            };
+            let proxy_changed = current.proxy_enabled != settings.proxy_enabled
+                || current.proxy_host != settings.proxy_host
+                || current.proxy_port != settings.proxy_port
+                || current.proxy_user != settings.proxy_user
+                || current.proxy_no_proxy != settings.proxy_no_proxy
+                || current.proxy_password != kept;
             (
                 current.cookie_file != settings.cookie_file,
                 current.remote_control != settings.remote_control,
+                proxy_changed,
+                kept,
             )
         })
-        .unwrap_or((false, false));
+        .unwrap_or((
+            false,
+            false,
+            !incoming_pass.is_empty(),
+            incoming_pass.clone(),
+        ));
+
+    settings.proxy_password = kept_pass;
+    if !incoming_pass.is_empty() {
+        write_proxy_passwd(&passwd_file, &incoming_pass)?;
+    }
 
     // The folder is the one setting that can be wrong in a way the user has to
     // fix: everything else is clamped into range above.
@@ -918,7 +1137,7 @@ fn save_settings(
         return Err(format!("{} is not a folder", settings.download_dir));
     }
 
-    let json = serde_json::to_string_pretty(&settings)
+    let json = serde_json::to_string_pretty(&settings.for_disk())
         .map_err(|e| format!("could not encode the settings: {e}"))?;
     fs::write(&state.file, json)
         .map_err(|e| format!("could not write {}: {e}", state.file.display()))?;
@@ -958,18 +1177,18 @@ fn save_settings(
         }
     });
 
-    let _ = app.emit("settings-changed", &settings);
+    let _ = app.emit("settings-changed", &settings.for_frontend());
     // The daily window, Stop Queue, and the done-action all live in this
     // file. A save has to reconcile them now rather than up to a tick later.
     schedule_tick(&app);
 
-    if jar_changed || remote_changed {
+    if jar_changed || remote_changed || proxy_changed {
         restart_aria2(&aria2, &settings, next_secret).map_err(|e| {
             format!("The settings are saved, but {e}. Unfinished downloads are in the session file.")
         })?;
     }
 
-    Ok(settings)
+    Ok(settings.for_frontend())
 }
 
 /// ── Downloads behind a login ─────────────────────────────────────────────
@@ -1928,11 +2147,25 @@ fn run_capped(
     args: &[String],
     secs: u64,
 ) -> Result<std::process::Output, String> {
-    let child = Command::new(program)
+    run_capped_env(program, args, secs, &[])
+}
+
+fn run_capped_env(
+    program: &str,
+    args: &[String],
+    secs: u64,
+    env: &[(&str, &str)],
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (k, v) in env {
+        command.env(k, v);
+    }
+    let child = command
         .spawn()
         .map_err(|e| format!("could not run {program}: {e}"))?;
 
@@ -2208,10 +2441,20 @@ fn format_kind(f: &serde_json::Value) -> &'static str {
 }
 
 #[tauri::command]
-fn video_probe(video: tauri::State<Video>, url: String) -> Result<Probe, String> {
+fn video_probe(
+    video: tauri::State<Video>,
+    settings: tauri::State<SettingsState>,
+    url: String,
+) -> Result<Probe, String> {
     let Some(cmd) = resolve_ytdlp(&video) else {
         return Err("no-ytdlp".to_string());
     };
+
+    let current = settings
+        .current
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
 
     let mut args: Vec<String> = cmd[1..].to_vec();
     args.extend([
@@ -2228,10 +2471,20 @@ fn video_probe(video: tauri::State<Video>, url: String) -> Result<Probe, String>
         MAX_PLAYLIST_ENTRIES.to_string(),
         "--no-warnings".to_string(),
         "--no-progress".to_string(),
-        url,
     ]);
+    if let Some(proxy) = ytdlp_proxy_url(&current) {
+        args.push("--proxy".to_string());
+        args.push(proxy);
+    }
+    args.push(url);
 
-    let out = run_capped(&cmd[0], &args, 120)?;
+    let no_proxy = current.proxy_no_proxy.clone();
+    let env = if current.proxy_enabled && !no_proxy.is_empty() {
+        vec![("NO_PROXY", no_proxy.as_str()), ("no_proxy", no_proxy.as_str())]
+    } else {
+        Vec::new()
+    };
+    let out = run_capped_env(&cmd[0], &args, 120, &env)?;
     if !out.status.success() {
         // yt-dlp's own diagnosis is better than anything we could write: it
         // knows the difference between a private video, a login wall, and a
@@ -2713,6 +2966,18 @@ fn aria2_args(
     if !settings.cookie_file.is_empty() {
         args.push(format!("--load-cookies={}", settings.cookie_file));
     }
+    if let Some(proxy) = proxy_arg(settings) {
+        args.push(format!("--all-proxy={proxy}"));
+        if !settings.proxy_user.is_empty() {
+            args.push(format!("--all-proxy-user={}", settings.proxy_user));
+        }
+        if !settings.proxy_password.is_empty() {
+            args.push(format!("--all-proxy-passwd={}", settings.proxy_password));
+        }
+        if !settings.proxy_no_proxy.is_empty() {
+            args.push(format!("--no-proxy={}", settings.proxy_no_proxy));
+        }
+    }
     args
 }
 
@@ -2979,7 +3244,8 @@ pub fn run() {
             reap_orphan(&pid_file);
 
             let settings_file = dir.join("settings.json");
-            let settings = read_settings(&settings_file);
+            let mut settings = read_settings(&settings_file);
+            settings.proxy_password = read_proxy_passwd(&proxy_passwd_path(&settings_file));
 
             let logins_file = dir.join("logins.json");
             let netrc_file = dir.join("netrc");
@@ -3581,6 +3847,83 @@ mod tests {
     fn a_settings_file_without_confirm_capture_still_asks() {
         let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
         assert!(s.confirm_capture);
+    }
+
+    /// A settings file from before the proxy field existed must not start
+    /// sending traffic through a host nobody named.
+    #[test]
+    fn a_settings_file_without_proxy_leaves_it_off() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert!(!s.proxy_enabled);
+        assert_eq!(s.proxy_port, 8080);
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &s);
+        assert!(!args.iter().any(|a| a.starts_with("--all-proxy")));
+    }
+
+    #[test]
+    fn an_enabled_proxy_is_an_all_proxy_flag() {
+        let mut s = settings_from(
+            r#"{"downloadDir":"/tmp","proxyEnabled":true,"proxyHost":"proxy.example.com","proxyPort":3128,"proxyUser":"sam"}"#,
+        );
+        s.proxy_password = "s3cret".into();
+        s.proxy_no_proxy = "localhost,127.0.0.1".into();
+        let args = aria2_args(6800, "s", Path::new("/tmp/s.txt"), Path::new("/tmp/no-netrc"), &s);
+        assert!(args.iter().any(|a| a == "--all-proxy=http://proxy.example.com:3128"));
+        assert!(args.iter().any(|a| a == "--all-proxy-user=sam"));
+        assert!(args.iter().any(|a| a == "--all-proxy-passwd=s3cret"));
+        assert!(args.iter().any(|a| a == "--no-proxy=localhost,127.0.0.1"));
+    }
+
+    #[test]
+    fn a_pasted_proxy_url_fills_host_and_port() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","proxyEnabled":true,"proxyHost":"http://user:secret@PROXY.Example.com:3128"}"#,
+        );
+        assert_eq!(s.proxy_host, "proxy.example.com");
+        assert_eq!(s.proxy_port, 3128);
+        assert!(s.proxy_user.is_empty());
+    }
+
+    #[test]
+    fn an_empty_host_turns_the_proxy_off() {
+        let s = settings_from(r#"{"downloadDir":"/tmp","proxyEnabled":true,"proxyHost":"  "}"#);
+        assert!(!s.proxy_enabled);
+    }
+
+    #[test]
+    fn the_proxy_password_is_not_in_settings_json() {
+        let mut s = settings_from(
+            r#"{"downloadDir":"/tmp","proxyEnabled":true,"proxyHost":"proxy.example.com"}"#,
+        );
+        s.proxy_password = "s3cret".into();
+        s.has_proxy_password = true;
+        let json = serde_json::to_string(&s.for_disk()).unwrap();
+        assert!(!json.contains("s3cret"));
+        assert!(!json.contains("proxyPassword"));
+        let front = serde_json::to_value(s.for_frontend()).unwrap();
+        assert_eq!(front["hasProxyPassword"], true);
+        assert!(front.get("proxyPassword").is_none());
+    }
+
+    #[test]
+    fn ytdlp_proxy_encodes_the_login() {
+        let mut s = settings_from(
+            r#"{"downloadDir":"/tmp","proxyEnabled":true,"proxyHost":"proxy.example.com","proxyPort":3128}"#,
+        );
+        s.proxy_user = "a@b".into();
+        s.proxy_password = "p@ss:word".into();
+        assert_eq!(
+            ytdlp_proxy_url(&s).as_deref(),
+            Some("http://a%40b:p%40ss%3Aword@proxy.example.com:3128")
+        );
+    }
+
+    #[test]
+    fn no_proxy_list_is_deduped() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","proxyNoProxy":"localhost, 127.0.0.1 localhost"}"#,
+        );
+        assert_eq!(s.proxy_no_proxy, "localhost,127.0.0.1");
     }
 
     /// The token survives a relaunch — a pairing that had to be redone every

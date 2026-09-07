@@ -1921,6 +1921,27 @@ html.in-app .modal.modal-lg {
     margin-top: 0.55rem;
 }
 
+.proxy-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin-top: 0.55rem;
+}
+
+.proxy-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.65rem;
+}
+
+.proxy-row .proxy-port {
+    max-width: 7rem;
+}
+
+.proxy-row .field {
+    margin: 0;
+}
+
 /* The playlist's own numbering, which is the order they queue in. */
 .playlist-entry-num {
     flex: none;

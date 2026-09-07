@@ -32,9 +32,10 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header
 - When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
-- Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
+- Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, an HTTP proxy, and both switches above
 - Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
 - Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
+- An HTTP proxy: host, port, and an optional login — HTTP, HTTPS, and FTP, not BitTorrent peers
 - Checksum verification: paste a hash beside the URL and aria2 checks the file as it arrives — before it starts, while it runs, or against one already on disk
 - Remote control: open the aria2 port to the local network and pair a phone by scanning the secret
 - Status badges: Downloading, Seeding, Merging, Queued, Paused, Complete, Error
@@ -135,6 +136,10 @@ Two things netrc will not do, both found by trying them. It has no quoting at al
 
 Saving a login **restarts aria2**. Both the netrc and the cookie jar are read once, when it starts: `load-cookies` sent to `aria2.changeGlobalOption` or carried on `addUri` is accepted, answers `OK`, and loads nothing, and a netrc written after aria2 started is a file it has already read. So garia does what quitting and reopening does — saves the session, stops aria2, starts it on the same port, and waits until it answers — and every unfinished download resumes mid-file, the same way it does across a relaunch. Editing only a site's headers changes nothing aria2 reads, and restarts nothing.
 
+## HTTP proxy
+
+An HTTP proxy is the same restart, for the same reason: `--all-proxy` is a launch flag. Settings → Access takes a host, a port, and an optional login. The password lives in `proxy-passwd` at `0600`, beside the logins, not in `settings.json`. HTTP, HTTPS, and FTP go through it; BitTorrent peers do not, because they are not HTTP. yt-dlp uses the same proxy when it reads a video page, so a YouTube probe on a network that needs one still works. Hosts in the bypass list skip it. SOCKS, NTLM, and Kerberos are not offered — aria2 does not speak them.
+
 A download that fails for want of a login says so: aria2's error 24 is the one failure with a fix inside the app, so the row reads *Needs a login — add one in Settings* rather than *Authorization failed*, and Retry re-queues it with whatever has been saved since.
 
 ## Checksum verification
@@ -156,7 +161,7 @@ Torrents never see the field. They carry a hash per piece already, and `--checks
 
 Everything in garia already talks to aria2 over JSON-RPC on a port, so letting an aria2 client on a phone do the same is one launch flag — `--rpc-listen-all=true`, off by default and turned on in Settings. What it is not is one decision. Three things have to change together, and each of them is the reason the card sat in the "bigger swings" tier rather than the quick wins.
 
-**The socket stops being this machine's.** aria2 has no setting between loopback and every interface — there is no "listen on this one" for the RPC port — so turning this on binds `*`, on IPv4 and IPv6 both. And it is launch-only: `rpc-listen-all` sent to `aria2.changeGlobalOption` answers `OK`, leaves the socket bound exactly as it was, and `getGlobalOption` still reports the old value. Measured against aria2 1.37, and the same trap the cookie jar sprang — so this is the second setting that restarts the download engine, and unfinished downloads come back from the session file mid-file.
+**The socket stops being this machine's.** aria2 has no setting between loopback and every interface — there is no "listen on this one" for the RPC port — so turning this on binds `*`, on IPv4 and IPv6 both. And it is launch-only: `rpc-listen-all` sent to `aria2.changeGlobalOption` answers `OK`, leaves the socket bound exactly as it was, and `getGlobalOption` still reports the old value. Measured against aria2 1.37, and the same trap the cookie jar and the proxy sprang — so this is another setting that restarts the download engine, and unfinished downloads come back from the session file mid-file.
 
 **The token stops being per-launch.** A secret generated fresh every launch is right for a port only this machine can reach and useless for one a phone is paired with. So while remote control is on the token lives in a `remote-secret` file at `0600` in garia's app data, beside the logins and for the same reason — a credential does not belong in `settings.json`, which the user is invited to read. Turning remote control off *deletes* that file, so every paired device is un-paired rather than merely waiting for the port to come back; turning it on again mints a new one.
 
@@ -264,7 +269,7 @@ A queued row can be dragged to a different place in the queue, which is `aria2.c
 
 Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
 
-Credentials are the one kind of setting aria2 will not take while it is running. A netrc and a cookie jar are both read once, at launch, so garia keeps its own store in `logins.json` (at `0600`, holding the passwords) and *derives* the netrc from it — rebuilt at every launch and after every edit, and deleted rather than left empty when the last login goes, so a machine with no logins leaves aria2 reading the user's own `~/.netrc` exactly as it would have. Saving one restarts aria2 on the same port and waits for it to answer; unfinished downloads come back from the session file mid-file, the same as across a relaunch. The frontend is never sent a password — it gets the list with a `hasPassword` flag and the headers to put on a download for a given host, and that is all it can leak.
+Credentials are the one kind of setting aria2 will not take while it is running. A netrc, a cookie jar, and a proxy are all read once, at launch, so garia keeps passwords in files at `0600` — `logins.json` and `proxy-passwd` — rather than in `settings.json`, which the user is invited to read. Saving a login or a proxy restarts aria2 on the same port and waits for it to answer; unfinished downloads come back from the session file mid-file, the same as across a relaunch. The frontend is never sent a password — it gets the list with a `hasPassword` flag, a `hasProxyPassword` flag, and the headers to put on a download for a given host, and that is all it can leak.
 
 A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` is an instruction: the bookmarklet and Services → Download with Garia go straight in, or open the quality picker when the URL is a video page. The browser extension uses the same scheme with `from=extension`, and a file it intercepted gets a sheet for the name, the folder, and start-now vs queue — a video page still goes to the picker, which is its confirm. Hold Option (or Alt) on a file link to leave the download with the browser. A `magnet:` link or a `.torrent` file the system opens — Safari, Finder, Open With — is an instruction, the same as the scheme.
 
