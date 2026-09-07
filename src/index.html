@@ -497,13 +497,13 @@
                 </div>
                 <div class="modal-body">
                     <label class="modal-label" for="modal-url-input"
-                        >Enter URLs or choose a torrent file</label
+                        >Enter URLs, an FTP folder, or choose a torrent file</label
                     >
                     <div class="modal-input-row">
                         <textarea
                             id="modal-url-input"
                             rows="2"
-                            placeholder="https://… — one per line, or several"
+                            placeholder="https://… or ftp://… — one per line, or several"
                             autocomplete="off"
                             spellcheck="false"
                         ></textarea>
@@ -703,6 +703,45 @@
                             aria-label="Videos in this playlist"
                         ></div>
                         <p id="playlist-note" class="field-hint hidden"></p>
+                    </div>
+
+                    <!-- An FTP directory. Folders open; files are ticked
+                         and queued. Not a grabber — a listing. -->
+                    <div id="ftp-panel" class="video-panel hidden">
+                        <div class="ftp-path">
+                            <button
+                                type="button"
+                                class="playlist-pick"
+                                id="ftp-up"
+                            >
+                                Up
+                            </button>
+                            <span id="ftp-where" class="ftp-where"></span>
+                        </div>
+                        <div class="playlist-bar">
+                            <span id="ftp-count" class="playlist-count"></span>
+                            <button
+                                type="button"
+                                class="playlist-pick"
+                                id="ftp-all"
+                            >
+                                All
+                            </button>
+                            <button
+                                type="button"
+                                class="playlist-pick"
+                                id="ftp-none"
+                            >
+                                None
+                            </button>
+                        </div>
+                        <div
+                            id="ftp-entries"
+                            class="batch-entries"
+                            role="group"
+                            aria-label="Files on this server"
+                        ></div>
+                        <p id="ftp-note" class="field-hint hidden"></p>
                     </div>
 
                     <p id="modal-error" class="error hidden"></p>

@@ -235,7 +235,9 @@ function parseDownloadUrls(text) {
   const out = [];
   for (const raw of String(text || "").split(/\s+/)) {
     const token = raw.replace(/^[<"'“‘]+|[>"'”’,]+$/g, "").trim();
-    if (!(token.startsWith("http://") || token.startsWith("https://") || token.startsWith("magnet:"))) {
+    if (!(token.startsWith("http://") || token.startsWith("https://")
+        || token.startsWith("ftp://") || token.startsWith("ftps://")
+        || token.startsWith("magnet:"))) {
       continue;
     }
     if (seen.has(token)) continue;
@@ -507,6 +509,18 @@ function looksLikeAPage(url) {
   if (!/^https?:\/\//i.test(url)) return false;
   const ext = extensionOf(url);
   return !ext || !DIRECT_EXTS.has(ext);
+}
+
+function isFtpUrl(url) {
+  return /^ftps?:\/\//i.test(String(url || "").trim());
+}
+
+// A URL that already names a file. Listing one of these would just fail
+// and then download it anyway; skip the round trip.
+function looksLikeFtpFile(url) {
+  if (!isFtpUrl(url)) return false;
+  const ext = extensionOf(url);
+  return Boolean(ext && DIRECT_EXTS.has(ext));
 }
 
 // ffmpeg will remux almost anything into Matroska, but MP4 and WebM each only
@@ -3046,13 +3060,14 @@ window.addEventListener("DOMContentLoaded", () => {
   const batchCount      = document.getElementById("batch-count");
   let batchReferrer = "";
 
-  // The dialog is one of four things at a time: asking for a URL, waiting on
-  // yt-dlp, offering qualities, or offering a playlist. Every widget belongs to
-  // exactly one of them, so the state is set in one place rather than toggled
-  // eight.
+  // The dialog is one of five things at a time: asking for a URL, waiting,
+  // offering qualities, offering a playlist, or listing an FTP folder.
+  // Every widget belongs to exactly one of them, so the state is set in one
+  // place rather than toggled eight.
   let modalMode = "url";
   let probed = null;      // the last successful probe, and its choices
   let playlist = null;    // the last flat listing, and which of it is ticked
+  let ftpListing = null;  // files ticked; folders open
   let probeToken = 0;     // a probe the user has moved on from must not land
 
   const MODAL_TITLES = {
@@ -3060,7 +3075,16 @@ window.addEventListener("DOMContentLoaded", () => {
     busy: "Add download",
     video: "Download video",
     playlist: "Download playlist",
+    ftp: "Browse FTP",
   };
+
+  const ftpPanel   = document.getElementById("ftp-panel");
+  const ftpEntries = document.getElementById("ftp-entries");
+  const ftpCount   = document.getElementById("ftp-count");
+  const ftpNote    = document.getElementById("ftp-note");
+  const ftpWhere   = document.getElementById("ftp-where");
+  const ftpUp      = document.getElementById("ftp-up");
+  const modalLogin = document.getElementById("modal-login");
 
   function setModalMode(mode) {
     modalMode = mode;
@@ -3070,10 +3094,14 @@ window.addEventListener("DOMContentLoaded", () => {
     modalBusy.classList.toggle("hidden", mode !== "busy");
     videoPanel.classList.toggle("hidden", mode !== "video");
     playlistPanel.classList.toggle("hidden", mode !== "playlist");
-    if (mode !== "url") batchPanel.classList.add("hidden");
+    ftpPanel.classList.toggle("hidden", mode !== "ftp");
+    if (mode !== "url") {
+      batchPanel.classList.add("hidden");
+      modalLogin.classList.add("hidden");
+    }
     modalOk.classList.toggle("hidden", mode === "busy");
-    // The playlist's own label counts what is ticked, and is set with it.
-    if (mode !== "playlist") {
+    // The playlist and the FTP list each count what is ticked.
+    if (mode !== "playlist" && mode !== "ftp") {
       modalOk.textContent = mode === "video" ? "Download" : "OK";
       modalOk.disabled = false;
     }
@@ -3096,7 +3124,6 @@ window.addEventListener("DOMContentLoaded", () => {
   // A URL whose host garia has a login for, said before the download starts —
   // a 401 three seconds later is a worse way to find out, and a site with a
   // login saved is exactly the one where a typo in the host goes unnoticed.
-  const modalLogin = document.getElementById("modal-login");
   function renderModalLogin() {
     const login = loginFor(modalUrlInput.value.trim());
     modalLogin.classList.toggle("hidden", !login);
@@ -3169,6 +3196,7 @@ window.addEventListener("DOMContentLoaded", () => {
     probeToken++;
     probed = null;
     playlist = null;
+    ftpListing = null;
     batchReferrer = extras.referrer || "";
     modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
     modalChecksum.value = "";
@@ -3325,6 +3353,11 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!url) return;
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
+
+    if (isFtpUrl(url) && !looksLikeFtpFile(url)) {
+      await listFtp(url);
+      return;
+    }
 
     // A hash is a claim that this URL is a file, which is the question the
     // probe exists to answer. Nobody publishes a SHA-256 for a video page.
@@ -3514,6 +3547,175 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("playlist-all").addEventListener("click", () => setAllChecked(true));
   document.getElementById("playlist-none").addEventListener("click", () => setAllChecked(false));
 
+  // ── FTP listing ─────────────────────────────────────────────────────────
+  // Folders open. Files are ticked. The password, if any, already lived in
+  // the site login — this is only the names.
+  async function listFtp(url) {
+    const token = ++probeToken;
+    modalBusyText.textContent = "Listing…";
+    setModalMode("busy");
+    modalError.classList.add("hidden");
+    modalPlain.classList.add("hidden");
+    let listing;
+    try {
+      listing = await window.__TAURI__.core.invoke("ftp_list", { url });
+    } catch (err) {
+      if (token !== probeToken) return;
+      const message = String(err?.message || err);
+      if (message === "not-a-directory") {
+        await addPlainUrl(url);
+        return;
+      }
+      setModalMode("url");
+      modalError.textContent = message;
+      modalError.classList.remove("hidden");
+      return;
+    }
+    if (token !== probeToken) return;
+    showFtp(listing);
+  }
+
+  function showFtp(listing) {
+    ftpListing = {
+      ...listing,
+      checked: new Set(
+        listing.entries.map((e, i) => (e.dir ? -1 : i)).filter((i) => i >= 0)
+      ),
+    };
+    modalUrlInput.value = listing.url;
+    ftpWhere.textContent = listing.path === "/" ? listing.host : `${listing.host}${listing.path}`;
+    ftpWhere.title = listing.url;
+    const parent = parentFtpUrl(listing.url);
+    ftpUp.disabled = !parent;
+    ftpUp.classList.toggle("hidden", !parent);
+
+    const note = listing.truncated
+      ? "Only the first 2,000 names are listed. Open a folder to see inside it."
+      : listing.login && listing.login !== "anonymous"
+        ? `Signed in as ${listing.login}`
+        : "";
+    ftpNote.textContent = note;
+    ftpNote.classList.toggle("hidden", !note);
+
+    renderFtpEntries();
+    setModalMode("ftp");
+  }
+
+  function parentFtpUrl(url) {
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+      if (!parts.length) return "";
+      parts.pop();
+      u.pathname = parts.length ? `/${parts.join("/")}/` : "/";
+      return u.toString();
+    } catch {
+      return "";
+    }
+  }
+
+  function renderFtpEntries() {
+    ftpEntries.textContent = "";
+    if (!ftpListing) return;
+    ftpListing.entries.forEach((entry, i) => {
+      if (entry.dir) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ftp-folder";
+        btn.dataset.url = entry.url;
+        const name = document.createElement("span");
+        name.className = "batch-entry-name";
+        name.textContent = entry.name;
+        const kind = document.createElement("span");
+        kind.className = "ftp-kind";
+        kind.textContent = "Folder";
+        btn.append(name, kind);
+        ftpEntries.append(btn);
+        return;
+      }
+      const label = document.createElement("label");
+      label.className = "batch-entry";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.index = String(i);
+      box.dataset.url = entry.url;
+      box.checked = ftpListing.checked.has(i);
+      const name = document.createElement("span");
+      name.className = "batch-entry-name";
+      name.textContent = entry.name;
+      name.title = entry.url;
+      const size = document.createElement("span");
+      size.className = "batch-entry-cat";
+      size.textContent = entry.size ? formatBytes(entry.size) : "";
+      label.append(box, name, size);
+      ftpEntries.append(label);
+    });
+    renderFtpCount();
+  }
+
+  function renderFtpCount() {
+    const files = ftpListing.entries.filter((e) => !e.dir).length;
+    const on = ftpListing.checked.size;
+    ftpCount.textContent = files
+      ? (on === 1 ? "1 selected" : `${on} selected`)
+      : "No files in this folder";
+    modalOk.textContent = on ? `Download ${on}` : "Download";
+    modalOk.disabled = on === 0;
+  }
+
+  ftpEntries.addEventListener("change", (e) => {
+    const box = e.target.closest("input[data-index]");
+    if (!box || !ftpListing) return;
+    const i = Number(box.dataset.index);
+    if (box.checked) ftpListing.checked.add(i);
+    else ftpListing.checked.delete(i);
+    renderFtpCount();
+  });
+  ftpEntries.addEventListener("click", (e) => {
+    const folder = e.target.closest(".ftp-folder");
+    if (!folder) return;
+    listFtp(folder.dataset.url);
+  });
+  ftpUp.addEventListener("click", () => {
+    const up = parentFtpUrl(ftpListing?.url || "");
+    if (up) listFtp(up);
+  });
+  document.getElementById("ftp-all").addEventListener("click", () => {
+    if (!ftpListing) return;
+    ftpListing.checked = new Set(
+      ftpListing.entries.map((e, i) => (e.dir ? -1 : i)).filter((i) => i >= 0)
+    );
+    renderFtpEntries();
+  });
+  document.getElementById("ftp-none").addEventListener("click", () => {
+    if (!ftpListing) return;
+    ftpListing.checked = new Set();
+    renderFtpEntries();
+  });
+
+  async function submitFtp() {
+    if (!ftpListing) return;
+    const urls = [...ftpListing.checked]
+      .sort((a, b) => a - b)
+      .map((i) => ftpListing.entries[i]?.url)
+      .filter(Boolean);
+    if (!urls.length) return;
+    const at = modalStartAt();
+    const queue = Boolean(at);
+    modalError.classList.add("hidden");
+    try {
+      for (const url of urls) {
+        const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue })]);
+        await holdAdded(gid, at);
+      }
+      closeModal();
+      await pollAndSync();
+    } catch (err) {
+      modalError.textContent = err.message;
+      modalError.classList.remove("hidden");
+    }
+  }
+
   // One entry at a time, queued as it resolves rather than after the last one:
   // twelve videos is twelve yt-dlp launches, and a list that fills in while it
   // works is the difference between a wait and a hang. The rule is read
@@ -3666,6 +3868,7 @@ window.addEventListener("DOMContentLoaded", () => {
   modalOk.addEventListener("click", () => {
     if (modalMode === "video") submitVideo();
     else if (modalMode === "playlist") submitPlaylist();
+    else if (modalMode === "ftp") submitFtp();
     else submitUrl();
   });
   modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));
@@ -4855,6 +5058,12 @@ window.addEventListener("DOMContentLoaded", () => {
     closeCapture();
     if (!videoTools.version) await loadVideoTools();
     // A file (or magnet) can go straight in; a page still needs the picker.
+    // An FTP directory is the other thing that needs a look first.
+    if (isFtpUrl(url) && !looksLikeFtpFile(url)) {
+      openModal(url);
+      await submitUrl();
+      return;
+    }
     if (!looksLikeAPage(url) || url.startsWith("magnet:")) {
       try {
         const at = extras.startAt;

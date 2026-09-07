@@ -68,7 +68,11 @@ fn as_file_url(s: &str) -> Option<String> {
     if s.starts_with("magnet:") {
         return Some(s.to_string());
     }
-    if !(s.starts_with("http://") || s.starts_with("https://")) {
+    if !(s.starts_with("http://")
+        || s.starts_with("https://")
+        || s.starts_with("ftp://")
+        || s.starts_with("ftps://"))
+    {
         return None;
     }
     let ext = extension_of(s)?;
@@ -178,7 +182,7 @@ fn push_download_url(urls: &mut Vec<String>, token: &str) {
     urls.push(token.to_string());
 }
 
-/// Every http(s) or magnet token in a dump — pages included. Download-all
+/// Every http(s), ftp(s), or magnet token in a dump — pages included. Download-all
 /// and a multi-URL paste are reviewed in the add dialog, so a YouTube
 /// link is not dropped the way a leftover clipboard page is.
 pub fn urls_in(text: &str) -> Vec<String> {
@@ -205,7 +209,11 @@ fn safe_filename(s: &str) -> Option<String> {
 }
 
 fn is_download_url(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://") || s.starts_with("magnet:")
+    s.starts_with("http://")
+        || s.starts_with("https://")
+        || s.starts_with("ftp://")
+        || s.starts_with("ftps://")
+        || s.starts_with("magnet:")
 }
 
 /// A URL the user pointed at on purpose — Services, a selected line.
@@ -349,7 +357,23 @@ mod tests {
     fn a_garia_link_without_a_url_is_nothing() {
         assert_eq!(url_from_garia_link("garia://add"), None);
         assert_eq!(url_from_garia_link("https://example.com/file.zip"), None);
-        assert_eq!(url_from_garia_link("garia://add?url=ftp://example.com/a"), None);
+        assert_eq!(url_from_garia_link("garia://add?url=javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn an_ftp_url_is_a_download() {
+        assert_eq!(
+            url_from_garia_link("garia://add?url=ftp://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz"),
+            Some("ftp://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz".into())
+        );
+        assert_eq!(
+            file_url_in("see ftp://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz"),
+            Some("ftp://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz".into())
+        );
+        // A directory is still a URL someone sent on purpose; the add
+        // dialog lists it. The clipboard ignores it, because it has no
+        // file extension — same rule as a copied web page.
+        assert_eq!(file_url_in("ftp://ftp.gnu.org/gnu/"), None);
     }
 
     #[test]

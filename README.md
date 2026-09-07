@@ -6,7 +6,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 
 ## Features
 
-- Add downloads by URL, magnet link, or `.torrent` file — typed, dropped on the window, or opened from Finder
+- Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from Finder
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
 - A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
 - Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Open Download Folder
@@ -77,7 +77,7 @@ npm run tauri dev
 
 Homebrew's `aria2c` links six Homebrew dylibs, so it stops working the moment it leaves the machine that installed it. The bundled build links nothing but the OS — AppleTLS for HTTPS, CommonCrypto for hashing, the system zlib — which is what makes it safe to ship. The script refuses to install a binary that links anything else.
 
-Trimming those dependencies drops Metalink, SFTP, Firefox cookie import, and async DNS. Garia uses none of them. HTTP, HTTPS, and BitTorrent are all in.
+Trimming those dependencies drops Metalink, SFTP, Firefox cookie import, and async DNS. Garia uses none of them. HTTP, HTTPS, FTP, and BitTorrent are all in.
 
 To build for the other Mac architecture, or both at once:
 
@@ -141,6 +141,14 @@ Saving a login **restarts aria2**. Both the netrc and the cookie jar are read on
 An HTTP proxy is the same restart, for the same reason: `--all-proxy` is a launch flag. Settings → Access takes a host, a port, and an optional login. The password lives in `proxy-passwd` at `0600`, beside the logins, not in `settings.json`. HTTP, HTTPS, and FTP go through it; BitTorrent peers do not, because they are not HTTP. yt-dlp uses the same proxy when it reads a video page, so a YouTube probe on a network that needs one still works. Hosts in the bypass list skip it. SOCKS, NTLM, and Kerberos are not offered — aria2 does not speak them.
 
 A download that fails for want of a login says so: aria2's error 24 is the one failure with a fix inside the app, so the row reads *Needs a login — add one in Settings* rather than *Authorization failed*, and Retry re-queues it with whatever has been saved since.
+
+## FTP
+
+Paste `ftp://ftp.example.com/pub/` into the add dialog and garia lists the folder. Files are ticked and queued through aria2; a folder is opened, not downloaded. That is the whole UI — not a site grabber, not SFTP, not a recursive copy.
+
+The password is the site login already in Settings, the same netrc aria2 reads when it fetches the file. It is never sent to the dialog and never attached to the download. A one-off `ftp://user:pass@host/…` still lists, and those file URLs keep the userinfo so aria2 can sign in without a saved login — the picker shows the name, not the secret.
+
+A URL that already names a file (`ftp://host/a.iso`) skips the listing and starts, the same way a `.zip` on HTTPS does. `ftps://` is a file aria2 can fetch; listing one is not something garia does.
 
 ## Checksum verification
 

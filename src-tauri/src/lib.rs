@@ -12,6 +12,7 @@ use tauri::{Emitter, Manager};
 mod catch;
 #[cfg(target_os = "macos")]
 mod dock;
+mod ftp;
 mod logins;
 mod schedule;
 #[cfg(target_os = "macos")]
@@ -1312,6 +1313,31 @@ fn commit(
     }
 
     Ok(views)
+}
+
+/// List an FTP directory. The password comes from the site login (or from
+/// userinfo on this URL, for a one-off) and stays here — the frontend gets
+/// names and file URLs, never the secret.
+#[tauri::command]
+fn ftp_list(
+    state: tauri::State<LoginsState>,
+    url: String,
+) -> Result<ftp::FtpListing, String> {
+    let target = ftp::parse_ftp_url(&url)?;
+    let host = logins::host_of(&target.host);
+    let current = state.current.lock().map(|g| g.clone()).unwrap_or_default();
+    let saved = current.iter().find(|l| l.host == host).and_then(|l| {
+        if l.username.is_empty() {
+            None
+        } else {
+            Some((l.username.as_str(), l.password.as_str()))
+        }
+    });
+    // `saved` borrows `current`, so the listing has to happen before we
+    // drop that vector. Cloning the pair keeps the lock-free path simple.
+    let owned = saved.map(|(u, p)| (u.to_string(), p.to_string()));
+    let pair = owned.as_ref().map(|(u, p)| (u.as_str(), p.as_str()));
+    ftp::list_directory(&target, pair)
 }
 
 /// Deleting a row can take the downloaded file with it. Trash, not unlink: a
@@ -3214,6 +3240,7 @@ pub fn run() {
             copy_text,
             video_tools,
             video_probe,
+            ftp_list,
             mux_video,
             preview_state,
             preview_file,

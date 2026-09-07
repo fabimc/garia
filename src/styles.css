@@ -1870,6 +1870,49 @@ html.in-app .modal.modal-lg {
     cursor: pointer;
 }
 
+.ftp-path {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.ftp-where {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.82rem;
+    color: var(--text);
+}
+
+.ftp-folder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    padding: 0.4rem 0.65rem;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.ftp-folder:last-child {
+    border-bottom: none;
+}
+.ftp-folder:hover {
+    background: var(--tint);
+}
+
+.ftp-kind {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
 .batch-panel {
     display: flex;
     flex-direction: column;
