@@ -20,7 +20,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["contextMenus", "downloads", "storage", "tabs"],
+  "permissions": ["clipboardWrite", "contextMenus", "downloads", "storage", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {

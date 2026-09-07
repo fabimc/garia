@@ -76,11 +76,11 @@
                                 type="checkbox"
                                 id="settings-smart-folders"
                             />
-                            <span>Sort new downloads into folders by type</span>
+                            <span>Sort new downloads into categories</span>
                         </label>
                         <p class="field-hint">
-                            Video, Music, Documents, and Archives, inside the
-                            folder above.
+                            Video, Music, Documents, and Archives to start
+                            with — rename them, add a site, or make your own.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
@@ -91,6 +91,16 @@
                                 moves.
                             </p>
                         </details>
+                        <div id="category-block" class="category-block hidden">
+                            <ul id="settings-categories" class="login-list"></ul>
+                            <button
+                                type="button"
+                                class="btn-secondary login-add"
+                                id="settings-category-add"
+                            >
+                                Add a category…
+                            </button>
+                        </div>
                     </div>
 
                     <div class="field">
@@ -350,8 +360,10 @@
                                 file-link clicks and the context menu; run
                                 <code>scripts/make-safari-extension.sh</code>
                                 once, then enable it under Safari → Settings →
-                                Extensions. Hold Option while clicking a file
-                                to leave it with the browser.
+                                Extensions. Right-click the page to send every
+                                link, then uncheck the ones you do not want.
+                                Hold Option while clicking a file to leave it
+                                with the browser.
                             </p>
                         </details>
                         <button
@@ -682,6 +694,110 @@
                         Cancel
                     </button>
                     <button class="btn-primary" id="login-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            id="category-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="category-title"
+        >
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="category-title">Add a category</h2>
+                    <button
+                        class="modal-close"
+                        id="category-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body stack">
+                    <div class="field">
+                        <label class="modal-label" for="category-name">Name</label>
+                        <input
+                            id="category-name"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Video"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="category-exts"
+                            >File types</label
+                        >
+                        <input
+                            id="category-exts"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="mp4, mkv, webm"
+                        />
+                        <p class="field-hint">
+                            Extensions, without the dot. Empty plus a site
+                            below takes every file from that host.
+                        </p>
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="category-folder"
+                            >Folder</label
+                        >
+                        <div class="modal-input-row">
+                            <input
+                                id="category-folder"
+                                class="field-input is-path"
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                                placeholder="Video"
+                            />
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                id="category-browse"
+                            >
+                                Choose…
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            A name is a folder inside the download folder.
+                            Choose… for somewhere else.
+                        </p>
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="category-host"
+                            >Site <span class="modal-optional">optional</span></label
+                        >
+                        <input
+                            id="category-host"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="cdn.example.com"
+                        />
+                        <p class="field-hint">
+                            Only URLs from this host go here, and they do
+                            so before a type-only category would.
+                        </p>
+                    </div>
+                    <p id="category-error" class="error hidden"></p>
+                </div>
+                <div class="modal-footer login-footer">
+                    <button class="btn-secondary btn-danger" id="category-delete">
+                        Remove
+                    </button>
+                    <button class="btn-secondary" id="category-cancel">
+                        Cancel
+                    </button>
+                    <button class="btn-primary" id="category-save">Save</button>
                 </div>
             </div>
         </div>

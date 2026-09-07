@@ -188,6 +188,10 @@
                         </button>
                     </div>
 
+                    <div class="nav-group hidden" id="category-nav">
+                        <div class="nav-group-label">Categories</div>
+                    </div>
+
                     <div class="nav-group">
                         <div class="nav-group-label">Archive</div>
                         <button class="nav-item" data-filter="complete">
@@ -479,16 +483,16 @@
                 </div>
                 <div class="modal-body">
                     <label class="modal-label" for="modal-url-input"
-                        >Enter URL or choose torrent file</label
+                        >Enter URLs or choose a torrent file</label
                     >
                     <div class="modal-input-row">
-                        <input
+                        <textarea
                             id="modal-url-input"
-                            type="url"
-                            placeholder="https://…"
+                            rows="2"
+                            placeholder="https://… — one per line, or several"
                             autocomplete="off"
                             spellcheck="false"
-                        />
+                        ></textarea>
                         <button class="btn-secondary" id="browse-btn">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -520,6 +524,50 @@
                          the download starts, because a 401 three seconds
                          later is a worse way to find out. -->
                     <p id="modal-login" class="field-hint modal-login hidden"></p>
+
+                    <!-- Several URLs at once. Reviewed here rather than
+                         queued on the spot, so a paste or an extension
+                         dump can drop the ones that are not wanted. -->
+                    <div id="batch-panel" class="batch-panel hidden">
+                        <div class="playlist-bar">
+                            <span id="batch-count" class="playlist-count"></span>
+                            <button type="button" class="playlist-pick" id="batch-all">
+                                All
+                            </button>
+                            <button type="button" class="playlist-pick" id="batch-none">
+                                None
+                            </button>
+                        </div>
+                        <div
+                            id="batch-entries"
+                            class="batch-entries"
+                            role="group"
+                            aria-label="URLs to download"
+                        ></div>
+                        <div
+                            class="field-radios"
+                            role="radiogroup"
+                            aria-label="When to start"
+                        >
+                            <label class="field-check">
+                                <input
+                                    type="radio"
+                                    name="batch-when"
+                                    value="now"
+                                    checked
+                                />
+                                <span>Start now</span>
+                            </label>
+                            <label class="field-check">
+                                <input
+                                    type="radio"
+                                    name="batch-when"
+                                    value="queue"
+                                />
+                                <span>Add to queue</span>
+                            </label>
+                        </div>
+                    </div>
 
                     <!-- Optional, and hidden for a torrent or a magnet, which
                          carry their own piece hashes. aria2 does the
@@ -678,6 +726,12 @@
                             autocomplete="off"
                             spellcheck="false"
                         />
+                    </div>
+                    <div class="field" id="capture-category-field">
+                        <label class="modal-label" for="capture-category"
+                            >Category</label
+                        >
+                        <select id="capture-category" class="field-input"></select>
                     </div>
                     <div class="field">
                         <label class="modal-label" for="capture-dir"

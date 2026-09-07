@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpListener;
@@ -70,6 +71,36 @@ const MIN_LIMIT: u64 = 1024;
 /// first. Named because remote control cares which one was actually taken.
 const DEFAULT_RPC_PORT: u16 = 6800;
 
+/// A folder new downloads can land in. The four built-in kinds — Video,
+/// Music, Documents, Archives — are the default list; the user can rename
+/// them, add a site-specific one, or delete them all.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+struct Category {
+    id: String,
+    name: String,
+    #[serde(default)]
+    extensions: Vec<String>,
+    #[serde(default)]
+    folder: String,
+    /// Optional host. When set, only URLs from that site take this folder,
+    /// and they take it before a type-only category would.
+    #[serde(default)]
+    host: String,
+}
+
+impl Default for Category {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            extensions: Vec::new(),
+            folder: String::new(),
+            host: String::new(),
+        }
+    }
+}
+
 /// What the user gets to decide. Kept here rather than read back out of aria2
 /// because these have to survive a restart, and aria2 forgets everything that
 /// isn't an unfinished download.
@@ -102,6 +133,10 @@ struct Settings {
     /// ours. The routing itself lives in the frontend, which names the folder
     /// per download at add time — nothing here moves a file.
     smart_folders: bool,
+    /// The folders that switch uses. Empty plus the switch on is the four
+    /// built-in kinds; a list the user has edited is stored as they left it.
+    #[serde(default)]
+    categories: Vec<Category>,
     /// Say so when a download finishes. On by default: the whole point of a
     /// download manager is not having to watch it.
     notify_on_complete: bool,
@@ -163,6 +198,7 @@ impl Default for Settings {
             seed_ratio: 1.0,
             seed_time_minutes: 0,
             smart_folders: false,
+            categories: Vec::new(),
             notify_on_complete: true,
             catch_clipboard: true,
             confirm_capture: true,
@@ -240,6 +276,18 @@ impl Settings {
             TrafficMode::Medium => self.medium_limit,
             TrafficMode::Light => self.light_limit,
         };
+
+        // A settings file from before categories existed has the switch and
+        // an empty list. The four kinds are what that switch always meant.
+        if self.smart_folders && self.categories.is_empty() {
+            self.categories = default_categories();
+        }
+        let mut used = HashSet::new();
+        self.categories = self
+            .categories
+            .into_iter()
+            .filter_map(|cat| normalise_category(cat, &mut used))
+            .collect();
         self
     }
 }
@@ -285,6 +333,137 @@ struct LoginsState {
 
 fn default_download_dir() -> PathBuf {
     dirs::download_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"))
+}
+
+/// The four kinds people actually sort by. Keep in step with `FOLDERS` in
+/// `src/main.js` — the frontend uses the same table when Settings has not
+/// been saved since the switch was turned on.
+fn default_categories() -> Vec<Category> {
+    vec![
+        Category {
+            id: "video".into(),
+            name: "Video".into(),
+            extensions: ext_list(&[
+                "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp",
+                "ts",
+            ]),
+            folder: "Video".into(),
+            host: String::new(),
+        },
+        Category {
+            id: "music".into(),
+            name: "Music".into(),
+            extensions: ext_list(&[
+                "mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac",
+            ]),
+            folder: "Music".into(),
+            host: String::new(),
+        },
+        Category {
+            id: "documents".into(),
+            name: "Documents".into(),
+            extensions: ext_list(&[
+                "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf",
+                "txt", "csv", "epub", "mobi", "djvu",
+            ]),
+            folder: "Documents".into(),
+            host: String::new(),
+        },
+        Category {
+            id: "archives".into(),
+            name: "Archives".into(),
+            extensions: ext_list(&[
+                "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
+            ]),
+            folder: "Archives".into(),
+            host: String::new(),
+        },
+    ]
+}
+
+fn ext_list(exts: &[&str]) -> Vec<String> {
+    exts.iter().map(|e| (*e).to_string()).collect()
+}
+
+fn normalise_category(mut cat: Category, used: &mut HashSet<String>) -> Option<Category> {
+    cat.name = cat.name.trim().to_string();
+    if cat.name.is_empty() {
+        return None;
+    }
+
+    let mut id = slug(&cat.id);
+    if id.is_empty() {
+        id = slug(&cat.name);
+    }
+    if id.is_empty() {
+        id = "category".into();
+    }
+    let mut n = 2;
+    let mut candidate = id.clone();
+    while !used.insert(candidate.clone()) {
+        candidate = format!("{id}-{n}");
+        n += 1;
+    }
+    cat.id = candidate;
+
+    let mut seen = HashSet::new();
+    cat.extensions = cat
+        .extensions
+        .into_iter()
+        .map(|e| {
+            e.trim()
+                .trim_start_matches('.')
+                .to_ascii_lowercase()
+        })
+        .filter(|e| {
+            !e.is_empty()
+                && e.chars().all(|c| c.is_ascii_alphanumeric())
+                && seen.insert(e.clone())
+        })
+        .collect();
+
+    cat.folder = cat.folder.trim().replace('\\', "/");
+    if cat.folder.is_empty() || cat.folder.split('/').any(|p| p == "..") {
+        cat.folder = cat.name.clone();
+    }
+    cat.host = category_host(&cat.host);
+    Some(cat)
+}
+
+fn slug(s: &str) -> String {
+    let mut out = String::new();
+    let mut dash = false;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !out.is_empty() && !dash {
+            out.push('-');
+            dash = true;
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
+/// The host, exactly as a URL would write it. A pasted `https://files.example.com/a`
+/// still has to match `files.example.com`.
+fn category_host(input: &str) -> String {
+    let mut s = input.trim();
+    if let Some(rest) = s.split_once("://") {
+        s = rest.1;
+    }
+    s = s.split(['/', '?', '#']).next().unwrap_or(s);
+    if let Some((_, host)) = s.rsplit_once('@') {
+        s = host;
+    }
+    let host = if let Some(rest) = s.strip_prefix('[') {
+        rest.split_once(']')
+            .map(|(h, _)| format!("[{h}]"))
+            .unwrap_or_else(|| s.to_string())
+    } else {
+        s.split(':').next().unwrap_or(s).to_string()
+    };
+    host.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
 /// A missing or unreadable file is not an error — it is a first launch.
@@ -1184,6 +1363,7 @@ pub(crate) fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) 
             name: None,
             referrer: None,
             confirm: false,
+            urls: Vec::new(),
         },
     );
 }
@@ -2795,11 +2975,33 @@ pub fn run() {
 }
 
 fn ingest_deep_link(app: &tauri::AppHandle, link: &str) {
-    if let Some(event) = catch::catch_from_garia_link(link) {
+    if let Some(mut event) = catch::catch_from_garia_link(link) {
+        // A long "download all links" list will not fit in the scheme, so
+        // the extension writes it to the clipboard and sends batch=1.
+        if event.url.is_empty() {
+            let text = clipboard_text().unwrap_or_default();
+            let urls = catch::urls_in(&text);
+            if urls.is_empty() {
+                return;
+            }
+            if let Some(own) = app.try_state::<OwnCopy>() {
+                if let Ok(mut guard) = own.0.lock() {
+                    *guard = Some(text);
+                }
+            }
+            event.url = urls[0].clone();
+            event.urls = if urls.len() > 1 { urls } else { Vec::new() };
+            event.source = "extension".into();
+            event.confirm = true;
+        }
         dispatch_catch_event(app, event);
     } else if let Some(url) = catch::magnet_url(link) {
         dispatch_catch(app, url, "scheme");
     }
+}
+
+fn clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
 }
 
 /// The menu a Mac app is expected to have: the app name, File, Edit, Window,
@@ -3056,6 +3258,37 @@ mod tests {
                 "scheduleStart":1500,"scheduleEnd":480}"#,
         );
         assert_eq!(s.schedule_start, 60);
+    }
+
+    /// The switch without a list is the four kinds it has always meant.
+    #[test]
+    fn smart_folders_seed_the_four_kinds() {
+        let s = settings_from(r#"{"downloadDir":"/tmp","smartFolders":true}"#);
+        assert_eq!(s.categories.len(), 4);
+        assert!(s.categories.iter().any(|c| c.id == "video"));
+        assert!(s.categories.iter().any(|c| c.folder == "Archives"));
+    }
+
+    #[test]
+    fn an_edited_category_list_is_kept() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","smartFolders":true,
+                "categories":[{"id":"iso","name":"ISOs","extensions":[".ISO","iso"],"folder":"Images"}]}"#,
+        );
+        assert_eq!(s.categories.len(), 1);
+        assert_eq!(s.categories[0].folder, "Images");
+        assert_eq!(s.categories[0].extensions, vec!["iso"]);
+    }
+
+    #[test]
+    fn a_dotdot_folder_falls_back_to_the_name() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","smartFolders":true,
+                "categories":[{"name":"Safe","folder":"../elsewhere","host":"https://FILES.Example.com/a"}]}"#,
+        );
+        assert_eq!(s.categories[0].folder, "Safe");
+        assert_eq!(s.categories[0].host, "files.example.com");
+        assert_eq!(s.categories[0].id, "safe");
     }
 
     /// A blank field is "unset", and anything under a kilobyte a second is a

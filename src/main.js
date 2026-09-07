@@ -39,6 +39,7 @@ let settings = {
   seedRatio: 1,
   seedTimeMinutes: 0,
   smartFolders: false,
+  categories: [],
   notifyOnComplete: true,
   catchClipboard: true,
   confirmCapture: true,
@@ -105,9 +106,20 @@ const FOLDERS = {
   Archives: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg"],
 };
 
-const FOLDER_BY_EXT = new Map();
-for (const [folder, exts] of Object.entries(FOLDERS)) {
-  for (const ext of exts) FOLDER_BY_EXT.set(ext, folder);
+const DEFAULT_CATEGORIES = Object.entries(FOLDERS).map(([name, extensions]) => ({
+  id: name.toLowerCase(),
+  name,
+  extensions: [...extensions],
+  folder: name,
+  host: "",
+}));
+
+// The folders the switch uses. Empty plus the switch on is the four kinds
+// it has always meant; a list the user has edited is what they left.
+function activeCategories() {
+  if (!settings.smartFolders) return [];
+  const list = Array.isArray(settings.categories) ? settings.categories : [];
+  return list.length ? list : DEFAULT_CATEGORIES;
 }
 
 // The extension has to come out of a URL, not a filename: query strings and
@@ -128,14 +140,104 @@ function catchLabel(url) {
   return name || url;
 }
 
+function urlHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^\.+|\.+$/g, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function hostMatches(wanted, url) {
+  if (!wanted) return true;
+  const host = urlHostname(url);
+  if (!host) return false;
+  const w = String(wanted).replace(/^\.+|\.+$/g, "").toLowerCase();
+  return host === w || host.endsWith(`.${w}`);
+}
+
+function matchCategory(url) {
+  if (!url) return null;
+  const cats = activeCategories();
+  const ext = extensionOf(url);
+  const hosted = cats.filter((c) => c.host);
+  const general = cats.filter((c) => !c.host);
+  for (const cat of [...hosted, ...general]) {
+    if (!hostMatches(cat.host, url)) continue;
+    const exts = cat.extensions || [];
+    if (!exts.length) {
+      if (cat.host) return cat;
+      continue;
+    }
+    if (ext && exts.includes(ext)) return cat;
+  }
+  return null;
+}
+
+function categoryPath(cat) {
+  const base = (settings.downloadDir || "").replace(/\/+$/, "");
+  const folder = String(cat?.folder || cat?.name || "").trim();
+  if (!folder) return base;
+  if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
+  return base ? `${base}/${folder}` : folder;
+}
+
+function dirsEqual(a, b) {
+  return String(a || "").replace(/\/+$/, "") === String(b || "").replace(/\/+$/, "");
+}
+
+function destDirOf(dl) {
+  const path = rowPath(dl) || dl?.files?.[0]?.path || "";
+  if (!path) return "";
+  const i = path.lastIndexOf("/");
+  return i >= 0 ? path.slice(0, i) : "";
+}
+
+function categoryIdFor(dl) {
+  const cats = activeCategories();
+  if (!cats.length || !dl) return "";
+  const dir = destDirOf(dl);
+  if (dir) {
+    for (const cat of cats) {
+      if (dirsEqual(dir, categoryPath(cat))) return cat.id;
+    }
+  }
+  const url = sourceUrl(dl);
+  if (url) {
+    const cat = matchCategory(url);
+    if (cat) return cat.id;
+  }
+  const name = fileName(dl);
+  if (name && name.includes(".")) {
+    const cat = matchCategory(`https://example.com/${name}`);
+    if (cat) return cat.id;
+  }
+  return "";
+}
+
 // Where a download should be written. Torrents and magnets don't name a file
 // until aria2 has the metadata, so they keep the base folder — routing on a
 // guess would scatter a multi-file torrent worse than not routing at all.
 function targetDir(url) {
   const base = (settings.downloadDir || "").replace(/\/+$/, "");
   if (!base || !settings.smartFolders || !url) return base;
-  const folder = FOLDER_BY_EXT.get(extensionOf(url));
-  return folder ? `${base}/${folder}` : base;
+  const cat = matchCategory(url);
+  return cat ? categoryPath(cat) : base;
+}
+
+function parseDownloadUrls(text) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of String(text || "").split(/\s+/)) {
+    const token = raw.replace(/^[<"'“‘]+|[>"'”’,]+$/g, "").trim();
+    if (!(token.startsWith("http://") || token.startsWith("https://") || token.startsWith("magnet:"))) {
+      continue;
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
 }
 
 // Options every new download is added with. Retry passes the folder the failed
@@ -1027,6 +1129,7 @@ function updateItemEl(li, dl) {
 
   li.dataset.status = dl.status;
   li.dataset.name = name;
+  li.dataset.category = categoryIdFor(dl);
   li.classList.toggle(
     "is-file-draggable",
     (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
@@ -1242,7 +1345,10 @@ function applyFilter(listEl) {
       continue;
     }
     const rowStatus = el.dataset.status === "merging" ? "active" : el.dataset.status;
-    const statusMatch = activeFilter === "all" || rowStatus === activeFilter;
+    const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
+    const statusMatch = catId
+      ? el.dataset.category === catId
+      : activeFilter === "all" || rowStatus === activeFilter;
     const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     el.classList.toggle("hidden", !match);
@@ -1259,8 +1365,12 @@ function applyFilter(listEl) {
   if (visible === 0) {
     let title, sub;
     if (items.length > 0) {
-      title = "Nothing matches this view";
-      sub = "Try a different filter or clear the search field";
+      title = activeFilter.startsWith("cat:")
+        ? "Nothing in this category"
+        : "Nothing matches this view";
+      sub = activeFilter.startsWith("cat:")
+        ? "Downloads that land in this folder show up here"
+        : "Try a different filter or clear the search field";
     } else if (connState === "error") {
       title = "Can't reach aria2";
       sub = "Start aria2 and garia will reconnect on its own";
@@ -2648,6 +2758,7 @@ async function poll(listEl) {
     const all = collapseJobs(raw);
     runPendingMerges(all);
     const tally = { all: all.length, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
+    for (const cat of activeCategories()) tally[cat.id] = 0;
     const seen = new Set();
 
     for (const dl of all) {
@@ -2668,6 +2779,8 @@ async function poll(listEl) {
 
       const counted = dl.status === "merging" ? "active" : dl.status;
       if (tally[counted] !== undefined) tally[counted]++;
+      const catId = categoryIdFor(dl);
+      if (catId && tally[catId] !== undefined) tally[catId]++;
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
       if (dl.status === "seeding") tally.upspeed += Number(dl.uploadSpeed) || 0;
 
@@ -2745,13 +2858,47 @@ window.addEventListener("DOMContentLoaded", () => {
   const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
 
+  const categoryNav = document.getElementById("category-nav");
+  const CAT_ICON = SVG_OPEN
+    + '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+
+  function categoryTitle(value) {
+    if (!value.startsWith("cat:")) return VIEW_TITLES[value] || "Downloads";
+    const id = value.slice(4);
+    return activeCategories().find((c) => c.id === id)?.name || "Downloads";
+  }
+
+  function renderCategoryNav() {
+    const cats = activeCategories();
+    const label = categoryNav.querySelector(".nav-group-label");
+    categoryNav.textContent = "";
+    categoryNav.append(label);
+    categoryNav.classList.toggle("hidden", cats.length === 0);
+    for (const cat of cats) {
+      const btn = document.createElement("button");
+      btn.className = "nav-item";
+      btn.dataset.filter = `cat:${cat.id}`;
+      btn.innerHTML = `${CAT_ICON}<span class="nav-label"></span><span class="nav-count hidden"></span>`;
+      btn.querySelector("svg")?.classList.add("nav-icon");
+      btn.querySelector(".nav-label").textContent = cat.name;
+      btn.querySelector(".nav-count").dataset.count = cat.id;
+      categoryNav.append(btn);
+    }
+    if (activeFilter.startsWith("cat:") && !cats.some((c) => `cat:${c.id}` === activeFilter)) {
+      setFilter("all");
+      return;
+    }
+    for (const b of filterBar.querySelectorAll(".nav-item")) {
+      b.classList.toggle("active", b.dataset.filter === activeFilter);
+    }
+  }
+
   function setFilter(value) {
     activeFilter = value;
     for (const b of filterBar.querySelectorAll(".nav-item")) {
       b.classList.toggle("active", b.dataset.filter === value);
     }
-    document.getElementById("view-title").textContent =
-      VIEW_TITLES[value] || "Downloads";
+    document.getElementById("view-title").textContent = categoryTitle(value);
     applyFilter(listEl);
   }
 
@@ -2789,6 +2936,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const playlistEntries = document.getElementById("playlist-entries");
   const playlistCount   = document.getElementById("playlist-count");
   const playlistNote    = document.getElementById("playlist-note");
+  const batchPanel      = document.getElementById("batch-panel");
+  const batchEntries    = document.getElementById("batch-entries");
+  const batchCount      = document.getElementById("batch-count");
+  let batchReferrer = "";
 
   // The dialog is one of four things at a time: asking for a URL, waiting on
   // yt-dlp, offering qualities, or offering a playlist. Every widget belongs to
@@ -2814,6 +2965,7 @@ window.addEventListener("DOMContentLoaded", () => {
     modalBusy.classList.toggle("hidden", mode !== "busy");
     videoPanel.classList.toggle("hidden", mode !== "video");
     playlistPanel.classList.toggle("hidden", mode !== "playlist");
+    if (mode !== "url") batchPanel.classList.add("hidden");
     modalOk.classList.toggle("hidden", mode === "busy");
     // The playlist's own label counts what is ticked, and is set with it.
     if (mode !== "playlist") {
@@ -2852,8 +3004,46 @@ window.addEventListener("DOMContentLoaded", () => {
   // aria2 will check against, or why what is there cannot be one. The OK button
   // goes with it — a hash aria2 would refuse is a download that never starts,
   // and finding that out on submit is a worse place to find it out.
+  function renderBatch() {
+    const urls = parseDownloadUrls(modalUrlInput.value);
+    const show = modalMode === "url" && urls.length > 1;
+    batchPanel.classList.toggle("hidden", !show);
+    if (!show) {
+      if (modalMode === "url") modalOk.textContent = "OK";
+      return;
+    }
+    const kept = new Map();
+    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) {
+      kept.set(box.dataset.url, box.checked);
+    }
+    batchEntries.textContent = "";
+    let on = 0;
+    for (const url of urls) {
+      const label = document.createElement("label");
+      label.className = "batch-entry";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.url = url;
+      box.checked = kept.has(url) ? kept.get(url) : true;
+      if (box.checked) on++;
+      const name = document.createElement("span");
+      name.className = "batch-entry-name";
+      name.textContent = catchLabel(url);
+      name.title = url;
+      const cat = document.createElement("span");
+      cat.className = "batch-entry-cat";
+      cat.textContent = matchCategory(url)?.name || "";
+      label.append(box, name, cat);
+      batchEntries.append(label);
+    }
+    batchCount.textContent = on === 1 ? "1 selected" : `${on} selected`;
+    modalOk.textContent = on ? `Download ${on}` : "Download";
+    modalOk.disabled = on === 0;
+  }
+
   function renderChecksum() {
-    const forFile = takesChecksum(modalUrlInput.value);
+    const urls = parseDownloadUrls(modalUrlInput.value);
+    const forFile = urls.length === 1 && takesChecksum(urls[0]);
     modalChecksumRow.classList.toggle("hidden", modalMode !== "url" || !forFile);
 
     const parsed = forFile ? parseChecksum(modalChecksum.value) : null;
@@ -2865,17 +3055,22 @@ window.addEventListener("DOMContentLoaded", () => {
         : `${parsed.label}. The download fails rather than finishing if what lands doesn't match.`;
 
     if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
+    renderBatch();
   }
 
-  function openModal(url = "") {
+  function openModal(url = "", extras = {}) {
     probeToken++;
     probed = null;
     playlist = null;
-    modalUrlInput.value = url;
+    batchReferrer = extras.referrer || "";
+    modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
     modalChecksum.value = "";
     torrentInput.value  = "";
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
+    batchEntries.textContent = "";
+    const now = batchPanel.querySelector('input[name="batch-when"][value="now"]');
+    if (now) now.checked = true;
     renderModalLogin();
     setModalMode("url");
     overlay.classList.remove("hidden");
@@ -2887,6 +3082,15 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   modalUrlInput.addEventListener("input", () => { renderModalLogin(); renderChecksum(); });
+  batchEntries.addEventListener("change", renderBatch);
+  document.getElementById("batch-all").addEventListener("click", () => {
+    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = true;
+    renderBatch();
+  });
+  document.getElementById("batch-none").addEventListener("click", () => {
+    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = false;
+    renderBatch();
+  });
   modalChecksum.addEventListener("input", renderChecksum);
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
@@ -2972,8 +3176,33 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // A URL that isn't obviously a file gets shown to yt-dlp first. When there's
   // no yt-dlp, or the URL is plainly a file, nothing changes from before.
+  async function addBatch(candidates) {
+    const checked = [...batchEntries.querySelectorAll("input[type=checkbox]")]
+      .filter((box) => box.checked)
+      .map((box) => box.dataset.url);
+    const urls = checked.length ? checked : candidates;
+    if (!urls.length) return;
+    const queue = batchPanel.querySelector('input[name="batch-when"][value="queue"]')?.checked;
+    modalError.classList.add("hidden");
+    try {
+      for (const url of urls) {
+        await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
+      }
+      closeModal();
+      await pollAndSync();
+    } catch (err) {
+      modalError.textContent = err.message;
+      modalError.classList.remove("hidden");
+    }
+  }
+
   async function submitUrl() {
-    const url = modalUrlInput.value.trim();
+    const urls = parseDownloadUrls(modalUrlInput.value);
+    if (urls.length > 1) {
+      await addBatch(urls);
+      return;
+    }
+    const url = urls[0] || modalUrlInput.value.trim();
     if (!url) return;
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
@@ -3315,7 +3544,14 @@ window.addEventListener("DOMContentLoaded", () => {
     else submitUrl();
   });
   modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));
-  modalUrlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitUrl(); });
+  modalUrlInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    const urls = parseDownloadUrls(modalUrlInput.value);
+    if (e.metaKey || e.ctrlKey || urls.length <= 1) {
+      e.preventDefault();
+      submitUrl();
+    }
+  });
 
   // Per-row buttons and section "View all" links. A plain click selects;
   // the name, a double-click, or Enter opens the panel — a list, not a
@@ -4141,6 +4377,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (!event?.payload) return;
       settings = event.payload;
       renderTraffic();
+      renderCategoryNav();
+      applyFilter(listEl);
       if (!settings.notifyOnComplete) clearBadge();
     });
     listenSettings("logins-changed", (event) => {
@@ -4397,8 +4635,11 @@ window.addEventListener("DOMContentLoaded", () => {
       const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
       // A dropped magnet link used to be dropped on the floor — the modal took
       // it, the drop zone didn't.
-      const urls = text.split(/\s+/).map(u => u.trim())
-        .filter(u => u.startsWith("http") || u.startsWith("magnet:"));
+      const urls = parseDownloadUrls(text);
+      if (urls.length > 1) {
+        openModal(urls);
+        return;
+      }
       for (const url of urls) {
         try { await rpc("aria2.addUri", [[url], addOptions(url)]); } catch (err) { console.error(err); }
       }
@@ -4433,12 +4674,34 @@ window.addEventListener("DOMContentLoaded", () => {
     return label === "this magnet link" ? "" : label;
   }
 
+  const captureCategory = document.getElementById("capture-category");
+  const captureCategoryField = document.getElementById("capture-category-field");
+
+  function fillCaptureCategories(url) {
+    const cats = activeCategories();
+    captureCategoryField.classList.toggle("hidden", cats.length === 0);
+    captureCategory.textContent = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Download folder";
+    captureCategory.append(none);
+    const matched = matchCategory(url);
+    for (const cat of cats) {
+      const opt = document.createElement("option");
+      opt.value = cat.id;
+      opt.textContent = cat.name;
+      captureCategory.append(opt);
+    }
+    captureCategory.value = matched?.id || "";
+  }
+
   function openCapture({ url, name, referrer } = {}) {
     hideCatch();
     capturePending = { url, referrer };
     captureUrlEl.textContent = url;
     captureUrlEl.title = url;
     captureName.value = suggestedName(url, name);
+    fillCaptureCategories(url);
     captureDir.value = targetDir(url) || settings.downloadDir || "";
     const now = captureOverlay.querySelector('input[name="capture-when"][value="now"]');
     if (now) now.checked = true;
@@ -4485,12 +4748,25 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function handleCatch({ url, source, name, referrer } = {}) {
+  function catchUrls(event) {
+    if (Array.isArray(event?.urls) && event.urls.length) return event.urls;
+    return event?.url ? [event.url] : [];
+  }
+
+  function handleCatch(event = {}) {
+    const list = catchUrls(event);
+    const { source, name, referrer } = event;
+    const url = list[0];
     if (!url) return;
-    const key = `${source}:${url}`;
+    const key = `${source}:${list.join("\n")}`;
     if (recentlyCaught.has(key)) return;
     recentlyCaught.add(key);
     setTimeout(() => recentlyCaught.delete(key), 2500);
+
+    if (list.length > 1) {
+      openModal(list, { referrer });
+      return;
+    }
 
     const extras = { name, referrer };
     if (source === "scheme") {
@@ -4541,6 +4817,12 @@ window.addEventListener("DOMContentLoaded", () => {
       console.error(err);
     }
   });
+  captureCategory.addEventListener("change", () => {
+    const cat = activeCategories().find((c) => c.id === captureCategory.value);
+    captureDir.value = cat
+      ? categoryPath(cat)
+      : (settings.downloadDir || "").replace(/\/+$/, "");
+  });
   document.getElementById("capture-ok").addEventListener("click", () => {
     if (!capturePending?.url) return;
     const queued = captureOverlay.querySelector('input[name="capture-when"][value="queue"]')?.checked;
@@ -4574,7 +4856,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }).catch(() => {});
   }
 
-  loadSettings();
+  loadSettings().then(() => renderCategoryNav());
   loadLogins();
   loadVideoTools();
   listenNotificationClicks();

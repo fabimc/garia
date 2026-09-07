@@ -21,7 +21,7 @@
     "scripts": ["file-types.js", "background.js"],
     "persistent": false
   },
-  "permissions": ["contextMenus", "storage", "tabs"],
+  "permissions": ["clipboardWrite", "contextMenus", "storage", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {

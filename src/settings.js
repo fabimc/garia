@@ -13,6 +13,7 @@ let settings = {
   seedRatio: 1,
   seedTimeMinutes: 0,
   smartFolders: false,
+  categories: [],
   notifyOnComplete: true,
   catchClipboard: true,
   confirmCapture: true,
@@ -85,6 +86,38 @@ function siteOf(input) {
   return host.trim().replace(/\.+$/, "").toLowerCase();
 }
 
+function renderCategories() {
+  const block = document.getElementById("category-block");
+  const listEl = document.getElementById("settings-categories");
+  const on = settingsSmart.checked;
+  block.classList.toggle("hidden", !on);
+  listEl.textContent = "";
+  if (!on) return;
+  const cats = (() => {
+    const list = Array.isArray(settings.categories) ? settings.categories : [];
+    return list.length ? list : DEFAULT_CATEGORIES;
+  })();
+  if (!cats.length) {
+    const li = document.createElement("li");
+    li.className = "login-empty";
+    li.textContent = "No categories yet.";
+    listEl.append(li);
+    return;
+  }
+  for (const cat of cats) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "login-row";
+    btn.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+    btn.querySelector(".login-host").textContent = cat.name;
+    btn.querySelector(".login-what").textContent = categorySummary(cat);
+    btn.addEventListener("click", () => openCategory(cat));
+    li.append(btn);
+    listEl.append(li);
+  }
+}
+
 function loginSummary(login) {
   const bits = [];
   if (login.username) bits.push(login.username);
@@ -100,6 +133,31 @@ async function copyText(text) {
   const invoke = invoker();
   if (typeof invoke === "function") return invoke("copy_text", { text });
   return navigator.clipboard.writeText(text);
+}
+
+const DEFAULT_CATEGORIES = [
+  { id: "video", name: "Video", extensions: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ts"], folder: "Video", host: "" },
+  { id: "music", name: "Music", extensions: ["mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac"], folder: "Music", host: "" },
+  { id: "documents", name: "Documents", extensions: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "txt", "csv", "epub", "mobi", "djvu"], folder: "Documents", host: "" },
+  { id: "archives", name: "Archives", extensions: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg"], folder: "Archives", host: "" },
+];
+
+function categorySummary(cat) {
+  const bits = [];
+  const n = (cat.extensions || []).length;
+  if (n) bits.push(n === 1 ? "1 type" : `${n} types`);
+  if (cat.host) bits.push(cat.host);
+  if (cat.folder && cat.folder !== cat.name) bits.push(cat.folder);
+  return bits.join(" · ") || "every file";
+}
+
+function newCategoryId(name, existing) {
+  const base = String(name || "category").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "category";
+  let id = base;
+  let n = 2;
+  const ids = new Set(existing.map((c) => c.id));
+  while (ids.has(id)) id = `${base}-${n++}`;
+  return id;
 }
 
 const settingsError = document.getElementById("settings-error");
@@ -182,6 +240,7 @@ function fillForm() {
   settingsSeedFor.value = String(Number(settings.seedTimeMinutes) || 0);
   settingsNotify.checked = settings.notifyOnComplete !== false;
   settingsSmart.checked = settings.smartFolders === true;
+  renderCategories();
   settingsCatch.checked = settings.catchClipboard !== false;
   settingsConfirmCapture.checked = settings.confirmCapture !== false;
   settingsInOrder.checked = settings.inOrder === true;
@@ -205,6 +264,14 @@ function formSettings() {
     seedRatio: Math.min(Math.max(parseFloat(settingsRatio.value) || 0, 0), 100),
     seedTimeMinutes: Math.max(parseInt(settingsSeedFor.value, 10) || 0, 0),
     smartFolders: settingsSmart.checked,
+    categories: (() => {
+      const list = Array.isArray(settings.categories) ? settings.categories : [];
+      if (list.length) return list;
+      if (settingsSmart.checked) {
+        return DEFAULT_CATEGORIES.map((c) => ({ ...c, extensions: [...c.extensions] }));
+      }
+      return [];
+    })(),
     notifyOnComplete: settingsNotify.checked,
     catchClipboard: settingsCatch.checked,
     confirmCapture: settingsConfirmCapture.checked,
@@ -224,16 +291,17 @@ function settingsDiffer(a, b) {
     "catchClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
   ];
-  return keys.some((k) => a[k] !== b[k]);
+  if (keys.some((k) => a[k] !== b[k])) return true;
+  return JSON.stringify(a.categories || []) !== JSON.stringify(b.categories || []);
 }
 
-async function persistSettings() {
+async function persistSettings(force) {
   if (saving) {
     saveQueued = true;
     return;
   }
   const next = formSettings();
-  if (!settingsDiffer(next, settings)) return;
+  if (!force && !settingsDiffer(next, settings)) return;
 
   saving = true;
   hideError();
@@ -580,6 +648,117 @@ function pickFolder() {
   return window.__TAURI__?.dialog?.open;
 }
 
+const categoryOverlay = document.getElementById("category-overlay");
+const categoryTitle = document.getElementById("category-title");
+const categoryName = document.getElementById("category-name");
+const categoryExts = document.getElementById("category-exts");
+const categoryFolder = document.getElementById("category-folder");
+const categoryHost = document.getElementById("category-host");
+const categoryDelete = document.getElementById("category-delete");
+const categoryError = document.getElementById("category-error");
+let editingCategoryId = "";
+
+function parseExts(text) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of String(text || "").split(/[\s,]+/)) {
+    const ext = raw.trim().replace(/^\./, "").toLowerCase();
+    if (!ext || !/^[a-z0-9]+$/.test(ext) || seen.has(ext)) continue;
+    seen.add(ext);
+    out.push(ext);
+  }
+  return out;
+}
+
+function openCategory(cat) {
+  editingCategoryId = cat?.id || "";
+  categoryTitle.textContent = cat ? "Edit category" : "Add a category";
+  categoryName.value = cat?.name || "";
+  categoryExts.value = (cat?.extensions || []).join(", ");
+  categoryFolder.value = cat?.folder || cat?.name || "";
+  categoryHost.value = cat?.host || "";
+  categoryDelete.classList.toggle("hidden", !cat);
+  categoryError.classList.add("hidden");
+  categoryOverlay.classList.remove("hidden");
+  setTimeout(() => categoryName.focus(), 50);
+}
+
+function closeCategory() {
+  categoryOverlay.classList.add("hidden");
+  editingCategoryId = "";
+}
+
+function writeCategories(next) {
+  settings = { ...settings, categories: next, smartFolders: next.length ? settingsSmart.checked : false };
+  if (!next.length) settingsSmart.checked = false;
+  renderCategories();
+  persistSettings(true);
+}
+
+function saveCategory() {
+  const name = categoryName.value.trim();
+  if (!name) {
+    categoryError.textContent = "A category needs a name.";
+    categoryError.classList.remove("hidden");
+    return;
+  }
+  const list = Array.isArray(settings.categories) && settings.categories.length
+    ? settings.categories.slice()
+    : DEFAULT_CATEGORIES.map((c) => ({ ...c, extensions: [...c.extensions] }));
+  const folder = categoryFolder.value.trim() || name;
+  if (folder.split("/").includes("..")) {
+    categoryError.textContent = "The folder cannot climb out of itself.";
+    categoryError.classList.remove("hidden");
+    return;
+  }
+  const entry = {
+    id: editingCategoryId || newCategoryId(name, list),
+    name,
+    extensions: parseExts(categoryExts.value),
+    folder,
+    host: siteOf(categoryHost.value),
+  };
+  const i = list.findIndex((c) => c.id === entry.id);
+  if (i >= 0) list[i] = entry;
+  else list.push(entry);
+  writeCategories(list);
+  closeCategory();
+}
+
+function removeCategory() {
+  const list = (settings.categories || []).filter((c) => c.id !== editingCategoryId);
+  writeCategories(list);
+  closeCategory();
+}
+
+document.getElementById("settings-category-add").addEventListener("click", () => openCategory(null));
+document.getElementById("category-save").addEventListener("click", saveCategory);
+document.getElementById("category-cancel").addEventListener("click", closeCategory);
+document.getElementById("category-close").addEventListener("click", closeCategory);
+categoryDelete.addEventListener("click", removeCategory);
+categoryOverlay.addEventListener("click", (e) => {
+  if (e.target === categoryOverlay) closeCategory();
+});
+categoryName.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") saveCategory();
+});
+document.getElementById("category-browse").addEventListener("click", async () => {
+  const pick = pickFolder();
+  if (typeof pick !== "function") return;
+  try {
+    const chosen = await pick({
+      directory: true,
+      multiple: false,
+      title: "Choose a folder",
+      defaultPath: categoryFolder.value.trim() || settings.downloadDir || undefined,
+    });
+    if (typeof chosen === "string" && chosen) categoryFolder.value = chosen;
+  } catch (err) {
+    console.error(err);
+  }
+});
+settingsSmart.addEventListener("change", renderCategories);
+
 document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   const item = e.target.closest(".prefs-item");
   if (!item) return;
@@ -686,6 +865,10 @@ loginHost.addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  if (!categoryOverlay.classList.contains("hidden")) {
+    closeCategory();
+    return;
+  }
   if (!loginOverlay.classList.contains("hidden")) {
     closeLogin();
     return;

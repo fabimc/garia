@@ -18,24 +18,6 @@ function alreadySent(url) {
   return false;
 }
 
-function sendToGaria(url, extras = {}) {
-  if (!url || alreadySent(url)) return;
-  const params = new URLSearchParams();
-  params.set("url", url);
-  params.set("from", extras.from || "extension");
-  if (extras.name) params.set("name", extras.name);
-  if (extras.referrer) params.set("referrer", extras.referrer);
-  if (extras.confirm) params.set("confirm", "1");
-  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}`);
-  const opened = api.tabs.create({ url: handoff, active: false });
-  Promise.resolve(opened).then((tab) => {
-    if (!tab?.id) return;
-    setTimeout(() => {
-      api.tabs.remove(tab.id).catch(() => {});
-    }, 1500);
-  }).catch(() => {});
-}
-
 function installMenus() {
   api.contextMenus.removeAll(() => {
     api.contextMenus.create({
@@ -52,6 +34,11 @@ function installMenus() {
       id: "garia-page",
       title: "Send this page to Garia",
       contexts: ["page", "frame", "video", "audio"],
+    });
+    api.contextMenus.create({
+      id: "garia-all-links",
+      title: "Download all links on this page",
+      contexts: ["page", "frame"],
     });
   });
 }
@@ -86,6 +73,10 @@ api.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "garia-page") {
     const url = info.pageUrl || tab?.url;
     if (url && gariaIsHttpUrl(url)) sendToGaria(url, { from: "extension" });
+    return;
+  }
+  if (info.menuItemId === "garia-all-links") {
+    collectFromTab(tab);
   }
 });
 
@@ -103,6 +94,68 @@ api.runtime.onMessage.addListener((message) => {
     confirm: true,
   });
 });
+
+function openHandoff(params) {
+  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}`);
+  const opened = api.tabs.create({ url: handoff, active: false });
+  Promise.resolve(opened).then((tab) => {
+    if (!tab?.id) return;
+    setTimeout(() => {
+      api.tabs.remove(tab.id).catch(() => {});
+    }, 1500);
+  }).catch(() => {});
+}
+
+function sendToGaria(url, extras = {}) {
+  if (!url || alreadySent(url)) return;
+  const params = new URLSearchParams();
+  params.set("url", url);
+  params.set("from", extras.from || "extension");
+  if (extras.name) params.set("name", extras.name);
+  if (extras.referrer) params.set("referrer", extras.referrer);
+  if (extras.confirm) params.set("confirm", "1");
+  openHandoff(params);
+}
+
+function sendBatchToGaria(urls, referrer) {
+  const unique = [];
+  const seen = new Set();
+  for (const url of urls || []) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(url);
+  }
+  if (!unique.length) return;
+  const params = new URLSearchParams();
+  params.set("from", "extension");
+  params.set("batch", "1");
+  if (referrer) params.set("referrer", referrer);
+  const packed = unique.join("\n");
+  if (packed.length <= 5500) {
+    params.set("urls", packed);
+    openHandoff(params);
+    return;
+  }
+  const hash = encodeURIComponent(packed);
+  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}#${hash}`);
+  const opened = api.tabs.create({ url: handoff, active: false });
+  Promise.resolve(opened).then((tab) => {
+    if (!tab?.id) return;
+    setTimeout(() => {
+      api.tabs.remove(tab.id).catch(() => {});
+    }, 2000);
+  }).catch(() => {});
+}
+
+function collectFromTab(tab) {
+  const id = tab?.id;
+  if (!id) return;
+  const sent = api.tabs.sendMessage(id, { type: "collect-links" });
+  Promise.resolve(sent).then((res) => {
+    const urls = res?.urls || [];
+    if (urls.length) sendBatchToGaria(urls, tab.url || "");
+  }).catch(() => {});
+}
 
 function urlFromSelection(text) {
   for (const raw of String(text).split(/\s+/)) {

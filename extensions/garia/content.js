@@ -24,3 +24,29 @@ document.addEventListener("click", (event) => {
     referrer: location.href,
   });
 }, true);
+
+const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
+
+function collectPageLinks() {
+  const page = location.href.split("#")[0];
+  const seen = new Set();
+  const urls = [];
+  for (const a of document.querySelectorAll("a[href]")) {
+    let href;
+    try { href = new URL(a.href, document.baseURI).href; } catch { continue; }
+    if (!(href.startsWith("magnet:") || /^https?:/i.test(href))) continue;
+    const bare = href.split("#")[0];
+    if (bare === page) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    urls.push(href);
+  }
+  return urls;
+}
+
+if (window === window.top) {
+  api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || message.type !== "collect-links") return;
+    sendResponse({ urls: collectPageLinks() });
+  });
+}

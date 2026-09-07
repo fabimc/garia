@@ -29,6 +29,10 @@ pub struct CatchEvent {
     /// the quality picker — that *is* its confirm.
     #[serde(default)]
     pub confirm: bool,
+    /// Every URL when the extension sent more than one — download-all, or
+    /// a paste of several. Empty means `url` is the only one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<String>,
 }
 
 /// Extensions that mean the clipboard holds a file, not a page. A copied
@@ -101,11 +105,12 @@ pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
     let rest = rest.trim_start_matches('/');
     let query = rest.split_once('?')?.1;
 
-    let mut url = None;
+    let mut urls = Vec::new();
     let mut name = None;
     let mut referrer = None;
     let mut confirm = false;
     let mut from_extension = false;
+    let mut batch = false;
 
     for pair in query.split('&') {
         let Some((k, v)) = pair.split_once('=') else {
@@ -113,10 +118,10 @@ pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
         };
         let decoded = percent_decode(v);
         match k {
-            "url" => {
-                let decoded = decoded.trim();
-                if is_download_url(decoded) {
-                    url = Some(decoded.to_string());
+            "url" => push_download_url(&mut urls, decoded.trim()),
+            "urls" => {
+                for token in decoded.split_whitespace() {
+                    push_download_url(&mut urls, tidy_token(token));
                 }
             }
             "name" => name = safe_filename(&decoded),
@@ -127,12 +132,28 @@ pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
             }
             "confirm" => confirm = matches!(decoded.as_str(), "1" | "true" | "yes"),
             "from" => from_extension = decoded.eq_ignore_ascii_case("extension"),
+            "batch" => batch = matches!(decoded.as_str(), "1" | "true" | "yes"),
             _ => {}
         }
     }
 
-    let url = url?;
-    let extension = from_extension || confirm;
+    let extension = from_extension || confirm || batch;
+    if urls.is_empty() {
+        if batch && extension {
+            return Some(CatchEvent {
+                url: String::new(),
+                source: "extension".to_string(),
+                name,
+                referrer,
+                confirm: true,
+                urls: Vec::new(),
+            });
+        }
+        return None;
+    }
+
+    let url = urls[0].clone();
+    let extra = if urls.len() > 1 { urls } else { Vec::new() };
     Some(CatchEvent {
         url,
         source: if extension {
@@ -143,7 +164,29 @@ pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
         name,
         referrer,
         confirm: extension,
+        urls: extra,
     })
+}
+
+fn push_download_url(urls: &mut Vec<String>, token: &str) {
+    if !is_download_url(token) {
+        return;
+    }
+    if urls.iter().any(|u| u == token) {
+        return;
+    }
+    urls.push(token.to_string());
+}
+
+/// Every http(s) or magnet token in a dump — pages included. Download-all
+/// and a multi-URL paste are reviewed in the add dialog, so a YouTube
+/// link is not dropped the way a leftover clipboard page is.
+pub fn urls_in(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for raw in text.split_whitespace() {
+        push_download_url(&mut urls, tidy_token(raw));
+    }
+    urls
 }
 
 /// aria2's `out` is a filename, not a path. A Content-Disposition that
@@ -365,6 +408,53 @@ mod tests {
     fn a_dotdot_name_is_dropped() {
         let event = catch_from_garia_link("garia://add?url=https://example.com/a.zip&name=..").unwrap();
         assert!(event.name.is_none());
+    }
+
+    #[test]
+    fn repeated_url_params_are_a_batch() {
+        let event = catch_from_garia_link(
+            "garia://add?url=https://a.example/x.zip&url=https://b.example/y.mp3&from=extension",
+        )
+        .unwrap();
+        assert_eq!(event.url, "https://a.example/x.zip");
+        assert_eq!(
+            event.urls,
+            vec![
+                "https://a.example/x.zip".to_string(),
+                "https://b.example/y.mp3".to_string(),
+            ]
+        );
+        assert_eq!(event.source, "extension");
+    }
+
+    #[test]
+    fn a_urls_param_splits_on_newlines() {
+        let event = catch_from_garia_link(
+            "garia://add?from=extension&batch=1&urls=https%3A%2F%2Fa.example%2Fx.zip%0Ahttps%3A%2F%2Fb.example%2Fy.mp3",
+        )
+        .unwrap();
+        assert_eq!(event.urls.len(), 2);
+        assert_eq!(event.urls[1], "https://b.example/y.mp3");
+    }
+
+    #[test]
+    fn batch_without_urls_is_an_empty_extension_event() {
+        let event = catch_from_garia_link("garia://add?from=extension&batch=1").unwrap();
+        assert!(event.url.is_empty());
+        assert!(event.urls.is_empty());
+        assert_eq!(event.source, "extension");
+        assert!(event.confirm);
+    }
+
+    #[test]
+    fn urls_in_keeps_pages() {
+        assert_eq!(
+            urls_in("see https://youtube.com/watch?v=1 and https://cdn.example/a.zip"),
+            vec![
+                "https://youtube.com/watch?v=1".to_string(),
+                "https://cdn.example/a.zip".to_string(),
+            ]
+        );
     }
 
     #[test]
