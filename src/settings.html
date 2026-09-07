@@ -322,6 +322,56 @@
                             </p>
                         </details>
                     </div>
+
+                    <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-queue-stopped" />
+                            <span>Stop the queue</span>
+                        </label>
+                        <p class="field-hint">
+                            Nothing new starts, and anything already going is
+                            held. Start Queue in the menu, the header, or here
+                            turns this off. A download you paused yourself stays
+                            paused.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">When the last download finishes</div>
+                        <div
+                            class="field-radios"
+                            role="radiogroup"
+                            aria-label="When the last download finishes"
+                        >
+                            <label class="field-check">
+                                <input
+                                    type="radio"
+                                    name="done-action"
+                                    value="none"
+                                    checked
+                                />
+                                <span>Do nothing</span>
+                            </label>
+                            <label class="field-check">
+                                <input type="radio" name="done-action" value="sleep" />
+                                <span>Sleep this Mac</span>
+                            </label>
+                            <label class="field-check">
+                                <input
+                                    type="radio"
+                                    name="done-action"
+                                    value="shutdown"
+                                />
+                                <span>Shut down this Mac</span>
+                            </label>
+                        </div>
+                        <p class="field-hint">
+                            Only after something has actually been downloading
+                            this run, and after a 30-second warning. Garia has
+                            to be running. A stopped queue does not count as
+                            finished.
+                        </p>
+                    </div>
                 </section>
 
                 <section

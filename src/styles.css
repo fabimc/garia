@@ -2688,6 +2688,24 @@ html.prefs.in-app .modal {
     color: var(--warning);
 }
 
+.pill.is-stopped {
+    background: var(--warning-soft);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.add-start {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: 0.7rem;
+}
+.add-start .field-input {
+    flex: 1;
+    min-width: 12rem;
+}
+
 /* Paused and paused-by-the-clock are the same thing to aria2 and two very
    different things to the person waiting. */
 .dl-status-pill.scheduled {

@@ -23,6 +23,8 @@ let settings = {
   scheduleEnabled: false,
   scheduleStart: 2 * 60,
   scheduleEnd: 8 * 60,
+  queueStopped: false,
+  doneAction: "none",
 };
 
 let logins = [];
@@ -179,6 +181,7 @@ const settingsSched = document.getElementById("settings-schedule");
 const settingsSchedFrom = document.getElementById("settings-schedule-start");
 const settingsSchedTo = document.getElementById("settings-schedule-end");
 const settingsSchedSum = document.getElementById("settings-schedule-sum");
+const settingsQueueStopped = document.getElementById("settings-queue-stopped");
 const settingsLogins = document.getElementById("settings-logins");
 
 const schedFrom = () => minutesOf(settingsSchedFrom.value) ?? 2 * 60;
@@ -249,6 +252,10 @@ function fillForm() {
   settingsSched.checked = settings.scheduleEnabled === true;
   settingsSchedFrom.value = hhmm(Number(settings.scheduleStart) || 0);
   settingsSchedTo.value = hhmm(Number(settings.scheduleEnd) || 0);
+  settingsQueueStopped.checked = settings.queueStopped === true;
+  const action = settings.doneAction || "none";
+  const radio = document.querySelector(`input[name="done-action"][value="${action}"]`);
+  if (radio) radio.checked = true;
   renderScheduleSummary();
 }
 
@@ -281,6 +288,8 @@ function formSettings() {
     scheduleEnabled: settingsSched.checked && schedFrom() !== schedTo(),
     scheduleStart: schedFrom(),
     scheduleEnd: schedTo(),
+    queueStopped: settingsQueueStopped.checked,
+    doneAction: document.querySelector('input[name="done-action"]:checked')?.value || "none",
   };
 }
 
@@ -290,6 +299,7 @@ function settingsDiffer(a, b) {
     "seedRatio", "seedTimeMinutes", "smartFolders", "notifyOnComplete",
     "catchClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
+    "queueStopped", "doneAction",
   ];
   if (keys.some((k) => a[k] !== b[k])) return true;
   return JSON.stringify(a.categories || []) !== JSON.stringify(b.categories || []);
@@ -765,7 +775,10 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   showPane(item.dataset.pane);
 });
 
-for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsConfirmCapture, settingsInOrder, settingsSched, settingsRemote]) {
+for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsConfirmCapture, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
+  input.addEventListener("change", persistSettings);
+}
+for (const input of document.querySelectorAll('input[name="done-action"]')) {
   input.addEventListener("change", persistSettings);
 }
 

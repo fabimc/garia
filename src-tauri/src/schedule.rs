@@ -234,6 +234,9 @@ pub fn next_change(start: u32, end: u32) -> i64 {
 pub struct ScheduleState {
     pub enabled: bool,
     pub open: bool,
+    /// Stop Queue is in force. Separate from `open`: the daily window can
+    /// be open and the queue still held.
+    pub queue_stopped: bool,
     pub start: u32,
     pub end: u32,
     /// Epoch seconds. 0 when there is no window, so nothing counts down.

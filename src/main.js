@@ -48,6 +48,8 @@ let settings = {
   scheduleEnabled: false,
   scheduleStart: 2 * 60,
   scheduleEnd: 8 * 60,
+  queueStopped: false,
+  doneAction: "none",
 };
 
 async function loadSettings() {
@@ -1537,7 +1539,7 @@ async function setRowLimit(gid, bytes) {
 // nothing here recomputes it: the panel and the status bar say what they were
 // told.
 let schedule = {
-  enabled: false, open: true, start: 0, end: 0,
+  enabled: false, open: true, queueStopped: false, start: 0, end: 0,
   nextChange: 0, held: [], starts: {}, now: 0,
 };
 let heldGids = new Set();
@@ -1613,6 +1615,7 @@ function heldNote(gid) {
   if (!isHeld(gid)) return "";
   const at = startAt(gid);
   if (at) return `starts ${clockOf(at)}`;
+  if (schedule.queueStopped) return "queue stopped";
   if (schedule.enabled && !schedule.open) return `starts ${clockLabel(schedule.start)}`;
   return "held";
 }
@@ -1620,6 +1623,17 @@ function heldNote(gid) {
 // A window that is holding downloads back has to say so somewhere always
 // visible. Without it the app is simply a list of downloads that aren't going.
 function renderSchedule() {
+  const queueEl = document.getElementById("stat-queue");
+  if (queueEl) {
+    const stopped = schedule.queueStopped === true || settings.queueStopped === true;
+    queueEl.classList.toggle("hidden", !stopped);
+    if (stopped) {
+      queueEl.dataset.state = "shut";
+      queueEl.textContent = "· queue stopped";
+      queueEl.title = "Nothing new starts. Start Queue lets downloads run again.";
+    }
+  }
+
   const el = document.getElementById("stat-schedule");
   if (!el) return;
   el.classList.toggle("hidden", !schedule.enabled);
@@ -1635,6 +1649,37 @@ function renderSchedule() {
     ? `The window closes at ${clockLabel(schedule.end)}${span ? `, in ${span}` : ""}.`
     : `Downloads are held until ${clockLabel(schedule.start)}${span ? `, in ${span}` : ""}. `
       + "Garia has to be running then.";
+}
+
+function renderQueueToggle() {
+  const btn = document.getElementById("queue-toggle");
+  if (!btn) return;
+  const stopped = schedule.queueStopped === true || settings.queueStopped === true;
+  btn.textContent = stopped ? "Start Queue" : "Stop Queue";
+  btn.title = stopped
+    ? "Let downloads run again"
+    : "Hold every download that is going";
+  btn.classList.toggle("is-stopped", stopped);
+}
+
+async function setQueueStopped(stopped) {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function") {
+    schedule = { ...schedule, queueStopped: stopped };
+    settings = { ...settings, queueStopped: stopped };
+    renderQueueToggle();
+    renderSchedule();
+    return;
+  }
+  try {
+    schedule = await invoke("set_queue_stopped", { stopped });
+    heldGids = new Set(schedule.held || []);
+    settings = { ...settings, queueStopped: stopped };
+    renderQueueToggle();
+    renderSchedule();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // ── Queue order ──────────────────────────────────────────────────────────
@@ -2288,6 +2333,8 @@ function updateStartBlock(sec, data) {
       );
     }
     said.push("Garia has to be running then — nothing here wakes the Mac.");
+  } else if (schedule.queueStopped) {
+    said.push("Already held: the queue is stopped. A time here holds it past Start Queue.");
   } else if (schedule.enabled && !schedule.open) {
     said.push(`Already held: the window is shut until ${clockLabel(schedule.start)}. A time here holds it past that.`);
   } else {
@@ -2311,6 +2358,60 @@ const SCHEDULABLE = new Set(["active", "waiting", "paused"]);
 
 function canSchedule(data) {
   return data.parts.some((p) => p.status && SCHEDULABLE.has(p.status.status));
+}
+
+async function holdAdded(gid, at) {
+  if (!gid || !at) return;
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function") return;
+  try {
+    schedule = await invoke("set_download_start", { gid, at });
+    heldGids = new Set(schedule.held || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function startAtFrom(input) {
+  if (!input?.value) return null;
+  const at = Math.floor(new Date(input.value).getTime() / 1000);
+  if (!Number.isFinite(at) || at <= Math.floor(Date.now() / 1000)) return null;
+  return at;
+}
+
+function modalStartAt() {
+  const box = document.getElementById("add-start-on");
+  if (!box?.checked) return null;
+  return startAtFrom(document.getElementById("add-start-at"));
+}
+
+function captureStartAt() {
+  const box = document.getElementById("capture-start-on");
+  if (!box?.checked) return null;
+  return startAtFrom(document.getElementById("capture-start-at"));
+}
+
+function resetStartField(boxId, inputId) {
+  const box = document.getElementById(boxId);
+  const input = document.getElementById(inputId);
+  if (box) box.checked = false;
+  if (input) {
+    input.disabled = true;
+    input.value = localInputValue(defaultStart());
+  }
+}
+
+function wireStartField(boxId, inputId) {
+  const box = document.getElementById(boxId);
+  const input = document.getElementById(inputId);
+  if (!box || !input) return;
+  box.addEventListener("change", () => {
+    input.disabled = !box.checked;
+    if (box.checked) {
+      if (!input.value) input.value = localInputValue(defaultStart());
+      input.focus();
+    }
+  });
 }
 
 // A merged video is two aria2 downloads and one file. The pair is the user's
@@ -2730,6 +2831,7 @@ async function poll(listEl) {
 
     setConn("ok");
     renderSchedule();
+    renderQueueToggle();
 
     // aria2's own queue order, kept before the pairs are folded and the rows
     // are regrouped by status — the only place a drop position can come from.
@@ -2972,6 +3074,8 @@ window.addEventListener("DOMContentLoaded", () => {
       modalOk.textContent = mode === "video" ? "Download" : "OK";
       modalOk.disabled = false;
     }
+    const addStart = document.getElementById("add-start");
+    if (addStart) addStart.classList.toggle("hidden", mode === "busy");
     modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
     // Last, and after the OK button has been re-enabled above: the hash is the
     // one thing in the dialog that can disable it again.
@@ -3071,6 +3175,7 @@ window.addEventListener("DOMContentLoaded", () => {
     batchEntries.textContent = "";
     const now = batchPanel.querySelector('input[name="batch-when"][value="now"]');
     if (now) now.checked = true;
+    resetStartField("add-start-on", "add-start-at");
     renderModalLogin();
     setModalMode("url");
     overlay.classList.remove("hidden");
@@ -3116,7 +3221,9 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       const buf = await file.arrayBuffer();
       const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      await rpc("aria2.addTorrent", [b64, [], addOptions()]);
+      const at = modalStartAt();
+      const gid = await rpc("aria2.addTorrent", [b64, [], addOptions(undefined, { queue: Boolean(at) })]);
+      await holdAdded(gid, at);
       closeModal();
       await pollAndSync();
     } catch (err) {
@@ -3158,7 +3265,13 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     try {
-      const gid = await rpc("aria2.addUri", [[url], { ...options, ...checksumOption(parsed) }]);
+      const at = modalStartAt();
+      const gid = await rpc("aria2.addUri", [[url], {
+        ...options,
+        ...checksumOption(parsed),
+        ...(at ? { pause: "true" } : {}),
+      }]);
+      await holdAdded(gid, at);
       // aria2 would answer the same thing a tick later; knowing it now is what
       // keeps a small file from finishing before its own badge exists.
       if (parsed?.spec && typeof gid === "string") rowChecksums.set(gid, parsed.spec);
@@ -3182,11 +3295,14 @@ window.addEventListener("DOMContentLoaded", () => {
       .map((box) => box.dataset.url);
     const urls = checked.length ? checked : candidates;
     if (!urls.length) return;
-    const queue = batchPanel.querySelector('input[name="batch-when"][value="queue"]')?.checked;
+    const at = modalStartAt();
+    const queue = Boolean(at)
+      || batchPanel.querySelector('input[name="batch-when"][value="queue"]')?.checked;
     modalError.classList.add("hidden");
     try {
       for (const url of urls) {
-        await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
+        const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
+        await holdAdded(gid, at);
       }
       closeModal();
       await pollAndSync();
@@ -3479,12 +3595,16 @@ window.addEventListener("DOMContentLoaded", () => {
     // Some sites mint a URL for one User-Agent and 403 every other.
     const referer = info.webpageUrl ? { referer: info.webpageUrl } : {};
 
+    const at = modalStartAt();
+    const hold = at ? { pause: "true" } : {};
+
     if (choice.formats.length === 1) {
       const f = choice.formats[0];
-      await rpc("aria2.addUri", [[f.url], {
-        ...common, ...referer, out: `${base}.${f.ext}`,
+      const gid = await rpc("aria2.addUri", [[f.url], {
+        ...common, ...referer, ...hold, out: `${base}.${f.ext}`,
         header: [...f.headers, ...loginHeaders(f.url)],
       }]);
+      await holdAdded(gid, at);
       return;
     }
 
@@ -3494,13 +3614,15 @@ window.addEventListener("DOMContentLoaded", () => {
     const videoName = `${base}.f${v.id}.${v.ext}`;
     const audioName = `${base}.f${a.id}.${a.ext}`;
     const videoGid = await rpc("aria2.addUri", [[v.url], {
-      ...common, ...referer, out: videoName,
+      ...common, ...referer, ...hold, out: videoName,
       header: [...v.headers, ...loginHeaders(v.url)],
     }]);
     const audioGid = await rpc("aria2.addUri", [[a.url], {
-      ...common, ...referer, out: audioName,
+      ...common, ...referer, ...hold, out: audioName,
       header: [...a.headers, ...loginHeaders(a.url)],
     }]);
+    await holdAdded(videoGid, at);
+    await holdAdded(audioGid, at);
     jobs.set(videoGid, {
       audioGid,
       dir,
@@ -4119,6 +4241,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("pause-all").addEventListener("click", pauseAll);
   document.getElementById("resume-all").addEventListener("click", resumeAll);
+  document.getElementById("queue-toggle").addEventListener("click", () => {
+    const stopped = schedule.queueStopped === true || settings.queueStopped === true;
+    setQueueStopped(!stopped).then(() => pollAndSync());
+  });
 
   // ── Queue reordering ─────────────────────────────────────────────────────
   // A queue is an order, so it has to be draggable. The rows move under the
@@ -4380,6 +4506,10 @@ window.addEventListener("DOMContentLoaded", () => {
       renderCategoryNav();
       applyFilter(listEl);
       if (!settings.notifyOnComplete) clearBadge();
+      loadSchedule().then(() => {
+        renderSchedule();
+        renderQueueToggle();
+      });
     });
     listenSettings("logins-changed", (event) => {
       if (Array.isArray(event?.payload)) logins = event.payload;
@@ -4494,6 +4624,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (id === "find") { nameSearch.focus(); nameSearch.select(); }
       if (id === "pause-all") pauseAll();
       if (id === "resume-all") resumeAll();
+      if (id === "stop-queue") setQueueStopped(true).then(() => pollAndSync());
+      if (id === "start-queue") setQueueStopped(false).then(() => pollAndSync());
       if (id === "open-folder") {
         const dir = settings.downloadDir;
         if (dir && window.__TAURI__?.opener?.openPath) {
@@ -4705,6 +4837,7 @@ window.addEventListener("DOMContentLoaded", () => {
     captureDir.value = targetDir(url) || settings.downloadDir || "";
     const now = captureOverlay.querySelector('input[name="capture-when"][value="now"]');
     if (now) now.checked = true;
+    resetStartField("capture-start-on", "capture-start-at");
     captureOverlay.classList.remove("hidden");
     setTimeout(() => captureName.focus(), 50);
   }
@@ -4721,7 +4854,12 @@ window.addEventListener("DOMContentLoaded", () => {
     // A file (or magnet) can go straight in; a page still needs the picker.
     if (!looksLikeAPage(url) || url.startsWith("magnet:")) {
       try {
-        await rpc("aria2.addUri", [[url], addOptions(url, extras)]);
+        const at = extras.startAt;
+        const gid = await rpc("aria2.addUri", [[url], addOptions(url, {
+          ...extras,
+          queue: extras.queue || Boolean(at),
+        })]);
+        await holdAdded(gid, at);
         await pollAndSync();
       } catch (err) {
         openModal(url);
@@ -4825,12 +4963,15 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("capture-ok").addEventListener("click", () => {
     if (!capturePending?.url) return;
-    const queued = captureOverlay.querySelector('input[name="capture-when"][value="queue"]')?.checked;
+    const at = captureStartAt();
+    const queued = Boolean(at)
+      || captureOverlay.querySelector('input[name="capture-when"][value="queue"]')?.checked;
     ingestUrl(capturePending.url, {
       name: captureName.value.trim(),
       referrer: capturePending.referrer,
       dir: captureDir.value.trim(),
       queue: queued,
+      startAt: at,
     });
   });
   captureName.addEventListener("keydown", (e) => {
@@ -4840,11 +4981,53 @@ window.addEventListener("DOMContentLoaded", () => {
   if (!window.__TAURI__) window.__gariaHandleCatch = handleCatch;
 
   const listen = window.__TAURI__?.event?.listen;
+  const drainBanner = document.getElementById("drain-banner");
+  const drainText = document.getElementById("drain-text");
+  let drainTimer = null;
+
+  function hideDrain() {
+    if (drainTimer) {
+      clearInterval(drainTimer);
+      drainTimer = null;
+    }
+    drainBanner.classList.add("hidden");
+  }
+
+  function showDrain(event = {}) {
+    hideDrain();
+    let left = Number(event.seconds) || 30;
+    const action = event.action === "shutdown" ? "shut down" : "sleep";
+    const paint = () => {
+      drainText.textContent =
+        `This Mac will ${action} in ${left} second${left === 1 ? "" : "s"}.`;
+    };
+    paint();
+    drainBanner.classList.remove("hidden");
+    drainTimer = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        hideDrain();
+        return;
+      }
+      paint();
+    }, 1000);
+  }
+
+  document.getElementById("drain-cancel").addEventListener("click", () => {
+    hideDrain();
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (typeof invoke === "function") invoke("cancel_queue_drain").catch(() => {});
+  });
+
+  wireStartField("add-start-on", "add-start-at");
+  wireStartField("capture-start-on", "capture-start-at");
+
   if (typeof listen === "function") {
     listen("catch-url", (event) => handleCatch(event.payload));
     listen("open-torrent", (event) => {
       if (event.payload) ingestTorrentPath(event.payload);
     });
+    listen("queue-drained", (event) => showDrain(event.payload));
   }
   const invoker = window.__TAURI__?.core?.invoke;
   if (typeof invoker === "function") {

@@ -41,6 +41,16 @@ define_class!(
             fire("resume-all");
         }
 
+        #[unsafe(method(stopQueue:))]
+        fn stop_queue(&self, _sender: Option<&AnyObject>) {
+            fire("stop-queue");
+        }
+
+        #[unsafe(method(startQueue:))]
+        fn start_queue(&self, _sender: Option<&AnyObject>) {
+            fire("start-queue");
+        }
+
         #[unsafe(method(openFolder:))]
         fn open_folder(&self, _sender: Option<&AnyObject>) {
             fire("open-folder");
@@ -135,6 +145,9 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add_item(mtm, &menu, &target, "Pause All", sel!(pauseAll:));
     add_item(mtm, &menu, &target, "Resume All", sel!(resumeAll:));
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    add_item(mtm, &menu, &target, "Stop Queue", sel!(stopQueue:));
+    add_item(mtm, &menu, &target, "Start Queue", sel!(startQueue:));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add_item(mtm, &menu, &target, "Open Download Folder", sel!(openFolder:));
 

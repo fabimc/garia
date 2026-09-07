@@ -8,8 +8,8 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 
 - Add downloads by URL, magnet link, or `.torrent` file — typed, dropped on the window, or opened from Finder
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
-- A menu-bar extra while the window is hidden — New Download, Pause All, and how many are running
-- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Open Download Folder
+- A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
+- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Open Download Folder
 - A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,)
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
@@ -29,6 +29,8 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Catch a download from the browser — click a file, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia
 - Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives
 - Add several URLs at once — paste, drop, or send every link on a page from the extension, then uncheck the ones you do not want
+- A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header
+- When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
 - Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, and both switches above
 - Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
@@ -256,6 +258,8 @@ The files inside a torrent are ticked in the detail panel, which is `--select-fi
 
 Clicking a row opens its detail panel, which asks aria2 for the full key set — the source URL, the destination path, the live connection count, the piece layout — for that one download only, so the list's own poll stays as narrow as it was. While it's open it refreshes off the same one-second tick: `aria2.getServers` for the servers an HTTP download is actually pulling from, `aria2.getPeers` for a torrent's peers, both asked for only while the download is running, because aria2 answers with an error otherwise. A merged video shows as what it is — the page it came from and the file it will become, then each half with its own URL, path and connections. Copy buttons go through Rust rather than the webview's clipboard, which also means the clipboard watcher on the other side knows to ignore what garia itself just wrote.
 
+The scheduler is two clocks and one verb. A daily window in Settings holds every download outside those hours. A start time on the Add sheet — or on one row's detail panel — holds just that download until the moment named. Stop Queue holds everything that is going the same way a shut window does, and Start Queue lets go of only what Garia stopped; a download you paused yourself stays paused. When the last unfinished download lands, Settings can sleep or shut the Mac down after a 30-second warning, armed only after this run has actually had work, so a launch onto an empty list does nothing. Garia has to be running for any of this. Nothing here wakes the Mac.
+
 A queued row can be dragged to a different place in the queue, which is `aria2.changePosition` underneath. The position it sends is not the row's place on screen: aria2's queue holds paused downloads too — they keep their slot without taking a turn — and the list shows those in a section of their own. So the drop is read off its neighbours instead. The row it was dropped above is looked up in the queue that `tellWaiting` last reported, and that index is the position. A merged video is two downloads in one row, so it moves as two, back to front, because aria2 renumbers the queue on every move. The row goes where it was put before aria2 is asked, and the list holds still while a row is in hand — a drag that waited on a round trip would drop the row back for a tick, which reads as a refusal. Only queued rows move: a running download has already left the queue, and a paused one is not waiting for a turn.
 
 Completion is noticed by the same one-second poll that drives the progress bars: a download that was not `complete` on the previous tick and is now gets a notification, and — if the window wasn't focused — adds one to the dock badge, which clears the moment you come back to it.
@@ -268,7 +272,7 @@ The extension lives in `extensions/garia`. Settings → Capture → Show extensi
 
 The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
 
-On a Mac, the red button and ⌘W hide the window. aria2 keeps running, the dock icon stays, and clicking it (or a `garia://` link) brings the window back. Right-clicking the icon offers New Download, Pause All, Resume All, and Open Download Folder. ⌘Q is the only thing that saves the session and stops the engine. The window's size and place survive a quit. Launch at login is a LaunchAgent, turned on from Settings, so an overnight schedule does not wait for you to open the app.
+On a Mac, the red button and ⌘W hide the window. aria2 keeps running, the dock icon stays, and clicking it (or a `garia://` link) brings the window back. Right-clicking the icon offers New Download, Pause All, Resume All, Stop Queue, Start Queue, and Open Download Folder. ⌘Q is the only thing that saves the session and stops the engine. The window's size and place survive a quit. Launch at login is a LaunchAgent, turned on from Settings, so an overnight schedule does not wait for you to open the app.
 
 Every RPC call is authenticated with a secret generated at launch and injected by the Rust backend, so nothing else on the machine — including a web page in your browser — can drive the download engine. Unfinished downloads are written to `session.txt` in the app's data directory and read back at startup.
 

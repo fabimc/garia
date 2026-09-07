@@ -328,6 +328,13 @@
                             </svg>
                             Resume all
                         </button>
+                        <button
+                            class="pill"
+                            id="queue-toggle"
+                            title="Hold every download that is going"
+                        >
+                            Stop Queue
+                        </button>
                         <div class="search-field" data-tauri-drag-region="false">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -391,6 +398,12 @@
                         Add
                     </button>
                 </div>
+                <div id="drain-banner" class="catch-banner hidden" role="status">
+                    <p id="drain-text" class="catch-text">The queue has finished.</p>
+                    <button type="button" class="btn-primary" id="drain-cancel">
+                        Don't
+                    </button>
+                </div>
             </main>
 
             <!-- ── Status bar ───────────────────────────────────────────── -->
@@ -403,6 +416,7 @@
                      downloads back has to say so somewhere always visible, or
                      the app just looks broken. -->
                 <span id="stat-schedule" class="status-schedule hidden"></span>
+                <span id="stat-queue" class="status-schedule hidden"></span>
                 <span class="status-sep">·</span>
                 <button
                     type="button"
@@ -589,6 +603,20 @@
                         <p id="modal-checksum-hint" class="field-hint"></p>
                     </div>
 
+                    <div id="add-start" class="add-start">
+                        <label class="field-check">
+                            <input type="checkbox" id="add-start-on" />
+                            <span>Start at a time</span>
+                        </label>
+                        <input
+                            id="add-start-at"
+                            class="field-input"
+                            type="datetime-local"
+                            disabled
+                            aria-label="The moment these downloads may start"
+                        />
+                    </div>
+
                     <!-- Shown while yt-dlp is reading the page. It can take a
                          few seconds, and a dialog that just sits there looks
                          broken. -->
@@ -768,16 +796,29 @@
                             />
                             <span>Start now</span>
                         </label>
-                        <label class="field-check">
+                            <label class="field-check">
+                                <input
+                                    type="radio"
+                                    name="capture-when"
+                                    value="queue"
+                                />
+                                <span>Add to queue</span>
+                            </label>
+                        </div>
+                        <div class="add-start">
+                            <label class="field-check">
+                                <input type="checkbox" id="capture-start-on" />
+                                <span>Start at a time</span>
+                            </label>
                             <input
-                                type="radio"
-                                name="capture-when"
-                                value="queue"
+                                id="capture-start-at"
+                                class="field-input"
+                                type="datetime-local"
+                                disabled
+                                aria-label="The moment this download may start"
                             />
-                            <span>Add to queue</span>
-                        </label>
+                        </div>
                     </div>
-                </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" id="capture-cancel">
                         Cancel

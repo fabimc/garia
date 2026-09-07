@@ -60,6 +60,17 @@ enum TrafficMode {
     Light,
 }
 
+/// What to do when the last download that still has work finishes. Sleep
+/// and shut down are the Mac version of IDM's "disconnect when done".
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+enum DoneAction {
+    #[default]
+    None,
+    Sleep,
+    Shutdown,
+}
+
 /// What Medium and Light mean before the user says otherwise: enough for a
 /// video to keep up, and slow enough to disappear behind a call.
 const DEFAULT_MEDIUM_LIMIT: u64 = 2 * 1024 * 1024;
@@ -183,6 +194,16 @@ struct Settings {
     schedule_start: u32,
     #[serde(default)]
     schedule_end: u32,
+    /// The queue is stopped: nothing new starts, and anything running is
+    /// held the same way a shut window holds it. Off by default. Pause All
+    /// is per row; this is the verb that means "not now".
+    #[serde(default)]
+    queue_stopped: bool,
+    /// After the last unfinished download lands. `none` is the default, and
+    /// the action waits until this run has actually had work — a launch
+    /// onto an empty list must not put the Mac to sleep.
+    #[serde(default)]
+    done_action: DoneAction,
 }
 
 impl Default for Settings {
@@ -210,6 +231,8 @@ impl Default for Settings {
             // mean by off-peak: overnight, wrapping midnight.
             schedule_start: 2 * 60,
             schedule_end: 8 * 60,
+            queue_stopped: false,
+            done_action: DoneAction::None,
         }
     }
 }
@@ -669,7 +692,8 @@ fn aria2_rpc(
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let holding = method == "aria2.addUri" && !window_open(&settings);
+    let holding = matches!(method.as_str(), "aria2.addUri" | "aria2.addTorrent")
+        && !run_allowed(&settings);
     let params = if holding {
         schedule::with_pause(params)
     } else {
@@ -686,9 +710,8 @@ fn aria2_rpc(
     Ok(out)
 }
 
-/// The one answer to "may downloads run right now". Everything that asks —
-/// the tick, the `addUri` path, the panel — asks this, so nothing can be
-/// working from a different reading of the same two numbers.
+/// The daily window alone. The status bar names this; `run_allowed` is the
+/// gate that also honours a stopped queue.
 fn window_open(settings: &tauri::State<SettingsState>) -> bool {
     settings
         .current
@@ -696,6 +719,21 @@ fn window_open(settings: &tauri::State<SettingsState>) -> bool {
         .map(|s| {
             !s.schedule_enabled
                 || schedule::open_at(s.schedule_start, s.schedule_end, schedule::minutes_now())
+        })
+        .unwrap_or(true)
+}
+
+/// The one answer to "may downloads run right now". Everything that asks —
+/// the tick, the `addUri` path, Stop Queue — asks this, so nothing can be
+/// working from a different reading of the same two numbers.
+fn run_allowed(settings: &tauri::State<SettingsState>) -> bool {
+    settings
+        .current
+        .lock()
+        .map(|s| {
+            !s.queue_stopped
+                && (!s.schedule_enabled
+                    || schedule::open_at(s.schedule_start, s.schedule_end, schedule::minutes_now()))
         })
         .unwrap_or(true)
 }
@@ -708,16 +746,24 @@ fn schedule_state(
     settings: tauri::State<SettingsState>,
     schedule: tauri::State<schedule::Schedule>,
 ) -> schedule::ScheduleState {
-    let (enabled, start, end) = settings
+    let (enabled, start, end, queue_stopped) = settings
         .current
         .lock()
-        .map(|s| (s.schedule_enabled, s.schedule_start, s.schedule_end))
-        .unwrap_or((false, 0, 0));
+        .map(|s| {
+            (
+                s.schedule_enabled,
+                s.schedule_start,
+                s.schedule_end,
+                s.queue_stopped,
+            )
+        })
+        .unwrap_or((false, 0, 0, false));
     let saved = schedule.snapshot();
 
     schedule::ScheduleState {
         enabled,
         open: !enabled || schedule::open_at(start, end, schedule::minutes_now()),
+        queue_stopped,
         start,
         end,
         next_change: if enabled {
@@ -765,7 +811,7 @@ fn set_download_start(
             }
         }
         None => {
-            if window_open(&settings) {
+            if run_allowed(&settings) {
                 let _ = aria2_request(
                     aria2.port,
                     &secret,
@@ -778,6 +824,39 @@ fn set_download_start(
     }
 
     Ok(schedule_state(settings, schedule))
+}
+
+/// Stop Queue or Start Queue. The same hold/release path the daily window
+/// uses, so a download the user paused themselves is not started again, and
+/// a download this verb paused is.
+#[tauri::command]
+fn set_queue_stopped(
+    app: tauri::AppHandle,
+    settings: tauri::State<SettingsState>,
+    schedule: tauri::State<schedule::Schedule>,
+    stopped: bool,
+) -> Result<schedule::ScheduleState, String> {
+    let next = {
+        let Ok(mut guard) = settings.current.lock() else {
+            return Err("could not read settings".into());
+        };
+        guard.queue_stopped = stopped;
+        guard.clone()
+    };
+    let json = serde_json::to_string_pretty(&next)
+        .map_err(|e| format!("could not encode the settings: {e}"))?;
+    fs::write(&settings.file, json)
+        .map_err(|e| format!("could not write {}: {e}", settings.file.display()))?;
+    let _ = app.emit("settings-changed", &next);
+    schedule_tick(&app);
+    Ok(schedule_state(settings, schedule))
+}
+
+#[tauri::command]
+fn cancel_queue_drain(app: tauri::AppHandle) {
+    if let Some(watch) = app.try_state::<DrainWatch>() {
+        cancel_drain(&watch);
+    }
 }
 
 /// The status bar names the endpoint it's talking to, and the port is no
@@ -880,6 +959,9 @@ fn save_settings(
     });
 
     let _ = app.emit("settings-changed", &settings);
+    // The daily window, Stop Queue, and the done-action all live in this
+    // file. A save has to reconcile them now rather than up to a tick later.
+    schedule_tick(&app);
 
     if jar_changed || remote_changed {
         restart_aria2(&aria2, &settings, next_secret).map_err(|e| {
@@ -1483,19 +1565,26 @@ fn schedule_tick(app: &tauri::AppHandle) {
     };
 
     let saved = sched.snapshot();
-    let enabled = settings
+    let (enabled, queue_stopped, done_action) = settings
         .current
         .lock()
-        .map(|s| s.schedule_enabled)
-        .unwrap_or(false);
+        .map(|s| (s.schedule_enabled, s.queue_stopped, s.done_action))
+        .unwrap_or((false, false, DoneAction::None));
     // Nothing to enforce and nothing outstanding: the common case, and it must
     // cost nothing. A schedule turned off while rows are still held is not that
-    // case — those have to be let go rather than left stopped forever.
-    if !enabled && saved.held.is_empty() && saved.starts.is_empty() {
+    // case — those have to be let go rather than left stopped forever. A
+    // done-action has to keep looking even when the clock is idle.
+    if !enabled
+        && !queue_stopped
+        && saved.held.is_empty()
+        && saved.starts.is_empty()
+        && done_action == DoneAction::None
+    {
         return;
     }
 
-    let open = window_open(&settings);
+    let daily_open = window_open(&settings);
+    let open = daily_open && !queue_stopped;
     let now = schedule::epoch_now();
     let secret = aria2.secret();
     let ask = |method: &str, params: serde_json::Value| {
@@ -1555,7 +1644,10 @@ fn schedule_tick(app: &tauri::AppHandle) {
     let mut spent: Vec<String> = Vec::new();
 
     for row in &rows {
-        let allowed = !enabled || schedule::allowed(&row.gid, open, &saved.starts, now);
+        // `open` already folds in Stop Queue. Start times have to be read
+        // even when the daily window is off — otherwise a row held until
+        // 3am is released on the next tick.
+        let allowed = schedule::allowed(&row.gid, open, &saved.starts, now);
         if allowed && saved.starts.get(&row.gid).is_some_and(|at| now >= *at) {
             spent.push(row.gid.clone());
         }
@@ -1596,6 +1688,113 @@ fn schedule_tick(app: &tauri::AppHandle) {
     }
     sched.set_overridden(overridden);
     sched.reconcile(&hold, &unhold, &spent, &known);
+
+    let working = !rows.is_empty();
+    // Held rows are still work, so a stopped queue does not look empty.
+    // Passing None also cancels a drain that was armed before Stop Queue.
+    drain_tick(
+        app,
+        working,
+        if queue_stopped {
+            DoneAction::None
+        } else {
+            done_action
+        },
+    );
+}
+
+/// Watches for the last unfinished download to land, then sleeps or shuts
+/// the Mac down. Armed only after this run has seen work, so a launch onto
+/// an empty list does nothing.
+struct DrainWatch {
+    seen_work: Mutex<bool>,
+    cancel: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DrainEvent {
+    action: DoneAction,
+    seconds: u32,
+}
+
+const DRAIN_GRACE_SECS: u32 = 30;
+
+fn cancel_drain(watch: &DrainWatch) {
+    if let Ok(mut slot) = watch.cancel.lock() {
+        if let Some(flag) = slot.take() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+fn drain_tick(app: &tauri::AppHandle, working: bool, action: DoneAction) {
+    let Some(watch) = app.try_state::<DrainWatch>() else {
+        return;
+    };
+    if action == DoneAction::None {
+        cancel_drain(&watch);
+        if let Ok(mut seen) = watch.seen_work.lock() {
+            *seen = working;
+        }
+        return;
+    }
+    if working {
+        cancel_drain(&watch);
+        if let Ok(mut seen) = watch.seen_work.lock() {
+            *seen = true;
+        }
+        return;
+    }
+    let armed = watch.seen_work.lock().map(|mut s| {
+        let was = *s;
+        *s = false;
+        was
+    }).unwrap_or(false);
+    if !armed {
+        return;
+    }
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut slot) = watch.cancel.lock() {
+        if let Some(old) = slot.replace(flag.clone()) {
+            old.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let body = match action {
+        DoneAction::Sleep => "This Mac will sleep in 30 seconds.",
+        DoneAction::Shutdown => "This Mac will shut down in 30 seconds.",
+        DoneAction::None => return,
+    };
+    let _ = app.emit("queue-drained", DrainEvent { action, seconds: DRAIN_GRACE_SECS });
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Queue finished")
+        .body(body)
+        .show();
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(DRAIN_GRACE_SECS as u64));
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        perform_done_action(action);
+        if let Some(watch) = handle.try_state::<DrainWatch>() {
+            if let Ok(mut slot) = watch.cancel.lock() {
+                slot.take();
+            }
+        }
+    });
+}
+
+fn perform_done_action(action: DoneAction) {
+    let script = match action {
+        DoneAction::Sleep => "tell application \"System Events\" to sleep",
+        DoneAction::Shutdown => "tell application \"System Events\" to shut down",
+        DoneAction::None => return,
+    };
+    let _ = Command::new("osascript").args(["-e", script]).status();
 }
 
 // ── Video (yt-dlp) ───────────────────────────────────────────────────────
@@ -2756,6 +2955,8 @@ pub fn run() {
             remote_info,
             schedule_state,
             set_download_start,
+            set_queue_stopped,
+            cancel_queue_drain,
             autostart_enabled,
             set_autostart,
             open_settings_window,
@@ -2861,6 +3062,10 @@ pub fn run() {
                 pending: Mutex::new(Vec::new()),
             });
             app.manage(schedule::Schedule::new(schedule::state_file(&dir)));
+            app.manage(DrainWatch {
+                seen_work: Mutex::new(false),
+                cancel: Mutex::new(None),
+            });
             app.manage(OwnCopy::default());
 
             // `garia://add?url=…` from a bookmarklet, and `magnet:` from the
@@ -2908,7 +3113,8 @@ pub fn run() {
                         }
                     }
                     "new-download" | "open-torrent" | "find"
-                    | "pause-all" | "resume-all" | "open-folder"
+                    | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
+                    | "open-folder"
                     | "check-updates" | "licenses" | "help" => {
                         bring_to_front(app);
                         let _ = app.emit("menu", event.id().as_ref());
@@ -3026,6 +3232,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
     let pause_all = MenuItemBuilder::with_id("pause-all", "Pause All").build(app)?;
     let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
+    let stop_queue = MenuItemBuilder::with_id("stop-queue", "Stop Queue").build(app)?;
+    let start_queue = MenuItemBuilder::with_id("start-queue", "Start Queue").build(app)?;
 
     let check_updates = MenuItemBuilder::with_id("check-updates", "Check for Updates…")
         .build(app)?;
@@ -3092,6 +3300,9 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     let download_menu = SubmenuBuilder::new(app, "Download")
         .item(&pause_all)
         .item(&resume_all)
+        .separator()
+        .item(&stop_queue)
+        .item(&start_queue)
         .build()?;
 
     let window_menu = SubmenuBuilder::new(app, "Window")
@@ -3133,6 +3344,8 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     let new_download = MenuItemBuilder::with_id("new-download", "New Download").build(app)?;
     let pause_all = MenuItemBuilder::with_id("pause-all", "Pause All").build(app)?;
     let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
+    let stop_queue = MenuItemBuilder::with_id("stop-queue", "Stop Queue").build(app)?;
+    let start_queue = MenuItemBuilder::with_id("start-queue", "Start Queue").build(app)?;
     let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder").build(app)?;
     let show = MenuItemBuilder::with_id("show-window", "Show Garia").build(app)?;
 
@@ -3141,6 +3354,9 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .item(&pause_all)
         .item(&resume_all)
+        .separator()
+        .item(&stop_queue)
+        .item(&start_queue)
         .separator()
         .item(&open_folder)
         .separator()
@@ -3153,7 +3369,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .icon_as_template(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
-            id @ ("new-download" | "pause-all" | "resume-all" | "open-folder") => {
+            id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue" | "open-folder") => {
                 bring_to_front(app);
                 let _ = app.emit("menu", id);
             }
@@ -3258,6 +3474,25 @@ mod tests {
                 "scheduleStart":1500,"scheduleEnd":480}"#,
         );
         assert_eq!(s.schedule_start, 60);
+    }
+
+    #[test]
+    fn a_file_that_never_heard_of_the_queue_leaves_it_running() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert!(!s.queue_stopped);
+        assert_eq!(s.done_action, DoneAction::None);
+    }
+
+    #[test]
+    fn stop_queue_and_a_done_action_round_trip() {
+        let s = settings_from(
+            r#"{"downloadDir":"/tmp","queueStopped":true,"doneAction":"sleep"}"#,
+        );
+        assert!(s.queue_stopped);
+        assert_eq!(s.done_action, DoneAction::Sleep);
+
+        let s = settings_from(r#"{"downloadDir":"/tmp","doneAction":"shutdown"}"#);
+        assert_eq!(s.done_action, DoneAction::Shutdown);
     }
 
     /// The switch without a list is the four kinds it has always meant.
