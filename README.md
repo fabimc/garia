@@ -10,7 +10,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
 - A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
 - Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Open Download Folder
-- A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,)
+- A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,), View → Columns
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
 - Select rows, right-click them, and use the keyboard — Space pauses, ⌘⌫ deletes, ⌘C copies the URL
@@ -18,7 +18,7 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 - Check for Updates from the Garia menu, once a signed GitHub release exists
 - Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
-- Live progress bars with speed and size info
+- Live progress bars, and View → Columns for size, speed, time left, sockets, source, and category on every row
 - Pause and resume downloads
 - Drag a queued download somewhere else in the queue — or move it with ⌥↑ / ⌥↓
 - A detail panel on every row — where the bytes come from, where they land, how many sockets are open, and every peer of a torrent
@@ -272,6 +272,8 @@ The files inside a torrent are ticked in the detail panel, which is `--select-fi
 Clicking a row opens its detail panel, which asks aria2 for the full key set — the source URL, the destination path, the live connection count, the piece layout — for that one download only, so the list's own poll stays as narrow as it was. While it's open it refreshes off the same one-second tick: `aria2.getServers` for the servers an HTTP download is actually pulling from, `aria2.getPeers` for a torrent's peers, both asked for only while the download is running, because aria2 answers with an error otherwise. A merged video shows as what it is — the page it came from and the file it will become, then each half with its own URL, path and connections. Copy buttons go through Rust rather than the webview's clipboard, which also means the clipboard watcher on the other side knows to ignore what garia itself just wrote.
 
 The scheduler is two clocks and one verb. A daily window in Settings holds every download outside those hours. A start time on the Add sheet — or on one row's detail panel — holds just that download until the moment named. Stop Queue holds everything that is going the same way a shut window does, and Start Queue lets go of only what Garia stopped; a download you paused yourself stays paused. When the last unfinished download lands, Settings can sleep or shut the Mac down after a 30-second warning, armed only after this run has actually had work, so a launch onto an empty list does nothing. Garia has to be running for any of this. Nothing here wakes the Mac.
+
+View → Columns pins size, speed, time left, sockets, source, and category on the right of every row, so a long list can be scanned. The row stays a card — name, bar, actions. What is on is a view preference, next to the sidebar collapse, not an engine setting. Size, speed, and time left start on; turning a column on takes that number out of the one-line summary so nothing is said twice. The header button and a right-click on the labels do the same as the menu.
 
 A queued row can be dragged to a different place in the queue, which is `aria2.changePosition` underneath. The position it sends is not the row's place on screen: aria2's queue holds paused downloads too — they keep their slot without taking a turn — and the list shows those in a section of their own. So the drop is read off its neighbours instead. The row it was dropped above is looked up in the queue that `tellWaiting` last reported, and that index is the position. A merged video is two downloads in one row, so it moves as two, back to front, because aria2 renumbers the queue on every move. The row goes where it was put before aria2 is asked, and the list holds still while a row is in hand — a drag that waited on a round trip would drop the row back for a tick, which reads as a refusal. Only queued rows move: a running download has already left the queue, and a paused one is not waiting for a turn.
 

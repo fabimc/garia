@@ -909,6 +909,61 @@ html.in-app .statusbar {
     text-overflow: ellipsis;
 }
 
+/* Optional numbers on the right of every row, so a long list can be scanned
+   the way a table can. The card itself does not become a table: name, bar,
+   and actions stay where they are. The header is the same cells, sticky, so
+   the labels stay over the values as the list moves. */
+.col-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    padding: 0 0.6rem 0.4rem;
+    margin: 0 0 0.15rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+}
+.col-head-spacer {
+    flex: 1;
+    min-width: 0;
+}
+.col-head-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: default;
+}
+
+.dl-cols {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 0;
+}
+.dl-col {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 0.45rem;
+}
+.dl-col.is-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.col-head .dl-col.is-num {
+    text-align: right;
+}
+.dl-col.is-empty {
+    color: var(--border-strong);
+}
+
 /* Why a download failed — the line that turns "Failed" into something you can
    act on. Full text lives in the title attribute when it overflows. */
 .dl-error {

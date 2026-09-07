@@ -1486,6 +1486,29 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Checkmarks on View → Columns and Show Sidebar. The frontend owns the
+/// preference (localStorage, like the sidebar collapse); this is only so the
+/// menu can be told when that changes.
+struct ViewMenu {
+    items: Mutex<Vec<tauri::menu::CheckMenuItem<tauri::Wry>>>,
+}
+
+#[tauri::command]
+fn sync_view_menu(state: tauri::State<ViewMenu>, sidebar: bool, columns: Vec<String>) {
+    let Ok(items) = state.items.lock() else { return };
+    for item in items.iter() {
+        let id = item.id().as_ref();
+        let checked = if id == "show-sidebar" {
+            sidebar
+        } else if let Some(col) = id.strip_prefix("col-") {
+            columns.iter().any(|c| c == col)
+        } else {
+            continue;
+        };
+        let _ = item.set_checked(checked);
+    }
+}
+
 /// URLs that arrived before the frontend was listening. The live `catch-url`
 /// event covers everything after that; this is the ones that beat it.
 struct CatchQueue {
@@ -3252,6 +3275,7 @@ pub fn run() {
             autostart_enabled,
             set_autostart,
             open_settings_window,
+            sync_view_menu,
             browser_extension_dir,
             start_file_drag,
             check_for_update,
@@ -3384,8 +3408,13 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
             }
-            if let Err(e) = install_menu(app) {
-                eprintln!("[garia] Could not install the menu: {e}");
+            match install_menu(app) {
+                Ok(items) => {
+                    app.manage(ViewMenu {
+                        items: Mutex::new(items),
+                    });
+                }
+                Err(e) => eprintln!("[garia] Could not install the menu: {e}"),
             }
             if let Err(e) = install_status_item(app) {
                 eprintln!("[garia] Could not install the menu-bar extra: {e}");
@@ -3408,8 +3437,13 @@ pub fn run() {
                     "new-download" | "open-torrent" | "find"
                     | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
                     | "open-folder"
-                    | "check-updates" | "licenses" | "help" => {
+                    | "check-updates" | "licenses" | "help"
+                    | "show-sidebar" => {
                         bring_to_front(app);
+                        let _ = app.emit("menu", event.id().as_ref());
+                    }
+                    "col-size" | "col-speed" | "col-eta" | "col-connections"
+                    | "col-source" | "col-category" => {
                         let _ = app.emit("menu", event.id().as_ref());
                     }
                     _ => {}
@@ -3506,8 +3540,8 @@ fn clipboard_text() -> Option<String> {
 /// The menu a Mac app is expected to have: the app name, File, Edit, Window,
 /// and the shortcuts that belong on them. Replacing Tauri's default is what
 /// makes Settings land on ⌘, and New Download on ⌘N rather than nowhere.
-fn install_menu(app: &tauri::App) -> tauri::Result<()> {
-    use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuItem<tauri::Wry>>> {
+    use tauri::menu::{AboutMetadata, CheckMenuItem, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
     let settings = MenuItemBuilder::with_id("settings", "Settings…")
         .accelerator("CmdOrCtrl+,")
@@ -3590,6 +3624,37 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .item(&find)
         .build()?;
 
+    let show_sidebar = CheckMenuItem::with_id(
+        app,
+        "show-sidebar",
+        "Show Sidebar",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let col_size = CheckMenuItem::with_id(app, "col-size", "Size", true, true, None::<&str>)?;
+    let col_speed = CheckMenuItem::with_id(app, "col-speed", "Speed", true, true, None::<&str>)?;
+    let col_eta = CheckMenuItem::with_id(app, "col-eta", "Time left", true, true, None::<&str>)?;
+    let col_connections =
+        CheckMenuItem::with_id(app, "col-connections", "Sockets", true, false, None::<&str>)?;
+    let col_source = CheckMenuItem::with_id(app, "col-source", "Source", true, false, None::<&str>)?;
+    let col_category =
+        CheckMenuItem::with_id(app, "col-category", "Category", true, false, None::<&str>)?;
+    let columns_menu = SubmenuBuilder::new(app, "Columns")
+        .item(&col_size)
+        .item(&col_speed)
+        .item(&col_eta)
+        .separator()
+        .item(&col_connections)
+        .item(&col_source)
+        .item(&col_category)
+        .build()?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&show_sidebar)
+        .separator()
+        .item(&columns_menu)
+        .build()?;
+
     let download_menu = SubmenuBuilder::new(app, "Download")
         .item(&pause_all)
         .item(&resume_all)
@@ -3616,6 +3681,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
+        .item(&view_menu)
         .item(&download_menu)
         .item(&window_menu)
         .item(&help_menu)
@@ -3624,7 +3690,15 @@ fn install_menu(app: &tauri::App) -> tauri::Result<()> {
     app.set_menu(menu)?;
     #[cfg(target_os = "macos")]
     help_menu.set_as_help_menu_for_nsapp()?;
-    Ok(())
+    Ok(vec![
+        show_sidebar,
+        col_size,
+        col_speed,
+        col_eta,
+        col_connections,
+        col_source,
+        col_category,
+    ])
 }
 
 /// A face while the window is hidden: click the extra for New Download,

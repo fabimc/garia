@@ -335,6 +335,30 @@
                         >
                             Stop Queue
                         </button>
+                        <button
+                            class="pill"
+                            id="columns-btn"
+                            title="Which numbers sit on every row"
+                            aria-haspopup="true"
+                            aria-expanded="false"
+                            aria-controls="columns-menu"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <rect x="3" y="4" width="7" height="16" rx="1" />
+                                <rect x="14" y="4" width="7" height="16" rx="1" />
+                            </svg>
+                            Columns
+                        </button>
                         <div class="search-field" data-tauri-drag-region="false">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -361,6 +385,11 @@
                 </header>
 
                 <div class="content-body">
+                    <div
+                        id="col-head"
+                        class="col-head hidden"
+                        role="row"
+                    ></div>
                     <ul id="download-list" aria-multiselectable="true"></ul>
                     <div id="empty-state" class="empty-state hidden">
                         <svg
@@ -474,6 +503,13 @@
                     What Medium and Light mean is yours to set, in Settings.
                 </p>
             </div>
+
+            <div
+                id="columns-menu"
+                class="traffic-menu hidden"
+                role="menu"
+                aria-labelledby="columns-btn"
+            ></div>
         </div>
 
         <!-- ── Add download modal ───────────────────────────────────────── -->

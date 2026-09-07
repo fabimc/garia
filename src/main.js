@@ -198,6 +198,12 @@ function destDirOf(dl) {
   return i >= 0 ? path.slice(0, i) : "";
 }
 
+function categoryNameFor(dl) {
+  const id = categoryIdFor(dl);
+  if (!id) return "";
+  return activeCategories().find((c) => c.id === id)?.name || "";
+}
+
 function categoryIdFor(dl) {
   const cats = activeCategories();
   if (!cats.length || !dl) return "";
@@ -1078,6 +1084,185 @@ function actionsFor(dl) {
   return out;
 }
 
+// ── Columns ──────────────────────────────────────────────────────────────
+// The row is still a card. These are extra cells on the right, so a long
+// list can be scanned without opening every detail panel. Name, bar, and
+// actions stay put. What is on is a view preference, not an engine setting,
+// which is why it lives next to the sidebar collapse rather than in
+// settings.json.
+const COLUMNS = [
+  { id: "size", label: "Size", width: "7.4rem", numeric: true },
+  { id: "speed", label: "Speed", width: "5.8rem", numeric: true },
+  { id: "eta", label: "Time left", width: "4.8rem", numeric: true },
+  { id: "connections", label: "Sockets", width: "4.4rem", numeric: true },
+  { id: "source", label: "Source", width: "8.6rem", numeric: false },
+  { id: "category", label: "Category", width: "6.4rem", numeric: false },
+];
+const DEFAULT_COLUMNS = ["size", "speed", "eta"];
+const COLUMNS_KEY = "garia:columns";
+
+function loadColumns() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLUMNS_KEY));
+    if (!Array.isArray(raw)) return [...DEFAULT_COLUMNS];
+    const known = new Set(COLUMNS.map((c) => c.id));
+    const picked = raw.filter((id) => known.has(id));
+    // A saved empty list is a choice; a corrupt one is not.
+    return raw.length === 0 || picked.length ? picked : [...DEFAULT_COLUMNS];
+  } catch {
+    return [...DEFAULT_COLUMNS];
+  }
+}
+
+let visibleCols = loadColumns();
+
+function columnOn(id) {
+  return visibleCols.includes(id);
+}
+
+function columnValue(id, dl) {
+  if (id === "size") {
+    const total = Number(dl.totalLength);
+    const done = Number(dl.completedLength);
+    if (dl.status === "complete" || dl.status === "seeding") {
+      return total > 0 ? formatBytes(total) : "";
+    }
+    if (total > 0) return `${formatBytes(done)} / ${formatBytes(total)}`;
+    if (done > 0) return formatBytes(done);
+    return "";
+  }
+  if (id === "speed") {
+    if (dl.status === "seeding") {
+      const up = formatSpeed(dl.uploadSpeed);
+      return up ? `↑ ${up}` : "";
+    }
+    return formatSpeed(dl.downloadSpeed);
+  }
+  if (id === "eta") {
+    if (dl.status !== "active") return "";
+    const total = Number(dl.totalLength);
+    const done = Number(dl.completedLength);
+    const speed = Number(dl.downloadSpeed);
+    if (!(total > 0) || !(speed > 0)) return "";
+    return formatSpan((total - done) / speed);
+  }
+  if (id === "connections") {
+    const n = Number(dl.connections);
+    return n > 0 ? String(n) : "";
+  }
+  if (id === "source") {
+    const url = sourceUrl(dl);
+    if (!url) return "";
+    if (url.startsWith("magnet:")) return "magnet";
+    return urlHostname(url);
+  }
+  if (id === "category") return categoryNameFor(dl);
+  return "";
+}
+
+function renderColHead() {
+  const head = document.getElementById("col-head");
+  if (!head) return;
+  const on = COLUMNS.filter((c) => columnOn(c.id));
+  head.classList.toggle("hidden", on.length === 0);
+  if (!on.length) {
+    head.textContent = "";
+    return;
+  }
+  head.innerHTML = `<div class="col-head-spacer"></div><div class="dl-cols"></div>`;
+  const cols = head.querySelector(".dl-cols");
+  for (const spec of on) {
+    const cell = document.createElement("div");
+    cell.className = `dl-col col-head-label${spec.numeric ? " is-num" : ""}`;
+    cell.style.width = spec.width;
+    cell.textContent = spec.label;
+    cell.dataset.col = spec.id;
+    cols.appendChild(cell);
+  }
+}
+
+function fillCols(li, dl) {
+  const box = li.querySelector(".dl-cols");
+  if (!box) return;
+  const on = COLUMNS.filter((c) => columnOn(c.id));
+  box.classList.toggle("hidden", on.length === 0);
+  if (!on.length) {
+    box.textContent = "";
+    return;
+  }
+  const key = on.map((c) => c.id).join("|");
+  if (box.dataset.cols !== key) {
+    box.dataset.cols = key;
+    box.textContent = "";
+    for (const spec of on) {
+      const cell = document.createElement("div");
+      cell.className = `dl-col${spec.numeric ? " is-num" : ""}`;
+      cell.style.width = spec.width;
+      cell.dataset.col = spec.id;
+      box.appendChild(cell);
+    }
+  }
+  for (const spec of on) {
+    const cell = box.querySelector(`[data-col="${spec.id}"]`);
+    if (!cell) continue;
+    const value = columnValue(spec.id, dl);
+    const text = value || "—";
+    if (cell.textContent !== text) cell.textContent = text;
+    cell.classList.toggle("is-empty", !value);
+    cell.title = value || "";
+  }
+}
+
+function setColumns(next) {
+  const known = new Set(COLUMNS.map((c) => c.id));
+  visibleCols = next.filter((id) => known.has(id));
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(visibleCols)); } catch {}
+  renderColHead();
+  const list = document.getElementById("download-list");
+  for (const [gid, dl] of snapshot) {
+    const li = list?.querySelector(`[data-gid="${CSS.escape(gid)}"]`);
+    if (li) updateItemEl(li, dl);
+  }
+  renderColumnsMenu();
+  syncViewMenu();
+}
+
+function toggleColumn(id) {
+  if (columnOn(id)) setColumns(visibleCols.filter((c) => c !== id));
+  else setColumns([...visibleCols, id]);
+}
+
+function renderColumnsMenu() {
+  const menu = document.getElementById("columns-menu");
+  if (!menu) return;
+  menu.textContent = "";
+  for (const spec of COLUMNS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "traffic-option";
+    btn.setAttribute("role", "menuitemcheckbox");
+    btn.setAttribute("aria-checked", String(columnOn(spec.id)));
+    btn.dataset.col = spec.id;
+    btn.innerHTML = `<span class="traffic-option-name">${spec.label}</span>`;
+    menu.appendChild(btn);
+  }
+  const foot = document.createElement("p");
+  foot.className = "traffic-menu-foot";
+  foot.textContent = "View → Columns does the same. Off restores the one-line summary.";
+  menu.appendChild(foot);
+}
+
+async function syncViewMenu() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function") return;
+  try {
+    await invoke("sync_view_menu", {
+      sidebar: !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed"),
+      columns: visibleCols,
+    });
+  } catch { /* menu not installed — browser preview */ }
+}
+
 // ── Row rendering ────────────────────────────────────────────────────────
 // Rows are built once and then updated field-by-field. A full innerHTML
 // rewrite on every poll tick would kill hover state, transitions and focus.
@@ -1104,6 +1289,7 @@ function createItemEl(dl) {
       <div class="dl-error hidden"></div>
     </div>
     <div class="dl-actions"></div>
+    <div class="dl-cols hidden"></div>
   `;
   return li;
 }
@@ -1112,12 +1298,14 @@ function progressMeta(dl) {
   const total = Number(dl.totalLength);
   const done = Number(dl.completedLength);
   const parts = [];
-  if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
-  else if (done > 0) parts.push(formatBytes(done));
+  if (!columnOn("size")) {
+    if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
+    else if (done > 0) parts.push(formatBytes(done));
+  }
   const speed = formatSpeed(dl.downloadSpeed);
-  if (speed) parts.push(speed);
-  if (total > 0) parts.push(`${Math.round((done / total) * 100)}%`);
-  if (dl.status === "active" && total > 0) {
+  if (speed && !columnOn("speed")) parts.push(speed);
+  if (total > 0 && !columnOn("size")) parts.push(`${Math.round((done / total) * 100)}%`);
+  if (dl.status === "active" && total > 0 && !columnOn("eta")) {
     const eta = formatEta(total - done, dl.downloadSpeed);
     if (eta) parts.push(eta);
   }
@@ -1131,9 +1319,9 @@ function seedingMeta(dl) {
   const total = Number(dl.totalLength) || 0;
   const up = Number(dl.uploadLength) || 0;
   const parts = [];
-  if (total > 0) parts.push(formatBytes(total));
+  if (total > 0 && !columnOn("size")) parts.push(formatBytes(total));
   const speed = formatSpeed(dl.uploadSpeed);
-  if (speed) parts.push(`↑ ${speed}`);
+  if (speed && !columnOn("speed")) parts.push(`↑ ${speed}`);
   parts.push(`${formatBytes(up)} shared`);
   if (total > 0) parts.push(`ratio ${(up / total).toFixed(2)}`);
   return parts;
@@ -1209,6 +1397,7 @@ function updateItemEl(li, dl) {
   const meta = dl.status === "seeding" ? seedingMeta(dl) : progressMeta(dl);
   if (held) meta.push(held);
   li.querySelector(".dl-meta").textContent = meta.join(" · ");
+  fillCols(li, dl);
 
   // "Failed" on its own is a dead end — say what aria2 actually reported.
   const errEl = li.querySelector(".dl-error");
@@ -1291,6 +1480,8 @@ const KEYS = [
   // from a download, and the upload pair is what a seeding row has to show
   // instead of a speed and an ETA. aria2 sends all three for torrents only.
   "seeder", "uploadLength", "uploadSpeed",
+  // Sockets on the row, once the column is on. Cheap: aria2 already has it.
+  "connections",
 ];
 
 // aria2 has no status for "finished downloading, still uploading" — a seeding
@@ -4730,12 +4921,76 @@ window.addEventListener("DOMContentLoaded", () => {
   function setSidebar(collapsed) {
     shell.classList.toggle("sidebar-collapsed", collapsed);
     try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0"); } catch {}
+    syncViewMenu();
   }
 
   try { setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1"); } catch {}
 
   document.getElementById("sidebar-toggle").addEventListener("click", () => setSidebar(true));
   document.getElementById("sidebar-show").addEventListener("click", () => setSidebar(false));
+
+  // ── Columns ────────────────────────────────────────────────────────────
+  // View → Columns is the Mac place. The header button is the same list, so
+  // the browser preview — and anyone who never opens the menu — can still
+  // find it. Right-click the labels too.
+  const columnsBtn = document.getElementById("columns-btn");
+  const columnsMenu = document.getElementById("columns-menu");
+
+  function placeMenu(menu, anchor) {
+    const pad = 8;
+    const rect = anchor.getBoundingClientRect();
+    menu.classList.remove("hidden");
+    const { width, height } = menu.getBoundingClientRect();
+    let left = rect.right - width;
+    let top = rect.bottom + 6;
+    if (left < pad) left = pad;
+    if (left + width > window.innerWidth - pad) left = window.innerWidth - width - pad;
+    if (top + height > window.innerHeight - pad) top = rect.top - height - 6;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function closeColumnsMenu() {
+    columnsMenu.classList.add("hidden");
+    columnsBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openColumnsMenu(anchor = columnsBtn) {
+    renderColumnsMenu();
+    columnsBtn.setAttribute("aria-expanded", "true");
+    placeMenu(columnsMenu, anchor);
+  }
+
+  columnsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (columnsMenu.classList.contains("hidden")) openColumnsMenu();
+    else closeColumnsMenu();
+  });
+  columnsMenu.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-col]");
+    if (!btn) return;
+    toggleColumn(btn.dataset.col);
+  });
+  document.getElementById("col-head").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    openColumnsMenu(e.target.closest(".col-head-label") || columnsBtn);
+    const pad = 8;
+    const { width, height } = columnsMenu.getBoundingClientRect();
+    columnsMenu.style.left = `${Math.min(e.clientX, window.innerWidth - width - pad)}px`;
+    columnsMenu.style.top = `${Math.min(e.clientY, window.innerHeight - height - pad)}px`;
+  });
+  document.addEventListener("mousedown", (e) => {
+    if (columnsMenu.classList.contains("hidden")) return;
+    if (e.target.closest("#columns-menu, #columns-btn")) return;
+    closeColumnsMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeColumnsMenu();
+  });
+
+  renderColHead();
+  renderColumnsMenu();
+  syncViewMenu();
 
   // Coming back to the window is the user seeing the list, so the badge has
   // nothing left to tell them.
@@ -4841,6 +5096,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (id === "licenses") openLicenses();
       if (id === "help") openHelp();
       if (id === "check-updates") checkForUpdate();
+      if (id === "show-sidebar") setSidebar(!shell.classList.contains("sidebar-collapsed"));
+      if (typeof id === "string" && id.startsWith("col-")) toggleColumn(id.slice(4));
     });
   }
 
