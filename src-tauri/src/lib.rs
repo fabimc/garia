@@ -158,9 +158,9 @@ struct Settings {
     /// app stays open. Off if the offer gets in the way.
     catch_clipboard: bool,
     /// Ask for a name, a folder, and start-vs-queue when the browser
-    /// extension sends a file. On by default — a click in Chrome is not
-    /// the same as choosing Services, and the sheet is where those three
-    /// get decided. The bookmarklet and a video page skip it.
+    /// extension sends a file. On by default — a click in the browser is
+    /// not the same as choosing Services, and the sheet is where those
+    /// three get decided. The bookmarklet and a video page skip it.
     #[serde(default = "default_true")]
     confirm_capture: bool,
     /// Ask aria2 for the lowest-numbered piece it can take next, so the file
@@ -1654,9 +1654,10 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     show_settings(&app)
 }
 
-/// Folder Chrome / Edge / Brave / Arc load as an unpacked extension, and
-/// what Safari's converter is pointed at. A release build ships it inside
-/// the bundle; `tauri dev` falls back to the copy next to the crate.
+/// Folder Chrome / Firefox / Edge / Brave / Arc load as an unpacked
+/// extension, and what Safari's converter is pointed at. A release build
+/// ships it inside the bundle; `tauri dev` falls back to the copy next
+/// to the crate.
 #[tauri::command]
 fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
     let mut candidates = Vec::new();

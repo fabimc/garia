@@ -406,10 +406,15 @@
                                 Chrome, Edge, Brave, or Arc — open
                                 <code>chrome://extensions</code>, turn on
                                 Developer mode, Load unpacked, and choose the
-                                folder that opens. Safari cannot cancel its
-                                own downloads, so the same package captures
-                                file-link clicks, the context menu, and the
-                                on-page Download button; run
+                                folder that opens. Firefox — open
+                                <code>about:debugging#/runtime/this-firefox</code>,
+                                Load Temporary Add-on, and pick
+                                <code>manifest.json</code> in that folder (a
+                                temporary add-on lasts until Firefox quits;
+                                the store listing is what stays). Safari
+                                cannot cancel its own downloads, so the same
+                                package captures file-link clicks, the context
+                                menu, and the on-page Download button; run
                                 <code>scripts/make-safari-extension.sh</code>
                                 once, then enable it under Safari → Settings →
                                 Extensions. Right-click the page to send every

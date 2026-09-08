@@ -1,6 +1,6 @@
 // Service workers do not import the content-script files. Chromium loads
-// this file alone; Safari's `background.scripts` list loads file-types.js
-// first. The importScripts call covers Chromium.
+// this file alone; Firefox and Safari load file-types.js first via
+// `background.scripts`. The importScripts call covers Chromium.
 if (typeof importScripts === "function" && typeof gariaIsFileUrl !== "function") {
   importScripts("file-types.js");
 }
@@ -18,29 +18,37 @@ function alreadySent(url) {
   return false;
 }
 
-function installMenus() {
-  api.contextMenus.removeAll(() => {
-    api.contextMenus.create({
-      id: "garia-link",
-      title: "Download with Garia",
-      contexts: ["link"],
-    });
-    api.contextMenus.create({
-      id: "garia-selection",
-      title: "Download with Garia",
-      contexts: ["selection"],
-    });
-    api.contextMenus.create({
+function whenDone(value) {
+  return value && typeof value.then === "function" ? value : Promise.resolve();
+}
+
+async function installMenus() {
+  try {
+    await whenDone(api.contextMenus.removeAll());
+  } catch {
+    /* first install, or a browser that has nothing to remove */
+  }
+  const items = [
+    { id: "garia-link", title: "Download with Garia", contexts: ["link"] },
+    { id: "garia-selection", title: "Download with Garia", contexts: ["selection"] },
+    {
       id: "garia-page",
       title: "Send this page to Garia",
       contexts: ["page", "frame", "video", "audio"],
-    });
-    api.contextMenus.create({
+    },
+    {
       id: "garia-all-links",
       title: "Download all links on this page",
       contexts: ["page", "frame"],
-    });
-  });
+    },
+  ];
+  for (const item of items) {
+    try {
+      await whenDone(api.contextMenus.create(item));
+    } catch {
+      /* already there after a service-worker restart */
+    }
+  }
 }
 
 api.runtime.onInstalled.addListener(installMenus);
