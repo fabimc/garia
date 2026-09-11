@@ -10,8 +10,11 @@
 //! folder is opened. The files inside are what get queued.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
+
+#[cfg(test)]
+use std::net::TcpListener;
 
 use serde::Serialize;
 
@@ -632,6 +635,7 @@ fn parse_dos(line: &str) -> Option<FtpEntry> {
 
 /// A local server that speaks just enough FTP for the client tests.
 /// PASV advertises 127.0.0.1 and the port we actually bound.
+#[cfg(test)]
 pub fn serve_fixture(listing: &str) -> (u16, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("ftp fixture bind");
     let port = listener.local_addr().unwrap().port();
@@ -691,6 +695,7 @@ pub fn serve_fixture(listing: &str) -> (u16, std::thread::JoinHandle<()>) {
     (port, handle)
 }
 
+#[cfg(test)]
 fn write_reply(stream: &mut TcpStream, code: u16, text: &str) -> std::io::Result<()> {
     stream.write_all(format!("{code} {text}\r\n").as_bytes())?;
     stream.flush()
