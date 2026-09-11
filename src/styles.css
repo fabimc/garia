@@ -23,8 +23,8 @@
     --muted: #8b8075;
     --on-accent: #fff;
 
-    /* Brand — the deep teal of the app icon */
-    --brand: #0d4a61;
+    /* Brand — the teal of the app icon */
+    --brand: #0c6c84;
 
     /* Accent */
     --accent: #cf6a3a;
@@ -42,7 +42,7 @@
     --success-mid: rgba(63, 125, 79, 0.2);
     --warning-soft: rgba(168, 121, 31, 0.12);
     --danger-soft: rgba(179, 38, 30, 0.12);
-    --brand-soft: rgba(13, 74, 97, 0.1);
+    --brand-soft: rgba(12, 108, 132, 0.1);
 
     /* Neutral interaction tint (warm, unlike the old white overlays) */
     --tint: rgba(43, 37, 32, 0.05);
@@ -76,7 +76,7 @@
         --text: #f0e6d8;
         --muted: #9a8c7c;
 
-        --brand: #6fa3b5;
+        --brand: #38a0b5;
         --accent: #e08a52;
         --accent-dk: #cf6a3a;
         --accent-soft: rgba(224, 138, 82, 0.2);
@@ -90,7 +90,7 @@
         --success-mid: rgba(125, 174, 136, 0.26);
         --warning-soft: rgba(212, 164, 74, 0.16);
         --danger-soft: rgba(224, 106, 98, 0.16);
-        --brand-soft: rgba(111, 163, 181, 0.16);
+        --brand-soft: rgba(56, 160, 181, 0.16);
 
         --tint: rgba(240, 230, 216, 0.06);
         --tint-strong: rgba(240, 230, 216, 0.1);
@@ -187,18 +187,19 @@ html.in-app .statusbar {
 .logo-mark {
     display: block;
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
+    width: 48px;
+    height: 48px;
+    margin: -4px 0;
     object-fit: contain;
 }
 
 .wordmark {
-    font-size: 1.05rem;
+    font-size: 1.2rem;
     font-weight: 700;
     letter-spacing: -0.01em;
 }
 .wordmark-a {
-    color: var(--text);
+    color: var(--brand);
 }
 .wordmark-b {
     color: var(--accent);
