@@ -1093,7 +1093,7 @@ function actionsFor(dl) {
 const COLUMNS = [
   { id: "size", label: "Size", width: "7.4rem", numeric: true },
   { id: "speed", label: "Speed", width: "5.8rem", numeric: true },
-  { id: "eta", label: "Time left", width: "4.8rem", numeric: true },
+  { id: "eta", label: "Time left", width: "5.6rem", numeric: true },
   { id: "connections", label: "Sockets", width: "4.4rem", numeric: true },
   { id: "source", label: "Source", width: "8.6rem", numeric: false },
   { id: "category", label: "Category", width: "6.4rem", numeric: false },
@@ -1160,17 +1160,21 @@ function columnValue(id, dl) {
   return "";
 }
 
-function renderColHead() {
-  const head = document.getElementById("col-head");
-  if (!head) return;
+function paintColLabels(host) {
+  if (!host) return;
   const on = COLUMNS.filter((c) => columnOn(c.id));
-  head.classList.toggle("hidden", on.length === 0);
+  let cols = host.querySelector(":scope > .dl-cols");
+  if (!cols) {
+    cols = document.createElement("div");
+    cols.className = "dl-cols";
+    host.appendChild(cols);
+  }
+  cols.classList.toggle("hidden", on.length === 0);
   if (!on.length) {
-    head.textContent = "";
+    cols.textContent = "";
     return;
   }
-  head.innerHTML = `<div class="col-head-spacer"></div><div class="dl-cols"></div>`;
-  const cols = head.querySelector(".dl-cols");
+  cols.textContent = "";
   for (const spec of on) {
     const cell = document.createElement("div");
     cell.className = `dl-col col-head-label${spec.numeric ? " is-num" : ""}`;
@@ -1179,6 +1183,37 @@ function renderColHead() {
     cell.dataset.col = spec.id;
     cols.appendChild(cell);
   }
+}
+
+function paintSectionCols(el) {
+  const wrap = el?.querySelector(".dl-section-cols");
+  if (!wrap) return;
+  const on = COLUMNS.some((c) => columnOn(c.id));
+  wrap.classList.toggle("hidden", !on);
+  paintColLabels(wrap);
+}
+
+function renderColHead() {
+  const head = document.getElementById("col-head");
+  const on = COLUMNS.some((c) => columnOn(c.id));
+  // Combined view already names each group; the labels sit on those rows, over
+  // the numbers, rather than in a strip above the first section title.
+  const standalone = on && activeFilter !== "all";
+  if (head) {
+    head.classList.toggle("hidden", !standalone);
+    if (standalone) {
+      if (!head.querySelector(".col-head-spacer")) {
+        head.textContent = "";
+        head.appendChild(Object.assign(document.createElement("div"), {
+          className: "col-head-spacer",
+        }));
+      }
+      paintColLabels(head);
+    } else {
+      head.textContent = "";
+    }
+  }
+  for (const el of sectionEls.values()) paintSectionCols(el);
 }
 
 function fillCols(li, dl) {
@@ -1460,12 +1495,18 @@ function sectionEl(status) {
     el.className = "dl-section";
     el.dataset.section = status;
     el.innerHTML = `
-      <span class="dl-section-label"></span>
-      <span class="dl-section-count"></span>
-      <button class="dl-section-link" type="button">View all</button>
+      <div class="dl-section-top">
+        <span class="dl-section-label"></span>
+        <span class="dl-section-count"></span>
+        <button class="dl-section-link" type="button">View all</button>
+      </div>
+      <div class="dl-section-cols hidden">
+        <div class="col-head-spacer"></div>
+      </div>
     `;
     el.querySelector(".dl-section-label").textContent = SECTION_LABELS[status] || status;
     el.querySelector(".dl-section-link").dataset.filter = status;
+    paintSectionCols(el);
     sectionEls.set(status, el);
   }
   return el;
@@ -1590,6 +1631,12 @@ function applyFilter(listEl) {
     }
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
+  }
+
+  const head = document.getElementById("col-head");
+  if (head) {
+    const on = COLUMNS.some((c) => columnOn(c.id));
+    head.classList.toggle("hidden", !on || showSections);
   }
 }
 
@@ -4971,7 +5018,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
     toggleColumn(btn.dataset.col);
   });
-  document.getElementById("col-head").addEventListener("contextmenu", (e) => {
+  document.querySelector(".content-body").addEventListener("contextmenu", (e) => {
+    if (!e.target.closest("#col-head, .dl-section-cols")) return;
     e.preventDefault();
     openColumnsMenu(e.target.closest(".col-head-label") || columnsBtn);
     const pad = 8;

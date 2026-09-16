@@ -568,21 +568,58 @@ html.in-app .statusbar {
 }
 
 /* ── Download rows ───────────────────────────────────────────────────── */
-#download-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
+/* One grid for the header, the group titles, and every row, so SIZE/SPEED
+   sit on the same tracks as the numbers — a flex spacer on the header was
+   landing them in a different place from the values, which sit after the
+   action buttons. */
+.dl-table {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) max-content auto;
+    column-gap: 0.75rem;
+    padding: 0 0.6rem;
+    min-width: 0;
 }
 
-/* Section headers — "Downloading 2 … View all" */
+#download-list {
+    list-style: none;
+    display: contents;
+}
+
+.col-head,
+.dl-section,
+.dl-item {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    align-items: center;
+}
+
+/* Section headers — "Downloading 2 … View all", with column labels on the
+   line below so SIZE/SPEED sit on the numbers rather than in a strip of
+   chrome above the group title. Sticky, so the labels stay over the values
+   as the group scrolls. */
 .dl-section {
-    display: flex;
-    align-items: baseline;
-    gap: 0.45rem;
-    padding: 1.1rem 0.6rem 0.45rem;
+    row-gap: 0.2rem;
+    padding: 1.1rem 0 0.45rem;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg);
 }
 .dl-section:first-child {
     padding-top: 0.2rem;
+}
+.dl-section:has(.dl-section-cols:not(.hidden)) {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.15rem;
+}
+
+.dl-section-top {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
 }
 
 .dl-section-label {
@@ -598,7 +635,7 @@ html.in-app .statusbar {
 }
 
 .dl-section-link {
-    margin-left: auto;
+    margin-left: 0.35rem;
     padding: 0;
     border: none;
     background: none;
@@ -615,12 +652,13 @@ html.in-app .statusbar {
     text-decoration: underline;
 }
 
+.dl-section-cols {
+    display: contents;
+}
+
 /* Rows sit flat on the panel — a hairline apart, tinted on hover */
 .dl-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem;
+    padding: 0.6rem 0;
     border-radius: var(--radius);
     border-bottom: 1px solid var(--border);
     transition: background 0.15s;
@@ -695,6 +733,7 @@ html.in-app .statusbar {
    move, which is why a queue of one never grows a grab cursor. */
 .dl-lead {
     position: relative;
+    grid-column: 1;
     width: 36px;
     height: 36px;
     flex-shrink: 0;
@@ -744,6 +783,7 @@ html.in-app .statusbar {
 }
 
 .dl-content {
+    grid-column: 2;
     flex: 1;
     min-width: 0;
     display: flex;
@@ -911,22 +951,19 @@ html.in-app .statusbar {
 }
 
 /* Optional numbers on the right of every row, so a long list can be scanned
-   the way a table can. The card itself does not become a table: name, bar,
-   and actions stay where they are. The header is the same cells, sticky, so
-   the labels stay over the values as the list moves. */
+   the way a table can. Name, bar, and actions stay where they are; the
+   labels share the table grid so they sit on the values. */
 .col-head {
     position: sticky;
     top: 0;
     z-index: 2;
-    display: flex;
-    align-items: center;
-    padding: 0 0.6rem 0.4rem;
+    padding: 0 0 0.4rem;
     margin: 0 0 0.15rem;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
 }
 .col-head-spacer {
-    flex: 1;
+    grid-column: 1 / 4;
     min-width: 0;
 }
 .col-head-label {
@@ -939,6 +976,7 @@ html.in-app .statusbar {
 }
 
 .dl-cols {
+    grid-column: 4;
     display: flex;
     align-items: center;
     flex-shrink: 0;
@@ -976,8 +1014,10 @@ html.in-app .statusbar {
 }
 
 .dl-actions {
+    grid-column: 3;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.3rem;
     flex-shrink: 0;
 }
