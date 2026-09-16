@@ -129,9 +129,7 @@ function renderCategories() {
 function loginSummary(login) {
   const bits = [];
   if (login.username) bits.push(login.username);
-  if (login.hasPassword) {
-    bits.push(login.viaHeader ? "password as a header" : "password in netrc");
-  }
+  if (login.hasPassword) bits.push("password saved");
   const count = (login.headers || []).length;
   if (count) bits.push(count === 1 ? "1 header" : `${count} headers`);
   return bits.join(" · ") || "nothing saved";
@@ -213,12 +211,12 @@ function renderScheduleSummary() {
   const from = schedFrom();
   const to = schedTo();
   if (!settingsSched.checked) {
-    settingsSchedSum.textContent = "Downloads run whenever Garia is running.";
+    settingsSchedSum.textContent = "Downloads run whenever Garia is open.";
     return;
   }
   if (from === to) {
     settingsSchedSum.textContent =
-      "Those are the same time, which is not a window — the schedule stays off until they differ.";
+      "Pick two different times to turn the schedule on.";
     return;
   }
   const width = ((to - from) + 1440) % 1440;
@@ -238,16 +236,16 @@ function renderVideoTools() {
   if (!el) return;
   if (!videoTools.version) {
     el.textContent =
-      "No yt-dlp found, so video pages download as pages. Install one with " +
-      "`brew install yt-dlp`, or a python3 3.10 or newer for the copy Garia ships.";
+      "No yt-dlp found, so video pages download as web pages. Install with " +
+      "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.";
     return;
   }
-  const where = videoTools.source === "bundled" ? "the bundled copy" : "your own";
+  const where = videoTools.source === "bundled" ? "built-in" : "yours";
   const merge = !videoTools.ffmpeg
-    ? "No ffmpeg — the bundled one is missing, so only qualities that come as a single file are offered."
+    ? "No ffmpeg — only qualities that come as a single file are offered."
     : videoTools.ffmpegSource === "system"
-      ? "Merging uses your own ffmpeg; the copy Garia ships didn't run."
-      : "Merging uses the ffmpeg Garia ships, so the split video-and-audio qualities are all on offer.";
+      ? "Merging uses your ffmpeg."
+      : "Merging uses the ffmpeg Garia ships, so split video-and-audio qualities work.";
   el.textContent = `yt-dlp ${videoTools.version} (${where}). ${merge}`;
 }
 
@@ -485,7 +483,7 @@ function qrSvg(width, modules) {
       }
     }
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" role="img" aria-label="The pairing secret as a QR code" shape-rendering="crispEdges">`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" role="img" aria-label="Pairing QR code" shape-rendering="crispEdges">`
     + `<rect width="${side}" height="${side}" fill="#ffffff"/>`
     + `<g fill="#000000">${rects.join("")}</g></svg>`;
 }
@@ -512,15 +510,15 @@ async function loadRemote() {
 
   const said = [];
   if (saving && wanted !== open) {
-    said.push("Restarting the download engine…");
+    said.push("Restarting the downloader…");
   } else if (wanted && !open) {
-    said.push("The port is not open yet — Garia is restarting the download engine.");
+    said.push("Opening the port — restarting the downloader…");
   } else if (!wanted && open) {
-    said.push("Still open until the download engine comes back. Turning this off deletes the secret.");
+    said.push("Closing the port. Turning this off unpairs every device.");
   } else if (open && !info.host) {
-    said.push("This machine isn't on a network Garia can find an address for, so there is nothing for another device to connect to.");
+    said.push("This Mac isn’t on a network Garia can find, so nothing can connect.");
   } else if (paired && !info.defaultPort) {
-    said.push(`Something else had aria2's usual port when Garia started, so it took ${info.port} instead. The pairing works, but the number can be different next launch.`);
+    said.push(`The usual port was busy, so Garia is using ${info.port}. Pairing still works.`);
   }
   remoteNote.textContent = said.join(" ");
   remoteNote.classList.toggle("hidden", said.length === 0);
@@ -561,18 +559,10 @@ function renderLogins() {
 }
 
 function renderPassHint(login) {
-  if (login?.hasPassword && login.viaHeader) {
-    loginPassHint.textContent =
-      "This one has a space in it, and netrc has no way to quote a space — so " +
-      "Garia sends it as an Authorization header instead, which aria2 writes " +
-      "into its session file. Leave the box empty to keep it.";
-  } else if (login?.hasPassword) {
-    loginPassHint.textContent =
-      "Saved in a netrc file only aria2 reads. Leave the box empty to keep it.";
+  if (login?.hasPassword) {
+    loginPassHint.textContent = "Leave blank to keep the saved password.";
   } else {
-    loginPassHint.textContent =
-      "Kept in a netrc file aria2 reads for itself. A password with a space " +
-      "in it can't go in a netrc — that one becomes a header, and says so here.";
+    loginPassHint.textContent = "Stored only on this Mac.";
   }
 }
 
@@ -612,9 +602,9 @@ function mockLogins(entry, verb) {
     }
     const username = entry.username;
     const password = entry.password === null ? (was?.password ?? "") : entry.password;
-    if (!username && entry.password) throw new Error("A password needs a user name to go with it.");
+    if (!username && entry.password) throw new Error("A password needs a username.");
     if (!username && !headers.length) {
-      throw new Error("Nothing to save — give the site a user name, a header, or both.");
+      throw new Error("Nothing to save — add a username, a header, or both.");
     }
     const kept = username ? password : "";
     const viaHeader = !!kept && /\s/.test(kept);
@@ -750,7 +740,7 @@ function saveCategory() {
     : DEFAULT_CATEGORIES.map((c) => ({ ...c, extensions: [...c.extensions] }));
   const folder = categoryFolder.value.trim() || name;
   if (folder.split("/").includes("..")) {
-    categoryError.textContent = "The folder cannot climb out of itself.";
+    categoryError.textContent = "That folder path isn’t allowed.";
     categoryError.classList.remove("hidden");
     return;
   }
@@ -839,7 +829,7 @@ document.getElementById("settings-extension").addEventListener("click", async ()
   hideError();
   const invoke = invoker();
   if (typeof invoke !== "function") {
-    showError("The extension folder is next to the app — load it from a built Garia.");
+    showError("The extension folder is next to the app — open this from a built Garia.");
     return;
   }
   try {

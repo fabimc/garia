@@ -2344,7 +2344,7 @@ function updatePreview(sec, part) {
     // The one place the setting is worth mentioning is the moment it would
     // have helped — and it only helps downloads added after it is turned on.
     if (!settings.inOrder) {
-      said.push("Downloads aren't being filled from the front — turn on “Download in order” in Settings.");
+      said.push("Downloads aren't filling from the start — turn on “Download from the start…” in Settings → Speed.");
     }
   }
   block.querySelector(".detail-preview-note").textContent = said.join(" ");

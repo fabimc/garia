@@ -28,10 +28,10 @@
                     Schedule
                 </button>
                 <button type="button" class="prefs-item" data-pane="capture">
-                    Capture
+                    Browser
                 </button>
                 <button type="button" class="prefs-item" data-pane="access">
-                    Access
+                    Network
                 </button>
                 <button type="button" class="prefs-item" data-pane="about">
                     About
@@ -60,12 +60,12 @@
                                 Choose…
                             </button>
                         </div>
-                        <p class="field-hint">Where new downloads go.</p>
+                        <p class="field-hint">New files are saved here.</p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                Anything already in the list keeps the folder it
-                                was added with.
+                                Downloads already in the list stay in the folder
+                                they were added with.
                             </p>
                         </details>
                     </div>
@@ -76,19 +76,19 @@
                                 type="checkbox"
                                 id="settings-smart-folders"
                             />
-                            <span>Sort new downloads into categories</span>
+                            <span>Sort files into folders by type</span>
                         </label>
                         <p class="field-hint">
-                            Video, Music, Documents, and Archives to start
-                            with — rename them, add a site, or make your own.
+                            Video, Music, Documents, and Archives to start —
+                            rename them, add a site, or make your own.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                Anything else — and every torrent, which doesn't
-                                name its files until it starts — lands in the
-                                folder itself. Nothing already downloaded
-                                moves.
+                                Everything else stays in the download folder,
+                                including torrents (they don’t name files until
+                                they start). Files already downloaded are not
+                                moved.
                             </p>
                         </details>
                         <div id="category-block" class="category-block hidden">
@@ -106,28 +106,28 @@
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-notify" />
-                            <span>Tell me when a download finishes</span>
+                            <span>Notify me when a download finishes</span>
                         </label>
                         <p class="field-hint">
-                            A banner as each one lands, and a count on the dock
-                            icon while you are elsewhere.
+                            A notification, plus a count on the Dock icon while
+                            Garia is in the background.
                         </p>
                     </div>
 
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-autostart" />
-                            <span>Open Garia when I log in</span>
+                            <span>Start Garia when I log in</span>
                         </label>
                         <p class="field-hint">
-                            Overnight schedules and unfinished downloads do not
-                            wait for you to launch the app.
+                            Unfinished and scheduled downloads can continue
+                            without you opening the app.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                Closing the window is still fine; this is about
-                                the Mac starting, not about leaving a window
+                                Closing the window is still fine. This starts
+                                the app at login — it does not keep a window
                                 open.
                             </p>
                         </details>
@@ -138,6 +138,7 @@
                     <h1 class="prefs-heading">Speed</h1>
 
                     <div class="field">
+                        <div class="modal-label">Speed limits</div>
                         <div class="field-pair">
                             <div class="field">
                                 <label class="modal-label" for="settings-medium"
@@ -171,14 +172,15 @@
                             </div>
                         </div>
                         <p class="field-hint">
-                            The two speeds the status bar switches between. The
-                            third mode is full speed.
+                            The status bar switches between these and Full
+                            speed. Use Light when you need bandwidth for other
+                            apps.
                         </p>
                     </div>
 
                     <div class="field">
                         <label class="modal-label" for="settings-concurrency"
-                            >Downloads at once</label
+                            >Download at once</label
                         >
                         <div class="field-unit is-narrow">
                             <input
@@ -191,28 +193,23 @@
                             />
                             <span class="field-suffix">files</span>
                         </div>
-                        <p class="field-hint">The rest wait in the queue.</p>
+                        <p class="field-hint">Extra files wait in the queue.</p>
                     </div>
 
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-in-order" />
-                            <span
-                                >Download in order, so files play before they
-                                finish</span
-                            >
+                            <span>Download from the start so files can play sooner</span>
                         </label>
                         <p class="field-hint">
-                            The file fills from the beginning. Applies to
-                            downloads added from now on.
+                            New downloads fill from the beginning. Existing ones
+                            are unchanged.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                aria2 normally takes whichever piece keeps a
-                                connection busiest, which finishes soonest but
-                                leaves holes near the front. In order costs some
-                                of that speed.
+                                A bit slower, because Garia won’t skip ahead to
+                                whichever piece is fastest.
                             </p>
                         </details>
                     </div>
@@ -226,12 +223,13 @@
                     <h1 class="prefs-heading">Torrents</h1>
 
                     <div class="field">
+                        <div class="modal-label">Stop seeding after</div>
                         <div class="field-pair">
                             <div class="field">
                                 <label
                                     class="modal-label"
                                     for="settings-seed-ratio"
-                                    >Seed until ratio</label
+                                    >Share ratio</label
                                 >
                                 <div class="field-unit">
                                     <input
@@ -249,7 +247,7 @@
                                 <label
                                     class="modal-label"
                                     for="settings-seed-time"
-                                    >or for</label
+                                    >or after</label
                                 >
                                 <div class="field-unit">
                                     <input
@@ -264,15 +262,14 @@
                             </div>
                         </div>
                         <p class="field-hint">
-                            When a finished torrent stops uploading — whichever
-                            comes first.
+                            Whichever comes first. 0 means don’t stop for that
+                            reason.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                A ratio of 0 seeds until you stop it yourself,
-                                and so does a time of 0. Torrents already
-                                running keep the rules they started under.
+                                Torrents already running keep the rules they
+                                started with.
                             </p>
                         </details>
                     </div>
@@ -288,7 +285,7 @@
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-schedule" />
-                            <span>Only download between these times</span>
+                            <span>Download only between these times</span>
                         </label>
                         <div class="field-times">
                             <label class="field-time">
@@ -312,13 +309,11 @@
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                Outside the window downloads are paused, and
-                                anything queued is held rather than started.
-                                Only what Garia stopped is started again — a
-                                download you paused yourself stays paused.
-                                <strong>Garia has to be running</strong> for any
-                                of this. Closing the window is fine. Quit is
-                                what stops them. Nothing here wakes the Mac up.
+                                Outside this window, downloads pause. Only what
+                                Garia paused is started again — something you
+                                paused yourself stays paused. Garia has to be
+                                running (hiding the window is fine; Quit stops
+                                everything). This does not wake the Mac.
                             </p>
                         </details>
                     </div>
@@ -329,19 +324,19 @@
                             <span>Stop the queue</span>
                         </label>
                         <p class="field-hint">
-                            Nothing new starts, and anything already going is
-                            held. Start Queue in the menu, the header, or here
-                            turns this off. A download you paused yourself stays
+                            Nothing new starts, and running downloads pause.
+                            Start Queue in the menu, the header, or here turns
+                            this off. Something you paused yourself stays
                             paused.
                         </p>
                     </div>
 
                     <div class="field">
-                        <div class="modal-label">When the last download finishes</div>
+                        <div class="modal-label">When everything finishes</div>
                         <div
                             class="field-radios"
                             role="radiogroup"
-                            aria-label="When the last download finishes"
+                            aria-label="When everything finishes"
                         >
                             <label class="field-check">
                                 <input
@@ -354,7 +349,7 @@
                             </label>
                             <label class="field-check">
                                 <input type="radio" name="done-action" value="sleep" />
-                                <span>Sleep this Mac</span>
+                                <span>Put this Mac to sleep</span>
                             </label>
                             <label class="field-check">
                                 <input
@@ -366,10 +361,9 @@
                             </label>
                         </div>
                         <p class="field-hint">
-                            Only after something has actually been downloading
-                            this run, and after a 30-second warning. Garia has
-                            to be running. A stopped queue does not count as
-                            finished.
+                            After a 30-second warning, and only if something
+                            actually downloaded. Garia has to be running. A
+                            stopped queue does not count as finished.
                         </p>
                     </div>
                 </section>
@@ -379,26 +373,25 @@
                     id="pane-capture"
                     data-pane="capture"
                 >
-                    <h1 class="prefs-heading">Capture</h1>
+                    <h1 class="prefs-heading">Browser</h1>
 
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-catch" />
-                            <span>Watch the clipboard for file URLs</span>
+                            <span>Watch the clipboard for download links</span>
                         </label>
                         <p class="field-hint">
-                            When you copy a download link, Garia offers to take
-                            it. Pages are left alone.
+                            When you copy a file link, Garia offers to download
+                            it. Web pages are ignored.
                         </p>
                     </div>
 
                     <div class="field">
                         <div class="modal-label">Browser extension</div>
                         <p class="field-hint">
-                            Click a file in the browser and Garia takes it.
-                            On a video page a Download button sits on the
-                            player and sends the page, so yt-dlp can pick a
-                            quality.
+                            Click a file in your browser and Garia downloads it.
+                            On a video page, a Download button appears on the
+                            player.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
@@ -409,16 +402,15 @@
                                 folder that opens. Firefox — open
                                 <code>about:debugging#/runtime/this-firefox</code>,
                                 Load Temporary Add-on, and pick
-                                <code>manifest.json</code> in that folder (a
-                                temporary add-on lasts until Firefox quits;
-                                the store listing is what stays). Safari
-                                cannot cancel its own downloads, so the same
-                                package captures file-link clicks, the context
-                                menu, and the on-page Download button; run
+                                <code>manifest.json</code> (it lasts until
+                                Firefox quits). Safari cannot stop its own
+                                downloads, so the same package catches file
+                                clicks, the context menu, and the on-page
+                                Download button; run
                                 <code>scripts/make-safari-extension.sh</code>
                                 once, then enable it under Safari → Settings →
-                                Extensions. Right-click the page to send every
-                                link, then uncheck the ones you do not want.
+                                Extensions. Right-click a page to send every
+                                link, then uncheck the ones you don’t want.
                                 Hold Option while clicking a file to leave it
                                 with the browser. The player button sends the
                                 page, not the stream — × hides it until the
@@ -437,34 +429,32 @@
                     <div class="field">
                         <label class="field-check">
                             <input type="checkbox" id="settings-confirm-capture" />
-                            <span>Ask where to save captured files</span>
+                            <span>Ask where to save files from the browser</span>
                         </label>
                         <p class="field-hint">
-                            Name, folder, and start now vs queue. The
-                            bookmarklet and Services still go straight in.
+                            You can rename, pick a folder, or add to the queue.
+                            The bookmarklet and Services still start right away.
                         </p>
                     </div>
 
                     <div class="field">
                         <div class="modal-label">Bookmarklet</div>
                         <p class="field-hint">
-                            Drag this onto the bookmarks bar, then click it on a
-                            page to send it here.
+                            Drag this to your bookmarks bar, then click it on a
+                            page to send that page here.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                The same
-                                <code>garia://add?url=…</code> scheme is what
-                                the extension calls. From another app, select a
-                                URL and choose Services → Download with Garia.
+                                From another Mac app, select a URL and choose
+                                Services → Download with Garia.
                             </p>
                         </details>
                         <a
                             id="catch-bookmarklet"
                             class="bookmarklet"
                             href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
-                            >Send this page to garia</a
+                            >Send this page to Garia</a
                         >
                     </div>
                 </section>
@@ -474,27 +464,26 @@
                     id="pane-access"
                     data-pane="access"
                 >
-                    <h1 class="prefs-heading">Access</h1>
+                    <h1 class="prefs-heading">Network</h1>
 
                     <p class="prefs-banner">
-                        Changing a cookie jar, a login, a proxy, or remote
-                        control restarts the download engine. Unfinished
-                        downloads resume where they were.
+                        Changing a login, cookie file, proxy, or remote control
+                        restarts the downloader. Unfinished files resume where
+                        they left off.
                     </p>
 
                     <div class="field">
-                        <div class="modal-label">Logins</div>
+                        <div class="modal-label">Site logins</div>
                         <p class="field-hint">
-                            For files that are behind a sign-in, including FTP.
+                            For sites that need a username and password,
+                            including FTP.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                A password goes into a netrc file only aria2
-                                reads, so it is never attached to a download. A
-                                header is carried on the request, which means it
-                                is written down with it. An FTP folder uses
-                                the same login when the add dialog lists it.
+                                Passwords stay on this Mac and are never
+                                attached to the download. Extra headers are sent
+                                with the request, so they are saved with it.
                             </p>
                         </details>
                         <ul id="settings-logins" class="login-list"></ul>
@@ -517,7 +506,7 @@
                                 type="text"
                                 autocomplete="off"
                                 spellcheck="false"
-                                placeholder="No cookie jar"
+                                placeholder="None"
                             />
                             <button
                                 class="btn-secondary"
@@ -527,8 +516,8 @@
                             </button>
                         </div>
                         <p class="field-hint">
-                            A <code>cookies.txt</code> exported from the
-                            browser. Empty the box to stop using one.
+                            A cookies.txt exported from your browser. Clear the
+                            box to stop using it.
                         </p>
                     </div>
 
@@ -536,20 +525,18 @@
                         <div class="modal-label">Proxy</div>
                         <label class="field-check">
                             <input type="checkbox" id="settings-proxy" />
-                            <span>Send downloads through an HTTP proxy</span>
+                            <span>Send downloads through a proxy</span>
                         </label>
                         <p class="field-hint">
-                            HTTP, HTTPS, and FTP. Torrents still talk to
-                            peers directly. SOCKS is not something aria2
-                            speaks.
+                            For HTTP, HTTPS, and FTP. Torrents still connect to
+                            peers directly. SOCKS is not supported.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                The password is stored next to the logins,
-                                not in settings.json. Video pages use the
-                                same proxy when yt-dlp reads them. Local
-                                hosts in the bypass list skip it.
+                                Video pages use the same proxy. Hosts listed
+                                under Skip these don’t use it. The password is
+                                stored with your logins, not in settings.
                             </p>
                         </details>
                         <div id="proxy-block" class="proxy-block hidden">
@@ -607,13 +594,13 @@
                                         autocomplete="new-password"
                                     />
                                     <p id="settings-proxy-pass-hint" class="field-hint hidden">
-                                        Stored. Type a new one to replace it.
+                                        Stored. Type a new password to replace it.
                                     </p>
                                 </div>
                             </div>
                             <div class="field">
                                 <label class="modal-label" for="settings-proxy-bypass"
-                                    >Bypass
+                                    >Skip these
                                     <span class="modal-optional">optional</span></label
                                 >
                                 <input
@@ -632,22 +619,19 @@
                         <div class="modal-label">Remote control</div>
                         <label class="field-check">
                             <input type="checkbox" id="settings-remote" />
-                            <span
-                                >Let other devices on this network drive
-                                Garia</span
-                            >
+                            <span>Let other devices on this network control Garia</span>
                         </label>
                         <p class="field-hint">
-                            Opens the aria2 port to the whole network. The
-                            secret below is the only thing standing in front of
-                            it, and it travels in the clear over HTTP.
+                            Other apps on your Wi-Fi can add and manage
+                            downloads. Keep this off on a public network — the
+                            secret below is the only password, and it is sent
+                            unencrypted.
                         </p>
                         <details class="field-more">
                             <summary>More</summary>
                             <p>
-                                Worth having at home, worth leaving off on a
-                                network you don't know. Turning it off deletes
-                                the secret, so every paired device is un-paired.
+                                Fine at home. Turning this off deletes the
+                                secret, so every paired device is unpaired.
                             </p>
                         </details>
 
@@ -686,7 +670,7 @@
                             </div>
                             <figure class="remote-qr">
                                 <div id="remote-qr" class="remote-qr-box"></div>
-                                <figcaption>Scan for the secret</figcaption>
+                                <figcaption>Scan to pair</figcaption>
                             </figure>
                         </div>
                         <p id="remote-note" class="field-hint hidden"></p>
@@ -708,8 +692,7 @@
                     <div class="field">
                         <div class="modal-label">Licenses</div>
                         <p class="field-hint">
-                            Garia ships other people's work. The copies in this
-                            app are the ones named here.
+                            Garia includes these tools:
                         </p>
                         <dl class="licenses-list">
                             <dt>aria2</dt>
@@ -736,7 +719,7 @@
                             </dd>
                             <dt>yt-dlp</dt>
                             <dd>
-                                Unlicense. The zipapp in the bundle, or the one
+                                Unlicense. The copy in this app, or the one
                                 on your PATH if you have one.
                                 <a
                                     href="https://github.com/yt-dlp/yt-dlp"
@@ -791,14 +774,15 @@
                             placeholder="files.example.com"
                         />
                         <p class="field-hint">
-                            The host, exactly as it appears in the URL.
+                            The host name, as it appears in the URL — for
+                            example files.example.com.
                         </p>
                     </div>
 
                     <div class="field-pair">
                         <div class="field">
                             <label class="modal-label" for="login-user"
-                                >User name</label
+                                >Username</label
                             >
                             <input
                                 id="login-user"
@@ -834,9 +818,7 @@
                             placeholder="Authorization: Bearer …"
                         ></textarea>
                         <p class="field-hint">
-                            One per line, written as
-                            <code>Name: value</code>. A header is written into
-                            aria2's session file with the download.
+                            Optional. One per line, as Name: value.
                         </p>
                     </div>
 
@@ -897,8 +879,9 @@
                             placeholder="mp4, mkv, webm"
                         />
                         <p class="field-hint">
-                            Extensions, without the dot. Empty plus a site
-                            below takes every file from that host.
+                            Extensions without the dot, like mp4 or zip. Leave
+                            empty and set a site to catch every file from that
+                            host.
                         </p>
                     </div>
                     <div class="field">
@@ -923,8 +906,8 @@
                             </button>
                         </div>
                         <p class="field-hint">
-                            A name is a folder inside the download folder.
-                            Choose… for somewhere else.
+                            A short name is a folder inside your download
+                            folder. Choose… to pick somewhere else.
                         </p>
                     </div>
                     <div class="field">
@@ -940,8 +923,8 @@
                             placeholder="cdn.example.com"
                         />
                         <p class="field-hint">
-                            Only URLs from this host go here, and they do
-                            so before a type-only category would.
+                            Only files from this site go here. A site match
+                            wins over file type.
                         </p>
                     </div>
                     <p id="category-error" class="error hidden"></p>
