@@ -23,7 +23,7 @@
     --muted: #8b8075;
     --on-accent: #fff;
 
-    /* Brand — the teal of the app icon */
+    /* Brand */
     --brand: #0c6c84;
 
     /* Accent */
@@ -191,7 +191,6 @@ html.in-app .statusbar {
     height: 48px;
     margin: -4px 0;
     object-fit: contain;
-    image-rendering: pixelated;
 }
 
 .wordmark {
