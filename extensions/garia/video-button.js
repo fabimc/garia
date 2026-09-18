@@ -8,7 +8,8 @@
 if (window === window.top) {
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
-const dismissed = new Set();
+const dismissed = [];
+const DISMISS_CAP = 40;
 const FEED = /^\/(feed|home|explore|timeline|search|results|trending|subscriptions|directory|popular|discover)(\/|$)/i;
 const GENERIC_WATCH = /^\/(watch|video|videos|embed|player|clip|clips|episode|episodes)(\/|$)/i;
 const PLAYER_SEL = [
@@ -24,56 +25,85 @@ function pageKey(href = location.href) {
   return String(href || "").split("#")[0];
 }
 
+function hostOf(url) {
+  return url.hostname.replace(/^www\./i, "").toLowerCase();
+}
+
+function hostIs(host, name) {
+  return host === name || host.endsWith(`.${name}`);
+}
+
+const WATCH_HOSTS = [
+  {
+    match: (h) => h === "youtu.be",
+    watch: (_h, path) => path.length > 1,
+  },
+  {
+    match: (h) => h === "youtube.com" || h === "m.youtube.com" || h === "music.youtube.com",
+    watch: (_h, path, q) =>
+      (path === "/watch" && q.has("v")) ||
+      /^\/(shorts|embed|live|clip)\//.test(path) ||
+      (path === "/playlist" && q.has("list")),
+  },
+  {
+    match: (h) => hostIs(h, "vimeo.com"),
+    watch: (_h, path) => /^\/\d+/.test(path) || /^\/(video|channels)\//.test(path),
+  },
+  {
+    match: (h) => hostIs(h, "twitch.tv"),
+    watch: (_h, path) => /^\/videos\/\d+/.test(path) || /\/clip\//.test(path),
+  },
+  {
+    match: (h) => hostIs(h, "dailymotion.com"),
+    watch: (_h, path) => path.startsWith("/video/"),
+  },
+  {
+    match: (h) => hostIs(h, "tiktok.com"),
+    watch: (_h, path) => /\/video\//.test(path),
+  },
+  {
+    match: (h) => h === "twitter.com" || h === "x.com",
+    watch: (_h, path) => /\/status\/\d+/.test(path),
+  },
+  {
+    match: (h) => hostIs(h, "instagram.com"),
+    watch: (_h, path) => /^\/(reel|reels|p|tv)\//.test(path),
+  },
+  {
+    match: (h) => hostIs(h, "reddit.com"),
+    watch: (_h, path) => /\/comments\//.test(path),
+  },
+  {
+    match: (h) => h === "fb.watch" || hostIs(h, "facebook.com"),
+    watch: (h, path) => h === "fb.watch" || /\/(watch|reel|videos)\//.test(path),
+  },
+  {
+    match: (h) => hostIs(h, "bilibili.com"),
+    watch: (_h, path) => path.startsWith("/video/"),
+  },
+  {
+    match: (h) => hostIs(h, "ted.com"),
+    watch: (_h, path) => path.startsWith("/talks/"),
+  },
+  {
+    match: (h) => h === "rumble.com",
+    watch: (_h, path) => /\.html$/i.test(path),
+  },
+];
+
 function isWatchUrl(href) {
   let url;
   try { url = new URL(href); } catch { return false; }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
-  const path = url.pathname;
-  const q = url.searchParams;
+  const host = hostOf(url);
+  const rule = WATCH_HOSTS.find((r) => r.match(host));
+  if (rule) return rule.watch(host, url.pathname, url.searchParams);
+  return false;
+}
 
-  if (host === "youtu.be") return path.length > 1;
-  if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
-    if (path === "/watch" && q.has("v")) return true;
-    if (/^\/(shorts|embed|live|clip)\//.test(path)) return true;
-    if (path === "/playlist" && q.has("list")) return true;
-    return false;
-  }
-  if (host === "vimeo.com" || host.endsWith(".vimeo.com")) {
-    return /^\/\d+/.test(path) || /^\/(video|channels)\//.test(path);
-  }
-  if (host === "twitch.tv" || host.endsWith(".twitch.tv")) {
-    return /^\/videos\/\d+/.test(path) || /\/clip\//.test(path);
-  }
-  if (host === "dailymotion.com" || host.endsWith(".dailymotion.com")) {
-    return path.startsWith("/video/");
-  }
-  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) {
-    return /\/video\//.test(path);
-  }
-  if (host === "twitter.com" || host === "x.com") {
-    return /\/status\/\d+/.test(path);
-  }
-  if (host === "instagram.com" || host.endsWith(".instagram.com")) {
-    return /^\/(reel|reels|p|tv)\//.test(path);
-  }
-  if (host === "reddit.com" || host.endsWith(".reddit.com")) {
-    return /\/comments\//.test(path);
-  }
-  if (host === "facebook.com" || host.endsWith(".facebook.com") || host === "fb.watch") {
-    return host === "fb.watch" || /\/(watch|reel|videos)\//.test(path);
-  }
-  if (host === "bilibili.com" || host.endsWith(".bilibili.com")) {
-    return path.startsWith("/video/");
-  }
-  if (host === "ted.com" || host.endsWith(".ted.com")) {
-    return path.startsWith("/talks/");
-  }
-  if (host === "rumble.com") {
-    return /\.html$/i.test(path);
-  }
-  if (FEED.test(path) || path === "/" || path === "") return false;
-  return GENERIC_WATCH.test(path);
+function isKnownHost(href) {
+  try { return WATCH_HOSTS.some((r) => r.match(hostOf(new URL(href)))); }
+  catch { return false; }
 }
 
 function playerRect() {
@@ -102,7 +132,10 @@ function isVideoPage(href = location.href) {
   let url;
   try { url = new URL(href); } catch { return false; }
   if (FEED.test(url.pathname) || url.pathname === "/" || url.pathname === "") return false;
-  return !!playerRect();
+  // Unknown hosts only get the chip when a real player is on the page —
+  // a generic /watch path is not enough on its own.
+  if (GENERIC_WATCH.test(url.pathname) || !isKnownHost(href)) return !!playerRect();
+  return false;
 }
 
 globalThis.gariaIsWatchUrl = isWatchUrl;
@@ -214,22 +247,37 @@ function ensureHost() {
   attached = true;
 }
 
+function isDismissed(href) {
+  return dismissed.includes(href);
+}
+
+function dismiss(href) {
+  const at = dismissed.indexOf(href);
+  if (at >= 0) dismissed.splice(at, 1);
+  dismissed.push(href);
+  if (dismissed.length > DISMISS_CAP) dismissed.shift();
+}
+
 function place() {
   ensureHost();
   const href = pageKey();
   const showingSent = Date.now() < sentUntil;
-  if (!showingSent && dismissed.has(href)) {
+  if (!showingSent && isDismissed(href)) {
     host.style.display = "none";
+    syncObserver(false);
     return;
   }
   if (document.fullscreenElement) {
     host.style.display = "none";
+    syncObserver(false);
     return;
   }
   if (!isVideoPage(href)) {
     host.style.display = "none";
+    syncObserver(false);
     return;
   }
+  syncObserver(true);
 
   const r = playerRect();
   host.style.display = "block";
@@ -267,7 +315,7 @@ action.addEventListener("click", (event) => {
   sentUntil = Date.now() + 1100;
   place();
   setTimeout(() => {
-    dismissed.add(url);
+    dismiss(url);
     label.textContent = "Download";
     place();
   }, 1100);
@@ -276,7 +324,7 @@ action.addEventListener("click", (event) => {
 hide.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  dismissed.add(pageKey());
+  dismiss(pageKey());
   sentUntil = 0;
   place();
 });
@@ -288,26 +336,47 @@ for (const type of ["pointerdown", "mousedown", "mouseup", "click"]) {
 window.addEventListener("scroll", schedule, true);
 window.addEventListener("resize", schedule);
 document.addEventListener("fullscreenchange", schedule);
-document.addEventListener("yt-navigate-finish", schedule);
 
 let lastHref = pageKey();
-setInterval(() => {
+function onNavigate() {
   const href = pageKey();
-  if (href === lastHref) return;
+  if (href === lastHref) {
+    schedule();
+    return;
+  }
   lastHref = href;
   label.textContent = "Download";
   sentUntil = 0;
   schedule();
-}, 400);
+}
+
+document.addEventListener("yt-navigate-finish", onNavigate);
+window.addEventListener("popstate", onNavigate);
+
+const youtubeHost = /(?:^|\.)youtube\.com$|^youtu\.be$/i.test(location.hostname);
+if (!youtubeHost) {
+  setInterval(onNavigate, 800);
+}
 
 let moTimer = 0;
-new MutationObserver(() => {
+let observing = false;
+const mo = new MutationObserver(() => {
   if (moTimer) return;
   moTimer = setTimeout(() => {
     moTimer = 0;
     place();
   }, 250);
-}).observe(document.documentElement, { childList: true, subtree: true });
+});
+
+function syncObserver(on) {
+  if (on && !observing) {
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    observing = true;
+  } else if (!on && observing) {
+    mo.disconnect();
+    observing = false;
+  }
+}
 
 place();
 

@@ -357,8 +357,8 @@ createServer((req, res) => {
       // has no row to give it, which is itself the shape a purged gid has.
       method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :
       method === "aria2.tellActive"  ? s.active  :
-      method === "aria2.tellWaiting" ? s.waiting :
-      method === "aria2.tellStopped" ? s.stopped :
+      method === "aria2.tellWaiting" ? s.waiting.slice(Number(params[0]) || 0, (Number(params[0]) || 0) + (Number(params[1]) || s.waiting.length)) :
+      method === "aria2.tellStopped" ? s.stopped.slice(Number(params[0]) || 0, (Number(params[0]) || 0) + (Number(params[1]) || s.stopped.length)) :
       method === "aria2.tellStatus"  ? one(params[0]) ?? null :
       method === "aria2.getServers"  ? serversFor(one(params[0]) ?? { downloadSpeed: "0", files: [] }) :
       method === "aria2.getPeers"    ? (one(params[0])?.bittorrent ? peersFor(one(params[0])) : []) :

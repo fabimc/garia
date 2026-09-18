@@ -379,6 +379,7 @@ html.in-app .statusbar {
     box-shadow: var(--shadow-md);
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 1rem;
     -webkit-app-region: drag;
 }
@@ -418,6 +419,8 @@ html.in-app .statusbar {
     margin-left: auto;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
     min-width: 0;
 }

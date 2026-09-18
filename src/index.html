@@ -74,7 +74,7 @@
                 <nav class="sidebar-nav" id="filter-bar">
                     <div class="nav-group">
                         <div class="nav-group-label">Library</div>
-                        <button class="nav-item active" data-filter="all">
+                        <button class="nav-item active" data-filter="all" aria-current="page">
                             <svg
                                 class="nav-icon"
                                 xmlns="http://www.w3.org/2000/svg"
@@ -295,7 +295,7 @@
                         <span id="view-count" class="view-count"></span>
                     </div>
                     <div class="content-actions">
-                        <button class="pill" id="pause-all" title="Pause all">
+                        <button class="pill" id="pause-all" title="Pause all" disabled>
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="13"
@@ -312,7 +312,7 @@
                             </svg>
                             Pause all
                         </button>
-                        <button class="pill" id="resume-all" title="Resume all">
+                        <button class="pill" id="resume-all" title="Resume all" disabled>
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="13"
@@ -393,7 +393,7 @@
                             class="col-head hidden"
                             role="row"
                         ></div>
-                        <ul id="download-list" aria-multiselectable="true"></ul>
+                        <ul id="download-list" role="listbox" aria-label="Downloads" aria-multiselectable="true"></ul>
                     </div>
                     <div id="empty-state" class="empty-state hidden">
                         <svg

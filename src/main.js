@@ -1,3 +1,7 @@
+import { initAddDialog } from "./add-dialog.js";
+import { bytesToBase64 } from "./encode.js";
+import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
+
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
@@ -832,10 +836,13 @@ function collapseJobs(all) {
 // Both halves are down: stitch them. Started, not awaited — ffmpeg takes
 // seconds on a short clip and minutes on a long one, and the poll runs every
 // second. The state flips to "muxing" before the call, which is what stops the
-// next tick from starting a second ffmpeg on the same two files.
+// next tick from starting a second ffmpeg on the same two files. One at a
+// time: a playlist that lands together must not spawn ten muxes at once.
+let muxBusy = false;
+
 function runPendingMerges(rows) {
   const invoker = window.__TAURI__?.core?.invoke;
-  if (typeof invoker !== "function") return;
+  if (typeof invoker !== "function" || muxBusy) return;
 
   for (const row of rows) {
     if (row.status !== "merging" || row.job?.state !== "downloading") continue;
@@ -851,6 +858,7 @@ function runPendingMerges(rows) {
 
     job.state = "muxing";
     saveJobs();
+    muxBusy = true;
 
     const outPath = `${pathDir(videoPath) || job.dir}/${job.out}`;
     invoker("mux_video", { videoPath, audioPath, outPath })
@@ -866,7 +874,11 @@ function runPendingMerges(rows) {
           ? "Both halves downloaded, but the ffmpeg that merges them isn't running"
           : `Could not merge the two halves: ${message}`;
       })
-      .finally(saveJobs);
+      .finally(() => {
+        muxBusy = false;
+        saveJobs();
+      });
+    return;
   }
 }
 
@@ -1305,6 +1317,7 @@ function createItemEl(dl) {
   const li = document.createElement("li");
   li.className = "dl-item";
   li.dataset.gid = dl.gid;
+  li.setAttribute("role", "option");
   li.setAttribute("aria-selected", "false");
   li.tabIndex = -1;
   li.innerHTML = `
@@ -1494,6 +1507,7 @@ function sectionEl(status) {
     el = document.createElement("li");
     el.className = "dl-section";
     el.dataset.section = status;
+    el.setAttribute("role", "presentation");
     el.innerHTML = `
       <div class="dl-section-top">
         <span class="dl-section-label"></span>
@@ -1564,6 +1578,11 @@ let firstPoll = true;
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
+let onFilterApplied = () => {};
+let listHost = null;
+let afterPoll = () => {};
+let pollInFlight = null;
+let pollQueued = false;
 
 function applyFilter(listEl) {
   const items = listEl.querySelectorAll(".dl-item");
@@ -1627,7 +1646,7 @@ function applyFilter(listEl) {
       sub = "Start aria2 and garia will reconnect on its own";
     } else {
       title = "No downloads yet";
-      sub = "Drag a URL or .torrent file anywhere, or hit Add download";
+      sub = "Drag a URL or .torrent file anywhere, copy a file link, or hit ⌘N";
     }
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
@@ -1638,6 +1657,7 @@ function applyFilter(listEl) {
     const on = COLUMNS.some((c) => columnOn(c.id));
     head.classList.toggle("hidden", !on || showSections);
   }
+  onFilterApplied();
 }
 
 function renderCounts(tally) {
@@ -1661,6 +1681,11 @@ function renderCounts(tally) {
   const up = formatSpeed(tally.upspeed);
   document.getElementById("stat-speed").textContent =
     [down && `↓ ${down}`, up && `↑ ${up}`].filter(Boolean).join("  ");
+
+  const pauseAllBtn = document.getElementById("pause-all");
+  const resumeAllBtn = document.getElementById("resume-all");
+  if (pauseAllBtn) pauseAllBtn.disabled = !tally.active;
+  if (resumeAllBtn) resumeAllBtn.disabled = !tally.paused;
 }
 
 // A cap explains a slow download, so it has to be visible — and reachable —
@@ -1676,12 +1701,12 @@ function renderTraffic() {
     : `${MODE_LABELS[mode]} · ${formatSpeed(bytes)}`;
   btn.classList.toggle("capped", mode !== "full");
 
-  for (const option of document.querySelectorAll(".traffic-option")) {
+  for (const option of document.querySelectorAll("#traffic-menu .traffic-option")) {
     const own = option.dataset.mode;
     option.setAttribute("aria-checked", String(own === mode));
     if (own === "full") continue;
-    option.querySelector(".traffic-option-note").textContent =
-      formatSpeed(modeLimit(own)) || "—";
+    const note = option.querySelector(".traffic-option-note");
+    if (note) note.textContent = formatSpeed(modeLimit(own)) || "—";
   }
 }
 
@@ -2122,17 +2147,29 @@ async function askQuietly(method, gid) {
 // One download, or the two halves of a merged one. A half aria2 has forgotten
 // comes back as a part with no status — its file is on disk, and saying so is
 // better than leaving a gap.
+const DETAIL_HEAVY_MS = 3000;
+const detailCache = new Map();
+
 async function detailData(gid) {
   const row = snapshot.get(gid);
   const ids = gidsFor(gid);
   const labels = ids.length > 1 ? ["Video", "Audio"] : [""];
   const parts = [];
+  const cache = detailCache.get(gid) || { at: 0, parts: {} };
+  const now = Date.now();
+  const stale = now - cache.at >= DETAIL_HEAVY_MS;
+  let pulledHeavy = stale;
 
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
     let status = null;
     try { status = await rpc("aria2.tellStatus", [id, DETAIL_KEYS]); } catch { /* forgotten */ }
     const live = status?.status === "active";
+    const prev = cache.parts[id] || {};
+    const done = Number(status?.completedLength) || 0;
+    const lengthChanged = done !== prev.done;
+    const heavy = stale || lengthChanged;
+    if (heavy) pulledHeavy = true;
     parts.push({
       gid: id,
       label: labels[i] || "",
@@ -2140,11 +2177,21 @@ async function detailData(gid) {
       // fields offering one would be two ways to say the same nothing.
       solo: ids.length === 1,
       status,
-      preview: status ? await previewOf(status) : null,
-      servers: live ? await askQuietly("aria2.getServers", id) : [],
-      peers: live && status.bittorrent ? await askQuietly("aria2.getPeers", id) : [],
+      preview: heavy && status ? await previewOf(status) : (prev.preview ?? null),
+      servers: live && heavy ? await askQuietly("aria2.getServers", id) : (prev.servers || []),
+      peers: live && status?.bittorrent && heavy
+        ? await askQuietly("aria2.getPeers", id)
+        : (prev.peers || []),
     });
+    cache.parts[id] = {
+      preview: parts[i].preview,
+      servers: parts[i].servers,
+      peers: parts[i].peers,
+      done,
+    };
   }
+  if (pulledHeavy) cache.at = now;
+  detailCache.set(gid, cache);
   return { gid, row, job: row?.job || null, parts };
 }
 
@@ -2951,15 +2998,16 @@ function openDetail(gid) {
   const row = snapshot.get(gid);
   document.getElementById("detail-title").textContent = row ? fileName(row) : gid;
   document.getElementById("detail-reveal").classList.add("hidden");
-  document.getElementById("detail-overlay").classList.remove("hidden");
+  openOverlay(document.getElementById("detail-overlay"), { close: closeDetail });
   refreshDetail();
 }
 
 function closeDetail() {
   // An unapplied pick is a thought, not a setting: it goes when the panel does.
   fileSelection.clear();
+  detailCache.delete(detailGid);
   detailGid = null;
-  document.getElementById("detail-overlay").classList.add("hidden");
+  closeOverlay(document.getElementById("detail-overlay"));
 }
 
 // Through Rust when there is a Rust to go through: the webview's clipboard
@@ -3072,12 +3120,28 @@ function setConn(state) {
   return text;
 }
 
+async function tellPaged(method, keys) {
+  const out = [];
+  let offset = 0;
+  const page = 100;
+  while (true) {
+    const chunk = await rpc(method, [offset, page, keys]);
+    if (!Array.isArray(chunk) || !chunk.length) break;
+    if (out.length && chunk[0]?.gid && chunk[0].gid === out[0]?.gid) break;
+    out.push(...chunk);
+    if (chunk.length < page) break;
+    offset += page;
+    if (offset > 5000) break;
+  }
+  return out;
+}
+
 async function poll(listEl) {
   try {
     const [active, waiting, stopped] = await Promise.all([
       rpc("aria2.tellActive", [KEYS]),
-      rpc("aria2.tellWaiting", [0, 100, KEYS]),
-      rpc("aria2.tellStopped", [0, 100, KEYS]),
+      tellPaged("aria2.tellWaiting", KEYS),
+      tellPaged("aria2.tellStopped", KEYS),
       // Asked alongside rather than after: which rows are held changes on the
       // scheduler's tick, not on this one, but a row that says "Paused" for a
       // second before it says "Scheduled" is the flicker worth avoiding.
@@ -3182,6 +3246,13 @@ async function poll(listEl) {
       listEl.appendChild(frag);
     }
 
+    const usedSections = new Set(
+      desired.filter((n) => n.classList.contains("dl-section")).map((n) => n.dataset.section),
+    );
+    for (const [status, el] of [...sectionEls]) {
+      if (!usedSections.has(status)) sectionEls.delete(status);
+    }
+
     // A queue of one has nowhere to go, and the grab cursor would be a lie.
     listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
 
@@ -3203,6 +3274,22 @@ async function poll(listEl) {
   }
 }
 
+async function pollAndSync() {
+  if (!listHost) return;
+  if (pollInFlight) {
+    pollQueued = true;
+    return pollInFlight;
+  }
+  pollInFlight = (async () => {
+    do {
+      pollQueued = false;
+      await poll(listHost);
+      afterPoll();
+    } while (pollQueued);
+  })().finally(() => { pollInFlight = null; });
+  return pollInFlight;
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
 
@@ -3212,6 +3299,7 @@ window.addEventListener("DOMContentLoaded", () => {
     .catch(() => {});
 
   const listEl = document.getElementById("download-list");
+  listHost = listEl;
   const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
 
@@ -3246,14 +3334,20 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     for (const b of filterBar.querySelectorAll(".nav-item")) {
-      b.classList.toggle("active", b.dataset.filter === activeFilter);
+      const on = b.dataset.filter === activeFilter;
+      b.classList.toggle("active", on);
+      if (on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
     }
   }
 
   function setFilter(value) {
     activeFilter = value;
     for (const b of filterBar.querySelectorAll(".nav-item")) {
-      b.classList.toggle("active", b.dataset.filter === value);
+      const on = b.dataset.filter === value;
+      b.classList.toggle("active", on);
+      if (on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
     }
     document.getElementById("view-title").textContent = categoryTitle(value);
     applyFilter(listEl);
@@ -3269,855 +3363,16 @@ window.addEventListener("DOMContentLoaded", () => {
     applyFilter(listEl);
   });
 
-  // ── Modal ────────────────────────────────────────────────────────────────
-  const overlay       = document.getElementById("modal-overlay");
-  const modalUrlInput = document.getElementById("modal-url-input");
-  const modalError    = document.getElementById("modal-error");
-  const torrentInput  = document.getElementById("torrent-file-input");
-
-  const modalChecksumRow  = document.getElementById("modal-checksum-row");
-  const modalChecksum     = document.getElementById("modal-checksum");
-  const modalChecksumHint = document.getElementById("modal-checksum-hint");
-
-  const modalBusy     = document.getElementById("modal-busy");
-  const modalBusyText  = document.getElementById("modal-busy-text");
-  const modalPlain    = document.getElementById("modal-plain");
-  const modalOk       = document.getElementById("modal-ok");
-  const modalTitle    = document.getElementById("modal-title");
-  const videoPanel    = document.getElementById("video-panel");
-  const videoChoices  = document.getElementById("video-choices");
-  const videoNote     = document.getElementById("video-note");
-
-  const playlistPanel   = document.getElementById("playlist-panel");
-  const playlistRule    = document.getElementById("playlist-rule");
-  const playlistEntries = document.getElementById("playlist-entries");
-  const playlistCount   = document.getElementById("playlist-count");
-  const playlistNote    = document.getElementById("playlist-note");
-  const batchPanel      = document.getElementById("batch-panel");
-  const batchEntries    = document.getElementById("batch-entries");
-  const batchCount      = document.getElementById("batch-count");
-  let batchReferrer = "";
-
-  // The dialog is one of five things at a time: asking for a URL, waiting,
-  // offering qualities, offering a playlist, or listing an FTP folder.
-  // Every widget belongs to exactly one of them, so the state is set in one
-  // place rather than toggled eight.
-  let modalMode = "url";
-  let probed = null;      // the last successful probe, and its choices
-  let playlist = null;    // the last flat listing, and which of it is ticked
-  let ftpListing = null;  // files ticked; folders open
-  let probeToken = 0;     // a probe the user has moved on from must not land
-
-  const MODAL_TITLES = {
-    url: "Add download",
-    busy: "Add download",
-    video: "Download video",
-    playlist: "Download playlist",
-    ftp: "Browse FTP",
-  };
-
-  const ftpPanel   = document.getElementById("ftp-panel");
-  const ftpEntries = document.getElementById("ftp-entries");
-  const ftpCount   = document.getElementById("ftp-count");
-  const ftpNote    = document.getElementById("ftp-note");
-  const ftpWhere   = document.getElementById("ftp-where");
-  const ftpUp      = document.getElementById("ftp-up");
-  const modalLogin = document.getElementById("modal-login");
-
-  function setModalMode(mode) {
-    modalMode = mode;
-    const isUrl = mode === "url";
-    document.querySelector(".modal-input-row").classList.toggle("hidden", !isUrl);
-    document.querySelector('label[for="modal-url-input"]').classList.toggle("hidden", !isUrl);
-    modalBusy.classList.toggle("hidden", mode !== "busy");
-    videoPanel.classList.toggle("hidden", mode !== "video");
-    playlistPanel.classList.toggle("hidden", mode !== "playlist");
-    ftpPanel.classList.toggle("hidden", mode !== "ftp");
-    if (mode !== "url") {
-      batchPanel.classList.add("hidden");
-      modalLogin.classList.add("hidden");
-    }
-    modalOk.classList.toggle("hidden", mode === "busy");
-    // The playlist and the FTP list each count what is ticked.
-    if (mode !== "playlist" && mode !== "ftp") {
-      modalOk.textContent = mode === "video" ? "Download" : "OK";
-      modalOk.disabled = false;
-    }
-    const addStart = document.getElementById("add-start");
-    if (addStart) addStart.classList.toggle("hidden", mode === "busy");
-    modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
-    // Last, and after the OK button has been re-enabled above: the hash is the
-    // one thing in the dialog that can disable it again.
-    renderChecksum();
-  }
-
-  // One source for the rules, so the list and the reading of it can't drift.
-  playlistRule.append(...QUALITY_RULES.map((r) => {
-    const option = document.createElement("option");
-    option.value = r.id;
-    option.textContent = r.detail ? `${r.label} — ${r.detail}` : r.label;
-    return option;
-  }));
-
-  // A URL whose host garia has a login for, said before the download starts —
-  // a 401 three seconds later is a worse way to find out, and a site with a
-  // login saved is exactly the one where a typo in the host goes unnoticed.
-  function renderModalLogin() {
-    const login = loginFor(modalUrlInput.value.trim());
-    modalLogin.classList.toggle("hidden", !login);
-    if (login) {
-      modalLogin.textContent = login.username
-        ? `Signing in to ${login.host} as ${login.username}`
-        : `Sending your saved headers for ${login.host}`;
-    }
-  }
-
-  // Three things to say and one field to say them in: nothing yet, the digest
-  // aria2 will check against, or why what is there cannot be one. The OK button
-  // goes with it — a hash aria2 would refuse is a download that never starts,
-  // and finding that out on submit is a worse place to find it out.
-  function renderBatch() {
-    const urls = parseDownloadUrls(modalUrlInput.value);
-    const show = modalMode === "url" && urls.length > 1;
-    batchPanel.classList.toggle("hidden", !show);
-    if (!show) {
-      if (modalMode === "url") modalOk.textContent = "OK";
-      return;
-    }
-    const kept = new Map();
-    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) {
-      kept.set(box.dataset.url, box.checked);
-    }
-    batchEntries.textContent = "";
-    let on = 0;
-    for (const url of urls) {
-      const label = document.createElement("label");
-      label.className = "batch-entry";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.dataset.url = url;
-      box.checked = kept.has(url) ? kept.get(url) : true;
-      if (box.checked) on++;
-      const name = document.createElement("span");
-      name.className = "batch-entry-name";
-      name.textContent = catchLabel(url);
-      name.title = url;
-      const cat = document.createElement("span");
-      cat.className = "batch-entry-cat";
-      cat.textContent = matchCategory(url)?.name || "";
-      label.append(box, name, cat);
-      batchEntries.append(label);
-    }
-    batchCount.textContent = on === 1 ? "1 selected" : `${on} selected`;
-    modalOk.textContent = on ? `Download ${on}` : "Download";
-    modalOk.disabled = on === 0;
-  }
-
-  function renderChecksum() {
-    const urls = parseDownloadUrls(modalUrlInput.value);
-    const forFile = urls.length === 1 && takesChecksum(urls[0]);
-    modalChecksumRow.classList.toggle("hidden", modalMode !== "url" || !forFile);
-
-    const parsed = forFile ? parseChecksum(modalChecksum.value) : null;
-    modalChecksumHint.classList.toggle("is-bad", Boolean(parsed?.error));
-    modalChecksumHint.textContent = !parsed
-      ? "aria2 hashes the file as it arrives, so checking costs the download nothing."
-      : parsed.error
-        ? parsed.error
-        : `${parsed.label}. The download fails rather than finishing if what lands doesn't match.`;
-
-    if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
-    renderBatch();
-  }
-
-  function openModal(url = "", extras = {}) {
-    probeToken++;
-    probed = null;
-    playlist = null;
-    ftpListing = null;
-    batchReferrer = extras.referrer || "";
-    modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
-    modalChecksum.value = "";
-    torrentInput.value  = "";
-    modalError.classList.add("hidden");
-    modalPlain.classList.add("hidden");
-    batchEntries.textContent = "";
-    const now = batchPanel.querySelector('input[name="batch-when"][value="now"]');
-    if (now) now.checked = true;
-    resetStartField("add-start-on", "add-start-at");
-    renderModalLogin();
-    setModalMode("url");
-    overlay.classList.remove("hidden");
-    setTimeout(() => modalUrlInput.focus(), 50);
-  }
-  function closeModal() {
-    probeToken++;   // whatever yt-dlp is doing, it is no longer wanted
-    overlay.classList.add("hidden");
-  }
-
-  modalUrlInput.addEventListener("input", () => { renderModalLogin(); renderChecksum(); });
-  batchEntries.addEventListener("change", renderBatch);
-  document.getElementById("batch-all").addEventListener("click", () => {
-    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = true;
-    renderBatch();
+  const addDialog = initAddDialog({
+    rpc, pollAndSync, parseDownloadUrls, addOptions, orderOptions,
+    loginHeaders, loginFor, catchLabel, matchCategory, takesChecksum,
+    parseChecksum, checksumOption, videoTools, looksLikeAPage, isFtpUrl,
+    looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
+    QUALITY_RULES, pickByRule, safeName, targetDir, holdAdded, modalStartAt,
+    resetStartField, jobs, saveJobs, rowChecksums, el,
   });
-  document.getElementById("batch-none").addEventListener("click", () => {
-    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = false;
-    renderBatch();
-  });
-  modalChecksum.addEventListener("input", renderChecksum);
-  document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
-  document.getElementById("modal-close").addEventListener("click", closeModal);
-  document.getElementById("modal-cancel").addEventListener("click", closeModal);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    closeTrafficMenu(); closeRowMenu(); closeModal(); closeConfirm(); closeCapture(); closeDetail(); closeLicenses(); closeHelp(); closeUpdate();
-  });
+  const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
-  // Browse → open native file picker for .torrent
-  document.getElementById("browse-btn").addEventListener("click", () => torrentInput.click());
-
-  // When a torrent file is chosen, submit immediately
-  torrentInput.addEventListener("change", async () => {
-    const file = torrentInput.files[0];
-    if (!file) return;
-    await submitTorrent(file);
-  });
-
-  async function submitTorrent(file) {
-    modalError.classList.add("hidden");
-    try {
-      const buf = await file.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      const at = modalStartAt();
-      const gid = await rpc("aria2.addTorrent", [b64, [], addOptions(undefined, { queue: Boolean(at) })]);
-      await holdAdded(gid, at);
-      closeModal();
-      await pollAndSync();
-    } catch (err) {
-      modalError.textContent = err.message;
-      modalError.classList.remove("hidden");
-    }
-  }
-
-  // A .torrent the system opened — Finder, Open With, File → Open Torrent.
-  // The bytes come from Rust so the webview never has to read an arbitrary path.
-  // The same path can arrive twice (the live event and the pending drain);
-  // one add is enough.
-  const recentlyOpened = new Set();
-  async function ingestTorrentPath(path) {
-    if (!path || recentlyOpened.has(path)) return;
-    recentlyOpened.add(path);
-    setTimeout(() => recentlyOpened.delete(path), 2500);
-    const invoker = window.__TAURI__?.core?.invoke;
-    if (typeof invoker !== "function") return;
-    try {
-      const b64 = await invoker("read_torrent", { path });
-      await rpc("aria2.addTorrent", [b64, [], addOptions()]);
-      await pollAndSync();
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  // Hands the URL to aria2 exactly as typed. This is what the dialog has
-  // always done, and it stays the fallback for everything yt-dlp declines.
-  async function addPlainUrl(url, options = addOptions(url)) {
-    modalError.classList.add("hidden");
-    // The hash belongs to the URL as typed, so it rides the same call — and
-    // only this one, because a video is two files and a playlist is forty.
-    const parsed = takesChecksum(url) ? parseChecksum(modalChecksum.value) : null;
-    if (parsed?.error) {
-      modalError.textContent = parsed.error;
-      modalError.classList.remove("hidden");
-      return;
-    }
-    try {
-      const at = modalStartAt();
-      const gid = await rpc("aria2.addUri", [[url], {
-        ...options,
-        ...checksumOption(parsed),
-        ...(at ? { pause: "true" } : {}),
-      }]);
-      await holdAdded(gid, at);
-      // aria2 would answer the same thing a tick later; knowing it now is what
-      // keeps a small file from finishing before its own badge exists.
-      if (parsed?.spec && typeof gid === "string") rowChecksums.set(gid, parsed.spec);
-      closeModal();
-      await pollAndSync();
-    } catch (err) {
-      const unreachable = err.message.includes("Failed to fetch") || err.message.includes("Load failed");
-      modalError.textContent = unreachable
-        ? "aria2 isn't answering yet — give it a moment and try again"
-        : err.message;
-      modalError.classList.remove("hidden");
-      setModalMode("url");
-    }
-  }
-
-  // A URL that isn't obviously a file gets shown to yt-dlp first. When there's
-  // no yt-dlp, or the URL is plainly a file, nothing changes from before.
-  async function addBatch(candidates) {
-    const checked = [...batchEntries.querySelectorAll("input[type=checkbox]")]
-      .filter((box) => box.checked)
-      .map((box) => box.dataset.url);
-    const urls = checked.length ? checked : candidates;
-    if (!urls.length) return;
-    const at = modalStartAt();
-    const queue = Boolean(at)
-      || batchPanel.querySelector('input[name="batch-when"][value="queue"]')?.checked;
-    modalError.classList.add("hidden");
-    try {
-      for (const url of urls) {
-        const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
-        await holdAdded(gid, at);
-      }
-      closeModal();
-      await pollAndSync();
-    } catch (err) {
-      modalError.textContent = err.message;
-      modalError.classList.remove("hidden");
-    }
-  }
-
-  async function submitUrl() {
-    const urls = parseDownloadUrls(modalUrlInput.value);
-    if (urls.length > 1) {
-      await addBatch(urls);
-      return;
-    }
-    const url = urls[0] || modalUrlInput.value.trim();
-    if (!url) return;
-    modalError.classList.add("hidden");
-    modalPlain.classList.add("hidden");
-
-    if (isFtpUrl(url) && !looksLikeFtpFile(url)) {
-      await listFtp(url);
-      return;
-    }
-
-    // A hash is a claim that this URL is a file, which is the question the
-    // probe exists to answer. Nobody publishes a SHA-256 for a video page.
-    const hashed = takesChecksum(url) && Boolean(parseChecksum(modalChecksum.value));
-    if (hashed || !videoTools.version || !looksLikeAPage(url)) {
-      await addPlainUrl(url);
-      return;
-    }
-
-    const token = ++probeToken;
-    modalBusyText.textContent = "Looking for video…";
-    setModalMode("busy");
-
-    let probe;
-    try {
-      probe = await window.__TAURI__.core.invoke("video_probe", { url });
-    } catch (err) {
-      if (token !== probeToken) return;
-      const message = String(err?.message || err);
-      setModalMode("url");
-      // yt-dlp's own diagnosis — it knows the difference between a login wall,
-      // a private video, and a page with nothing on it.
-      modalError.textContent = message === "no-ytdlp"
-        ? "No yt-dlp to read that page with — see Settings"
-        : message;
-      modalError.classList.remove("hidden");
-      // The page may still be a perfectly good file. Offer, don't assume.
-      modalPlain.classList.remove("hidden");
-      return;
-    }
-    if (token !== probeToken) return;
-
-    // A "playlist" holding one video is a video. Read it properly and offer
-    // qualities, rather than a single checkbox with nothing to compare it to.
-    if (probe.kind === "playlist" && probe.entries.length === 1) {
-      const only = probe.entries[0];
-      try {
-        probe = await window.__TAURI__.core.invoke("video_probe", { url: only.url });
-      } catch (err) {
-        if (token !== probeToken) return;
-        setModalMode("url");
-        modalError.textContent = String(err?.message || err);
-        modalError.classList.remove("hidden");
-        modalPlain.classList.remove("hidden");
-        return;
-      }
-      if (token !== probeToken) return;
-    }
-
-    if (probe.kind === "playlist") showPlaylist(probe);
-    else showPicker(probe, url);
-  }
-
-  // ── The quality picker ──────────────────────────────────────────────────
-  function showPicker(info, sourceUrl) {
-    const choices = buildChoices(info, videoTools.ffmpeg);
-    probed = { info: { ...info, webpageUrl: info.webpageUrl || sourceUrl }, choices, selected: 0 };
-
-    document.getElementById("video-title").textContent = info.title || sourceUrl;
-    const sub = [info.uploader, formatDuration(info.duration), info.extractor]
-      .filter(Boolean).join(" · ");
-    document.getElementById("video-sub").textContent = sub;
-
-    const thumb = document.getElementById("video-thumb");
-    thumb.classList.toggle("hidden", !info.thumbnail);
-    if (info.thumbnail) thumb.src = info.thumbnail;
-
-    videoChoices.textContent = "";
-    choices.forEach((c, i) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "video-choice";
-      btn.setAttribute("role", "radio");
-      btn.setAttribute("aria-checked", String(i === 0));
-      btn.dataset.index = String(i);
-      btn.innerHTML =
-        `<span class="video-choice-label"></span>` +
-        `<span class="video-choice-detail"></span>` +
-        `<span class="video-choice-size"></span>`;
-      btn.querySelector(".video-choice-label").textContent = c.label;
-      btn.querySelector(".video-choice-detail").textContent = c.detail;
-      // An estimate is still worth showing — it's the difference between a
-      // 40 MB clip and a 4 GB one — but it shouldn't read as a promise.
-      btn.querySelector(".video-choice-size").textContent = c.bytes ? formatBytes(c.bytes) : "";
-      videoChoices.appendChild(btn);
-    });
-
-    const note = missingNote(info, choices, videoTools.ffmpeg);
-    videoNote.textContent = note;
-    videoNote.classList.toggle("hidden", !note);
-
-    modalPlain.classList.toggle("hidden", choices.length > 0);
-    setModalMode("video");
-    // After the mode, which hands the button back its default state.
-    modalOk.disabled = choices.length === 0;
-  }
-
-  videoChoices.addEventListener("click", (e) => {
-    const btn = e.target.closest(".video-choice");
-    if (!btn || !probed) return;
-    probed.selected = Number(btn.dataset.index);
-    for (const el of videoChoices.querySelectorAll(".video-choice")) {
-      el.setAttribute("aria-checked", String(el === btn));
-    }
-  });
-
-  // ── The playlist picker ─────────────────────────────────────────────────
-  // A flat listing: titles and page URLs, no formats. What each entry can
-  // actually be downloaded at is a probe of its own, and those only happen for
-  // the entries that are still ticked when Download is pressed.
-  function showPlaylist(info) {
-    playlist = {
-      info,
-      // All ticked: a playlist someone pasted is a playlist they want.
-      checked: new Set(info.entries.map((_, i) => i)),
-    };
-
-    document.getElementById("playlist-title").textContent =
-      info.title || info.webpageUrl || "Playlist";
-    const shown = info.entries.length;
-    const held = info.total > shown ? `first ${shown} of ${info.total}` : `${shown} videos`;
-    document.getElementById("playlist-sub").textContent =
-      [info.uploader, held, info.extractor].filter(Boolean).join(" · ");
-
-    const thumb = document.getElementById("playlist-thumb");
-    const art = info.entries.find((e) => e.thumbnail);
-    thumb.classList.toggle("hidden", !art);
-    if (art) thumb.src = art.thumbnail;
-
-    // Only a cap is worth a note. Everything else the subtitle already said.
-    const note = info.total > shown
-      ? `Only the first ${shown} are listed — paste the rest of the playlist to reach them.`
-      : "";
-    playlistNote.textContent = note;
-    playlistNote.classList.toggle("hidden", !note);
-
-    renderPlaylistEntries();
-    setModalMode("playlist");
-  }
-
-  function renderPlaylistEntries() {
-    playlistEntries.textContent = "";
-    playlist.info.entries.forEach((entry, i) => {
-      const row = el("label", "playlist-entry");
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.dataset.index = String(i);
-      box.checked = playlist.checked.has(i);
-      box.setAttribute("aria-label", `Download ${entry.title || entry.url}`);
-      row.append(
-        box,
-        el("span", "playlist-entry-num", String(i + 1)),
-        el("span", "playlist-entry-title", entry.title || entry.url),
-        el("span", "playlist-entry-time", formatDuration(entry.duration)),
-      );
-      row.title = entry.title || entry.url;
-      playlistEntries.appendChild(row);
-    });
-    renderPlaylistCount();
-  }
-
-  function renderPlaylistCount() {
-    const picked = playlist.checked.size;
-    const total = playlist.info.entries.length;
-    playlistCount.textContent = `${picked} of ${total} selected`;
-    modalOk.disabled = picked === 0;
-    modalOk.textContent = picked ? `Download ${picked}` : "Download";
-  }
-
-  playlistEntries.addEventListener("change", (e) => {
-    const box = e.target.closest("input[data-index]");
-    if (!box || !playlist) return;
-    const i = Number(box.dataset.index);
-    if (box.checked) playlist.checked.add(i);
-    else playlist.checked.delete(i);
-    renderPlaylistCount();
-  });
-
-  function setAllChecked(on) {
-    if (!playlist) return;
-    playlist.checked = on ? new Set(playlist.info.entries.map((_, i) => i)) : new Set();
-    for (const box of playlistEntries.querySelectorAll("input[data-index]")) {
-      box.checked = on;
-    }
-    renderPlaylistCount();
-  }
-  document.getElementById("playlist-all").addEventListener("click", () => setAllChecked(true));
-  document.getElementById("playlist-none").addEventListener("click", () => setAllChecked(false));
-
-  // ── FTP listing ─────────────────────────────────────────────────────────
-  // Folders open. Files are ticked. The password, if any, already lived in
-  // the site login — this is only the names.
-  async function listFtp(url) {
-    const token = ++probeToken;
-    modalBusyText.textContent = "Listing…";
-    setModalMode("busy");
-    modalError.classList.add("hidden");
-    modalPlain.classList.add("hidden");
-    let listing;
-    try {
-      listing = await window.__TAURI__.core.invoke("ftp_list", { url });
-    } catch (err) {
-      if (token !== probeToken) return;
-      const message = String(err?.message || err);
-      if (message === "not-a-directory") {
-        await addPlainUrl(url);
-        return;
-      }
-      setModalMode("url");
-      modalError.textContent = message;
-      modalError.classList.remove("hidden");
-      return;
-    }
-    if (token !== probeToken) return;
-    showFtp(listing);
-  }
-
-  function showFtp(listing) {
-    ftpListing = {
-      ...listing,
-      checked: new Set(
-        listing.entries.map((e, i) => (e.dir ? -1 : i)).filter((i) => i >= 0)
-      ),
-    };
-    modalUrlInput.value = listing.url;
-    ftpWhere.textContent = listing.path === "/" ? listing.host : `${listing.host}${listing.path}`;
-    ftpWhere.title = listing.url;
-    const parent = parentFtpUrl(listing.url);
-    ftpUp.disabled = !parent;
-    ftpUp.classList.toggle("hidden", !parent);
-
-    const note = listing.truncated
-      ? "Only the first 2,000 names are listed. Open a folder to see inside it."
-      : listing.login && listing.login !== "anonymous"
-        ? `Signed in as ${listing.login}`
-        : "";
-    ftpNote.textContent = note;
-    ftpNote.classList.toggle("hidden", !note);
-
-    renderFtpEntries();
-    setModalMode("ftp");
-  }
-
-  function parentFtpUrl(url) {
-    try {
-      const u = new URL(url);
-      const parts = u.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
-      if (!parts.length) return "";
-      parts.pop();
-      u.pathname = parts.length ? `/${parts.join("/")}/` : "/";
-      return u.toString();
-    } catch {
-      return "";
-    }
-  }
-
-  function renderFtpEntries() {
-    ftpEntries.textContent = "";
-    if (!ftpListing) return;
-    ftpListing.entries.forEach((entry, i) => {
-      if (entry.dir) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "ftp-folder";
-        btn.dataset.url = entry.url;
-        const name = document.createElement("span");
-        name.className = "batch-entry-name";
-        name.textContent = entry.name;
-        const kind = document.createElement("span");
-        kind.className = "ftp-kind";
-        kind.textContent = "Folder";
-        btn.append(name, kind);
-        ftpEntries.append(btn);
-        return;
-      }
-      const label = document.createElement("label");
-      label.className = "batch-entry";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.dataset.index = String(i);
-      box.dataset.url = entry.url;
-      box.checked = ftpListing.checked.has(i);
-      const name = document.createElement("span");
-      name.className = "batch-entry-name";
-      name.textContent = entry.name;
-      name.title = entry.url;
-      const size = document.createElement("span");
-      size.className = "batch-entry-cat";
-      size.textContent = entry.size ? formatBytes(entry.size) : "";
-      label.append(box, name, size);
-      ftpEntries.append(label);
-    });
-    renderFtpCount();
-  }
-
-  function renderFtpCount() {
-    const files = ftpListing.entries.filter((e) => !e.dir).length;
-    const on = ftpListing.checked.size;
-    ftpCount.textContent = files
-      ? (on === 1 ? "1 selected" : `${on} selected`)
-      : "No files in this folder";
-    modalOk.textContent = on ? `Download ${on}` : "Download";
-    modalOk.disabled = on === 0;
-  }
-
-  ftpEntries.addEventListener("change", (e) => {
-    const box = e.target.closest("input[data-index]");
-    if (!box || !ftpListing) return;
-    const i = Number(box.dataset.index);
-    if (box.checked) ftpListing.checked.add(i);
-    else ftpListing.checked.delete(i);
-    renderFtpCount();
-  });
-  ftpEntries.addEventListener("click", (e) => {
-    const folder = e.target.closest(".ftp-folder");
-    if (!folder) return;
-    listFtp(folder.dataset.url);
-  });
-  ftpUp.addEventListener("click", () => {
-    const up = parentFtpUrl(ftpListing?.url || "");
-    if (up) listFtp(up);
-  });
-  document.getElementById("ftp-all").addEventListener("click", () => {
-    if (!ftpListing) return;
-    ftpListing.checked = new Set(
-      ftpListing.entries.map((e, i) => (e.dir ? -1 : i)).filter((i) => i >= 0)
-    );
-    renderFtpEntries();
-  });
-  document.getElementById("ftp-none").addEventListener("click", () => {
-    if (!ftpListing) return;
-    ftpListing.checked = new Set();
-    renderFtpEntries();
-  });
-
-  async function submitFtp() {
-    if (!ftpListing) return;
-    const urls = [...ftpListing.checked]
-      .sort((a, b) => a - b)
-      .map((i) => ftpListing.entries[i]?.url)
-      .filter(Boolean);
-    if (!urls.length) return;
-    const at = modalStartAt();
-    const queue = Boolean(at);
-    modalError.classList.add("hidden");
-    try {
-      for (const url of urls) {
-        const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue })]);
-        await holdAdded(gid, at);
-      }
-      closeModal();
-      await pollAndSync();
-    } catch (err) {
-      modalError.textContent = err.message;
-      modalError.classList.remove("hidden");
-    }
-  }
-
-  // One entry at a time, queued as it resolves rather than after the last one:
-  // twelve videos is twelve yt-dlp launches, and a list that fills in while it
-  // works is the difference between a wait and a hang. The rule is read
-  // against each entry's own formats, because the entries do not share any.
-  async function submitPlaylist() {
-    if (!playlist) return;
-    const picked = [...playlist.checked].sort((a, b) => a - b);
-    if (!picked.length) return;
-
-    const rule = playlistRule.value;
-    const token = ++probeToken;
-    const failures = [];
-    let queued = 0;
-
-    setModalMode("busy");
-    for (const [nth, index] of picked.entries()) {
-      if (token !== probeToken) return;
-      const entry = playlist.info.entries[index];
-      const name = entry.title || entry.url;
-      modalBusyText.textContent = `Reading ${nth + 1} of ${picked.length}…`;
-
-      let probe;
-      try {
-        probe = await window.__TAURI__.core.invoke("video_probe", { url: entry.url });
-      } catch (err) {
-        failures.push([name, String(err?.message || err)]);
-        continue;
-      }
-      if (token !== probeToken) return;
-      if (probe.kind !== "video") {
-        failures.push([name, "that entry is a playlist of its own"]);
-        continue;
-      }
-
-      const choices = buildChoices(probe, videoTools.ffmpeg);
-      const choice = pickByRule(choices, rule);
-      if (!choice) {
-        failures.push([name, missingNote(probe, choices, videoTools.ffmpeg) ||
-          "nothing on it can be fetched as a plain file"]);
-        continue;
-      }
-
-      try {
-        await queueChoice({ ...probe, webpageUrl: probe.webpageUrl || entry.url }, choice);
-        queued++;
-        // Untick what is already downloading, so what is left on the panel
-        // after a partial run is exactly what still needs one.
-        playlist.checked.delete(index);
-      } catch (err) {
-        failures.push([name, String(err?.message || err)]);
-      }
-    }
-
-    if (token !== probeToken) return;
-    await pollAndSync();
-    if (!failures.length) {
-      closeModal();
-      return;
-    }
-
-    // Something didn't read. The ones that did are already downloading, so the
-    // panel comes back showing only the leftovers.
-    renderPlaylistEntries();
-    setModalMode("playlist");
-    const [name, why] = failures[0];
-    modalError.textContent = failures.length === 1
-      ? `Queued ${queued}. “${name}” couldn't be read — ${why}`
-      : `Queued ${queued} of ${picked.length}. ${failures.length} couldn't be read; ` +
-        `the first, “${name}” — ${why}`;
-    modalError.classList.remove("hidden");
-  }
-
-  // Queue one picked quality. One format is one download; two are two, and a
-  // merge job that turns them back into one file and one row. Shared with the
-  // playlist picker, which does this once per entry it read.
-  async function queueChoice(info, choice) {
-    const base = safeName(info.title) || "video";
-    // Routed by what the file will be, not by the page URL — which has no
-    // extension at all, and would land every video in the base folder.
-    const dir = targetDir(`x.${choice.ext}`);
-    const common = { ...(dir ? { dir } : {}), ...orderOptions() };
-    // Some sites mint a URL for one User-Agent and 403 every other.
-    const referer = info.webpageUrl ? { referer: info.webpageUrl } : {};
-
-    const at = modalStartAt();
-    const hold = at ? { pause: "true" } : {};
-
-    if (choice.formats.length === 1) {
-      const f = choice.formats[0];
-      const gid = await rpc("aria2.addUri", [[f.url], {
-        ...common, ...referer, ...hold, out: `${base}.${f.ext}`,
-        header: [...f.headers, ...loginHeaders(f.url)],
-      }]);
-      await holdAdded(gid, at);
-      return;
-    }
-
-    const [v, a] = choice.formats;
-    // yt-dlp's own naming for the halves, so a leftover part is
-    // recognisable for what it is.
-    const videoName = `${base}.f${v.id}.${v.ext}`;
-    const audioName = `${base}.f${a.id}.${a.ext}`;
-    const videoGid = await rpc("aria2.addUri", [[v.url], {
-      ...common, ...referer, ...hold, out: videoName,
-      header: [...v.headers, ...loginHeaders(v.url)],
-    }]);
-    const audioGid = await rpc("aria2.addUri", [[a.url], {
-      ...common, ...referer, ...hold, out: audioName,
-      header: [...a.headers, ...loginHeaders(a.url)],
-    }]);
-    await holdAdded(videoGid, at);
-    await holdAdded(audioGid, at);
-    jobs.set(videoGid, {
-      audioGid,
-      dir,
-      out: `${base}.${choice.ext}`,
-      // Written down now rather than read back later: aria2 forgets a
-      // finished download across a restart, and the merge still has to
-      // know where its halves are.
-      videoPath: dir ? `${dir}/${videoName}` : "",
-      audioPath: dir ? `${dir}/${audioName}` : "",
-      title: info.title,
-      webpageUrl: info.webpageUrl,
-      state: "downloading",
-    });
-    saveJobs();
-  }
-
-  // Queue what the picker chose.
-  async function submitVideo() {
-    if (!probed) return;
-    const { info, choices, selected } = probed;
-    const choice = choices[selected];
-    if (!choice) return;
-
-    modalBusyText.textContent = "Queueing…";
-    setModalMode("busy");
-
-    try {
-      await queueChoice(info, choice);
-      closeModal();
-      await pollAndSync();
-    } catch (err) {
-      setModalMode("video");
-      modalError.textContent = String(err?.message || err);
-      modalError.classList.remove("hidden");
-    }
-  }
-
-  modalOk.addEventListener("click", () => {
-    if (modalMode === "video") submitVideo();
-    else if (modalMode === "playlist") submitPlaylist();
-    else if (modalMode === "ftp") submitFtp();
-    else submitUrl();
-  });
-  modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));
-  modalUrlInput.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" || e.shiftKey) return;
-    const urls = parseDownloadUrls(modalUrlInput.value);
-    if (e.metaKey || e.ctrlKey || urls.length <= 1) {
-      e.preventDefault();
-      submitUrl();
-    }
-  });
 
   // Per-row buttons and section "View all" links. A plain click selects;
   // the name, a double-click, or Enter opens the panel — a list, not a
@@ -4130,11 +3385,13 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function paintSelection() {
+    const rows = visibleItemRows();
+    const focusGid = selected.size ? selectAnchor : rows[0]?.dataset.gid;
     for (const li of listEl.querySelectorAll(".dl-item")) {
       const on = selected.has(li.dataset.gid);
       li.classList.toggle("is-selected", on);
       li.setAttribute("aria-selected", String(on));
-      li.tabIndex = on && li.dataset.gid === selectAnchor ? 0 : -1;
+      li.tabIndex = li.dataset.gid === focusGid ? 0 : -1;
     }
   }
 
@@ -4149,6 +3406,8 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     paintSelection();
   }
+  afterPoll = pruneSelection;
+  onFilterApplied = paintSelection;
 
   function selectRow(row, e) {
     const gid = row.dataset.gid;
@@ -4269,7 +3528,6 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     selectRow(row, e);
-    if (e.target.closest(".dl-name")) openDetail(row.dataset.gid);
   });
 
   listEl.addEventListener("dblclick", (e) => {
@@ -4283,6 +3541,45 @@ window.addEventListener("DOMContentLoaded", () => {
   function closeRowMenu() {
     rowMenu.classList.add("hidden");
     rowMenu.innerHTML = "";
+  }
+
+  const trafficBtn = document.getElementById("traffic-btn");
+  const trafficMenu = document.getElementById("traffic-menu");
+
+  function closeTrafficMenu() {
+    trafficMenu.classList.add("hidden");
+    trafficBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openTrafficMenu() {
+    renderTraffic();
+    trafficBtn.setAttribute("aria-expanded", "true");
+    placeMenu(trafficMenu, trafficBtn);
+  }
+
+  trafficBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (trafficMenu.classList.contains("hidden")) openTrafficMenu();
+    else closeTrafficMenu();
+  });
+  trafficMenu.addEventListener("click", (e) => {
+    const option = e.target.closest("[data-mode]");
+    if (!option) return;
+    closeTrafficMenu();
+    setTrafficMode(option.dataset.mode);
+  });
+  document.addEventListener("mousedown", (e) => {
+    if (trafficMenu.classList.contains("hidden")) return;
+    if (e.target.closest("#traffic-menu, #traffic-btn")) return;
+    closeTrafficMenu();
+  });
+
+  function closePopups() {
+    let closed = false;
+    if (!columnsMenu.classList.contains("hidden")) { closeColumnsMenu(); closed = true; }
+    if (!trafficMenu.classList.contains("hidden")) { closeTrafficMenu(); closed = true; }
+    if (!rowMenu.classList.contains("hidden")) { closeRowMenu(); closed = true; }
+    return closed;
   }
 
   function menuSpecFor(dls) {
@@ -4484,12 +3781,11 @@ window.addEventListener("DOMContentLoaded", () => {
       ? "Move the downloaded files to the Trash"
       : "Move the downloaded file to the Trash";
     confirmTrash.checked = false;
-    confirmOverlay.classList.remove("hidden");
-    setTimeout(() => confirmCancel.focus(), 50);
+    openOverlay(confirmOverlay, { focus: confirmCancel, close: closeConfirm });
   }
 
   function closeConfirm() {
-    confirmOverlay.classList.add("hidden");
+    closeOverlay(confirmOverlay);
     confirmGids = [];
   }
 
@@ -5033,8 +4329,12 @@ window.addEventListener("DOMContentLoaded", () => {
     closeColumnsMenu();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeColumnsMenu();
-  });
+    if (e.key !== "Escape") return;
+    if (closePopups()) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
 
   renderColHead();
   renderColumnsMenu();
@@ -5051,13 +4351,10 @@ window.addEventListener("DOMContentLoaded", () => {
     return Boolean(document.activeElement?.closest("input, textarea, select, [contenteditable]"));
   }
 
-  function overlayOpen() {
-    return [...document.querySelectorAll(".modal-overlay")].some((el) => !el.classList.contains("hidden"));
-  }
-
   document.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     if ((e.metaKey || e.ctrlKey) && key === "f") {
+      if (overlayOpen()) return;
       e.preventDefault();
       nameSearch.focus();
       nameSearch.select();
@@ -5072,7 +4369,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!window.__TAURI__ && (e.metaKey || e.ctrlKey)) {
       if (key === "n") { e.preventDefault(); openModal(); }
       if (key === ",") { e.preventDefault(); openSettings(); }
-      if (key === "o") { e.preventDefault(); torrentInput.click(); }
+      if (key === "o") { e.preventDefault(); document.getElementById("torrent-file-input").click(); }
     }
 
     if (fieldHasFocus() || overlayOpen()) return;
@@ -5129,7 +4426,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const id = event.payload;
       if (id === "new-download") openModal();
       if (id === "settings") openSettings();
-      if (id === "open-torrent") torrentInput.click();
+      if (id === "open-torrent") document.getElementById("torrent-file-input").click();
       if (id === "find") { nameSearch.focus(); nameSearch.select(); }
       if (id === "pause-all") pauseAll();
       if (id === "resume-all") resumeAll();
@@ -5150,8 +4447,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   const licensesOverlay = document.getElementById("licenses-overlay");
-  function openLicenses() { licensesOverlay.classList.remove("hidden"); }
-  function closeLicenses() { licensesOverlay.classList.add("hidden"); }
+  function openLicenses() { openOverlay(licensesOverlay, { close: closeLicenses }); }
+  function closeLicenses() { closeOverlay(licensesOverlay); }
   document.getElementById("licenses-close").addEventListener("click", closeLicenses);
   document.getElementById("licenses-done").addEventListener("click", closeLicenses);
   licensesOverlay.addEventListener("click", (e) => {
@@ -5165,8 +4462,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   const helpOverlay = document.getElementById("help-overlay");
-  function openHelp() { helpOverlay.classList.remove("hidden"); }
-  function closeHelp() { helpOverlay.classList.add("hidden"); }
+  function openHelp() { openOverlay(helpOverlay, { close: closeHelp }); }
+  function closeHelp() { closeOverlay(helpOverlay); }
   document.getElementById("help-close").addEventListener("click", closeHelp);
   document.getElementById("help-done").addEventListener("click", closeHelp);
   helpOverlay.addEventListener("click", (e) => {
@@ -5180,7 +4477,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const updateLater = document.getElementById("update-later");
   const updateInstall = document.getElementById("update-install");
 
-  function closeUpdate() { updateOverlay.classList.add("hidden"); }
+  function closeUpdate() { closeOverlay(updateOverlay); }
 
   function showUpdate(kind, info) {
     updateNotes.classList.add("hidden");
@@ -5207,7 +4504,7 @@ window.addEventListener("DOMContentLoaded", () => {
       updateTitle.textContent = "Updates";
       updateText.textContent = info?.message || "Could not check for updates.";
     }
-    updateOverlay.classList.remove("hidden");
+    openOverlay(updateOverlay, { close: closeUpdate });
   }
 
   async function checkForUpdate({ quiet } = {}) {
@@ -5245,11 +4542,6 @@ window.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => checkForUpdate({ quiet: true }), 4000);
   }
 
-  async function pollAndSync() {
-    await poll(listEl);
-    pruneSelection();
-  }
-
   // ── Drag & drop ──────────────────────────────────────────────────────────
   const dropOverlay = document.getElementById("drop-overlay");
   let dragCounter = 0;
@@ -5272,7 +4564,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const file = e.dataTransfer.files[0];
     if (file && (file.name.endsWith(".torrent") || file.type === "application/x-bittorrent")) {
       const buf = await file.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = bytesToBase64(buf);
       try { await rpc("aria2.addTorrent", [b64, [], addOptions()]); } catch (err) { console.error(err); }
     } else {
       const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
@@ -5349,13 +4641,12 @@ window.addEventListener("DOMContentLoaded", () => {
     const now = captureOverlay.querySelector('input[name="capture-when"][value="now"]');
     if (now) now.checked = true;
     resetStartField("capture-start-on", "capture-start-at");
-    captureOverlay.classList.remove("hidden");
-    setTimeout(() => captureName.focus(), 50);
+    openOverlay(captureOverlay, { focus: captureName, close: closeCapture });
   }
 
   function closeCapture() {
     capturePending = null;
-    captureOverlay.classList.add("hidden");
+    closeOverlay(captureOverlay);
   }
 
   async function ingestUrl(url, extras = {}) {
@@ -5380,8 +4671,7 @@ window.addEventListener("DOMContentLoaded", () => {
         await pollAndSync();
       } catch (err) {
         openModal(url);
-        modalError.textContent = String(err?.message || err);
-        modalError.classList.remove("hidden");
+        addDialog.showModalError(String(err?.message || err));
       }
       return;
     }
@@ -5449,7 +4739,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("catch-ignore").addEventListener("click", hideCatch);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hideCatch();
+    if (e.key === "Escape" && !overlayOpen()) hideCatch();
   });
 
   document.getElementById("capture-close").addEventListener("click", closeCapture);
