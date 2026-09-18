@@ -34,6 +34,7 @@ export function initAddDialog(api) {
     saveJobs,
     rowChecksums,
     el,
+    alreadyHaveUrl = () => false,
   } = api;
 
   let lastBatchKey = "";
@@ -181,14 +182,15 @@ export function initAddDialog(api) {
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.url = url;
-      box.checked = kept.has(url) ? kept.get(url) : true;
+      const queued = alreadyHaveUrl(url);
+      box.checked = kept.has(url) ? kept.get(url) : !queued;
       const name = document.createElement("span");
       name.className = "batch-entry-name";
       name.textContent = catchLabel(url);
       name.title = url;
       const cat = document.createElement("span");
       cat.className = "batch-entry-cat";
-      cat.textContent = matchCategory(url)?.name || "";
+      cat.textContent = queued ? "In the list" : (matchCategory(url)?.name || "");
       label.append(box, name, cat);
       batchEntries.append(label);
     }
@@ -487,8 +489,9 @@ export function initAddDialog(api) {
   function showPlaylist(info) {
     playlist = {
       info,
-      // All ticked: a playlist someone pasted is a playlist they want.
-      checked: new Set(info.entries.map((_, i) => i)),
+      checked: new Set(
+        info.entries.flatMap((entry, i) => alreadyHaveUrl(entry.url) ? [] : [i])
+      ),
     };
 
     document.getElementById("playlist-title").textContent =
@@ -522,14 +525,19 @@ export function initAddDialog(api) {
       box.type = "checkbox";
       box.dataset.index = String(i);
       box.checked = playlist.checked.has(i);
-      box.setAttribute("aria-label", `Download ${entry.title || entry.url}`);
+      const queued = alreadyHaveUrl(entry.url);
+      box.setAttribute("aria-label", queued
+        ? `${entry.title || entry.url} is already in the list`
+        : `Download ${entry.title || entry.url}`);
       row.append(
         box,
         el("span", "playlist-entry-num", String(i + 1)),
         el("span", "playlist-entry-title", entry.title || entry.url),
-        el("span", "playlist-entry-time", formatDuration(entry.duration)),
+        el("span", "playlist-entry-time", queued ? "In the list" : formatDuration(entry.duration)),
       );
-      row.title = entry.title || entry.url;
+      row.title = queued
+        ? `${entry.title || entry.url} — already in the list`
+        : (entry.title || entry.url);
       playlistEntries.appendChild(row);
     });
     renderPlaylistCount();
@@ -595,7 +603,9 @@ export function initAddDialog(api) {
     ftpListing = {
       ...listing,
       checked: new Set(
-        listing.entries.map((e, i) => (e.dir ? -1 : i)).filter((i) => i >= 0)
+        listing.entries
+          .map((e, i) => (e.dir || alreadyHaveUrl(e.url) ? -1 : i))
+          .filter((i) => i >= 0)
       ),
     };
     modalUrlInput.value = listing.url;
@@ -662,7 +672,9 @@ export function initAddDialog(api) {
       name.title = entry.url;
       const size = document.createElement("span");
       size.className = "batch-entry-cat";
-      size.textContent = entry.size ? formatBytes(entry.size) : "";
+      size.textContent = alreadyHaveUrl(entry.url)
+        ? "In the list"
+        : (entry.size ? formatBytes(entry.size) : "");
       label.append(box, name, size);
       ftpEntries.append(label);
     });

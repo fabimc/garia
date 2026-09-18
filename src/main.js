@@ -1070,6 +1070,38 @@ function retryUris(dl) {
   return uris;
 }
 
+// Same file, same magnet, same page: do not offer to fetch it again. Query
+// strings stay — a signed CDN URL is not the same file as another one.
+function catchKey(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  const magnet = raw.match(/[?&]xt=urn:btih:([a-z0-9]+)/i);
+  if (magnet) return `btih:${magnet[1].toLowerCase()}`;
+  try {
+    const u = new URL(raw);
+    u.hash = "";
+    u.hostname = u.hostname.toLowerCase();
+    if (u.pathname.length > 1) u.pathname = u.pathname.replace(/\/+$/, "");
+    return u.href;
+  } catch {
+    return raw;
+  }
+}
+
+function alreadyHaveUrl(url) {
+  const key = catchKey(url);
+  if (!key) return false;
+  for (const dl of snapshot.values()) {
+    if (catchKey(sourceUrl(dl)) === key) return true;
+    if (catchKey(dl.job?.webpageUrl) === key) return true;
+    if (dl.infoHash && key === `btih:${String(dl.infoHash).toLowerCase()}`) return true;
+    for (const uri of retryUris(dl)) {
+      if (catchKey(uri) === key) return true;
+    }
+  }
+  return false;
+}
+
 // aria2 numbers the common failures and only sometimes writes a message, so
 // the row would otherwise say "Failed" and stop there.
 const ERROR_REASONS = {
@@ -1560,6 +1592,8 @@ const KEYS = [
   "connections",
   // The torrent name is what a multi-file row should show, not its first file.
   "bittorrent",
+  // Matching a caught magnet to a torrent already in the list.
+  "infoHash",
 ];
 
 // aria2 has no status for "finished downloading, still uploading" — a seeding
@@ -3387,7 +3421,7 @@ window.addEventListener("DOMContentLoaded", () => {
     parseChecksum, checksumOption, videoTools, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, holdAdded, modalStartAt,
-    resetStartField, jobs, saveJobs, rowChecksums, el,
+    resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
@@ -4670,6 +4704,7 @@ window.addEventListener("DOMContentLoaded", () => {
   async function ingestUrl(url, extras = {}) {
     hideCatch();
     closeCapture();
+    if (alreadyHaveUrl(url)) return;
     if (!videoTools.version) await loadVideoTools();
     // A file (or magnet) can go straight in; a page still needs the picker.
     // An FTP directory is the other thing that needs a look first.
@@ -4717,8 +4752,9 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function handleCatch(event = {}) {
-    const list = catchUrls(event);
+    const incoming = catchUrls(event);
     const { source, name, referrer } = event;
+    const list = incoming.filter((u) => !alreadyHaveUrl(u));
     const url = list[0];
     if (!url) return;
     const key = `${source}:${list.join("\n")}`;
@@ -4751,6 +4787,13 @@ window.addEventListener("DOMContentLoaded", () => {
     catchBanner.classList.remove("hidden");
     if (!document.hasFocus()) notifyCatch(url);
   }
+
+  const prevAfterPoll = afterPoll;
+  afterPoll = () => {
+    prevAfterPoll();
+    if (offeredUrl && alreadyHaveUrl(offeredUrl)) hideCatch();
+    if (capturePending?.url && alreadyHaveUrl(capturePending.url)) closeCapture();
+  };
 
   document.getElementById("catch-add").addEventListener("click", () => {
     if (offeredUrl) ingestUrl(offeredUrl);
