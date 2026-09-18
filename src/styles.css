@@ -238,7 +238,7 @@ html.in-app .statusbar {
 .app-shell.sidebar-collapsed .content-panel-toggle {
     display: flex;
 }
-/* …and the traffic lights land on the header card once the sidebar is gone */
+/* …and the traffic lights land on the header once the sidebar is gone */
 .app-shell.sidebar-collapsed .content-header {
     padding-left: 80px;
 }
@@ -341,46 +341,21 @@ html.in-app .statusbar {
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
     background-color: var(--bg);
-    /* Softer than the row text so flat rows stay legible over the texture */
-    background-image: radial-gradient(var(--border) 1px, transparent 1px);
-    background-size: 24px 24px;
-}
-
-/* Soft ambient wash, echoing the reference's gradient blobs */
-.content::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-        radial-gradient(
-            42rem 26rem at 12% 118%,
-            var(--wash-green),
-            transparent 70%
-        ),
-        radial-gradient(
-            38rem 24rem at 88% -12%,
-            var(--wash-orange),
-            transparent 70%
-        );
-}
-
-.content > * {
-    position: relative;
 }
 
 .content-header {
     flex-shrink: 0;
-    margin: 1rem 1.25rem 0;
-    padding: 0.7rem 0.75rem 0.7rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    margin: 0;
+    padding: 0.55rem 0.9rem 0.55rem 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
+    flex-wrap: nowrap;
+    gap: 0.75rem;
     -webkit-app-region: drag;
 }
 
@@ -419,7 +394,7 @@ html.in-app .statusbar {
     margin-left: auto;
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 0.4rem;
     min-width: 0;
@@ -498,7 +473,7 @@ html.in-app .statusbar {
 .content-body {
     flex: 1;
     overflow-y: auto;
-    padding: 1.1rem 1.25rem 1.5rem;
+    padding: 0;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
@@ -572,15 +547,13 @@ html.in-app .statusbar {
 }
 
 /* ── Download rows ───────────────────────────────────────────────────── */
-/* One grid for the header, the group titles, and every row, so SIZE/SPEED
-   sit on the same tracks as the numbers — a flex spacer on the header was
-   landing them in a different place from the values, which sit after the
-   action buttons. */
+/* One grid for the header, the group titles, and every row. Tracks are set
+   in JS from the visible columns so Name / Size / Status stay lined up. */
 .dl-table {
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) max-content auto;
-    column-gap: 0.75rem;
-    padding: 0 0.6rem;
+    grid-template-columns: 22px minmax(10rem, 1fr) 7.4rem minmax(10.5rem, 12rem) 6.4rem 5.8rem max-content;
+    column-gap: 1.5rem;
+    padding: 0 1rem 0.75rem;
     min-width: 0;
 }
 
@@ -598,25 +571,13 @@ html.in-app .statusbar {
     align-items: center;
 }
 
-/* Section headers — "Downloading 2 … View all", with column labels on the
-   line below so SIZE/SPEED sit on the numbers rather than in a strip of
-   chrome above the group title. Sticky, so the labels stay over the values
-   as the group scrolls. */
+/* Group titles sit above their rows; the column labels live once, at the top. */
 .dl-section {
-    row-gap: 0.2rem;
-    padding: 1.1rem 0 0.45rem;
-    position: sticky;
-    top: 0;
-    z-index: 2;
+    padding: 0.85rem 0 0.2rem;
     background: var(--bg);
 }
 .dl-section:first-child {
-    padding-top: 0.2rem;
-}
-.dl-section:has(.dl-section-cols:not(.hidden)) {
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0.35rem;
-    margin-bottom: 0.15rem;
+    padding-top: 0.45rem;
 }
 
 .dl-section-top {
@@ -627,15 +588,16 @@ html.in-app .statusbar {
 }
 
 .dl-section-label {
-    font-size: 0.86rem;
-    font-weight: 700;
-    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted);
 }
 
 .dl-section-count {
-    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-size: 0.7rem;
     color: var(--muted);
+    opacity: 0.8;
 }
 
 .dl-section-link {
@@ -656,26 +618,21 @@ html.in-app .statusbar {
     text-decoration: underline;
 }
 
-.dl-section-cols {
-    display: contents;
-}
-
-/* Rows sit flat on the panel — a hairline apart, tinted on hover */
 .dl-item {
-    padding: 0.6rem 0;
-    border-radius: var(--radius);
-    border-bottom: 1px solid var(--border);
-    transition: background 0.15s;
+    min-height: 36px;
+    padding: 0.28rem 0;
+    border-radius: 6px;
+    transition: background 0.12s;
     cursor: pointer;
 }
 .dl-item:hover {
     background: var(--tint);
 }
 .dl-item.is-selected {
-    background: var(--accent-soft);
+    background: color-mix(in srgb, #3b7ddd 14%, var(--bg));
 }
 .dl-item.is-selected:hover {
-    background: var(--accent-soft);
+    background: color-mix(in srgb, #3b7ddd 18%, var(--bg));
 }
 .dl-item.is-file-draggable {
     cursor: grab;
@@ -686,60 +643,75 @@ html.in-app .statusbar {
 .dl-item:focus-visible {
     box-shadow: inset 0 0 0 2px var(--accent);
 }
-/* Last row of a section drops the divider (.is-last-shown is set in JS so it
-   still lands correctly when search hides the trailing rows) */
-.dl-item:last-child,
-.dl-item:has(+ .dl-section),
-.dl-item.is-last-shown {
-    border-bottom: none;
-}
 
 .dl-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--tint);
-    color: var(--muted);
+    background: transparent;
+    color: var(--text);
+    cursor: default;
+}
+.dl-icon[data-action] {
+    cursor: pointer;
+}
+.dl-icon:hover[data-action] {
+    background: var(--tint-strong);
 }
 .dl-icon svg {
     display: block;
+    width: 16px;
+    height: 16px;
 }
 
-.dl-item[data-status="active"] .dl-icon {
-    background: var(--accent-soft);
+.dl-icon[data-kind="active"],
+.dl-icon[data-kind="paused"] {
+    color: var(--text);
+}
+.dl-icon[data-kind="waiting"] {
+    color: var(--muted);
+}
+.dl-icon[data-kind="folder"] {
+    color: #3b7ddd;
+}
+.dl-icon[data-kind="video"] {
     color: var(--accent);
 }
-.dl-item[data-status="complete"] .dl-icon {
-    background: var(--success-soft);
+.dl-icon[data-kind="audio"] {
+    color: var(--brand);
+}
+.dl-icon[data-kind="document"] {
     color: var(--success);
 }
-.dl-item[data-status="paused"] .dl-icon {
-    background: var(--warning-soft);
+.dl-icon[data-kind="archive"] {
     color: var(--warning);
 }
-.dl-item[data-status="error"] .dl-icon {
-    background: var(--danger-soft);
+.dl-icon[data-kind="file"] {
+    color: var(--muted);
+}
+.dl-icon[data-kind="error"] {
     color: var(--danger);
 }
-.dl-item[data-status="seeding"] .dl-icon {
-    background: var(--brand-soft);
+.dl-icon[data-kind="seeding"] {
     color: var(--brand);
 }
 
 /* ── Queue reordering ────────────────────────────────────────────────── */
 /* A queued row can be dragged to a different place in the queue. The grip
-   lives over the status icon rather than beside it, so nothing in the row
-   shifts when it appears — and it appears only on rows that can actually
-   move, which is why a queue of one never grows a grab cursor. */
+   lives over the icon rather than beside it, so nothing in the row shifts
+   when it appears — and it appears only on rows that can actually move. */
 .dl-lead {
     position: relative;
     grid-column: 1;
-    width: 36px;
-    height: 36px;
+    width: 22px;
+    height: 22px;
     flex-shrink: 0;
 }
 
@@ -749,8 +721,8 @@ html.in-app .statusbar {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 10px;
-    background: var(--tint-strong);
+    border-radius: 4px;
+    background: var(--bg);
     color: var(--muted);
     opacity: 0;
     transition: opacity 0.12s;
@@ -778,37 +750,26 @@ html.in-app .statusbar {
     z-index: 3;
     transition: none;
     background: var(--surface);
-    border-radius: var(--radius);
-    border-bottom-color: transparent;
     box-shadow: var(--shadow-md), 0 0 0 1px var(--border);
 }
 .dl-item.is-dragging:hover {
     background: var(--surface);
 }
 
-.dl-content {
-    grid-column: 2;
-    flex: 1;
+.dl-name-cell {
     min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-}
-
-.dl-head {
-    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
+    gap: 0.45rem;
 }
 
 /* A button, not a span: the row opens its detail panel, and that has to be
-   reachable from the keyboard as well as the pointer. It keeps the plain
-   look — the row's own hover is the affordance. */
+   reachable from the keyboard as well as the pointer. */
 .dl-name {
+    appearance: none;
     font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
+    font-size: 0.8125rem;
+    font-weight: 500;
     color: inherit;
     background: none;
     border: none;
@@ -820,18 +781,14 @@ html.in-app .statusbar {
     text-overflow: ellipsis;
     min-width: 0;
 }
-.dl-name:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-}
 
 /* Why this row is slower than the rest of them, said on the row rather than
    left for the detail panel to explain. */
 .dl-cap {
     flex-shrink: 0;
-    font-family: var(--mono);
     font-size: 0.66rem;
-    padding: 0.1rem 0.45rem;
+    font-weight: 600;
+    padding: 0.08rem 0.4rem;
     border-radius: 999px;
     white-space: nowrap;
     background: var(--accent-soft);
@@ -839,8 +796,7 @@ html.in-app .statusbar {
 }
 
 /* Not garia's claim but aria2's: a download carrying a hash that reached
-   "complete" is one whose bytes were checked on the way in. Green because it
-   is the same good news the Completed pill is already giving. */
+   "complete" is one whose bytes were checked on the way in. */
 .dl-verified {
     flex-shrink: 0;
     display: inline-flex;
@@ -848,11 +804,9 @@ html.in-app .statusbar {
     gap: 0.22rem;
     font-size: 0.66rem;
     font-weight: 600;
-    padding: 0.1rem 0.45rem;
+    padding: 0.08rem 0.4rem;
     border-radius: 999px;
     white-space: nowrap;
-    /* The same soft green as the Completed pill it sits next to: the two are
-       one piece of good news, not two competing ones. */
     background: var(--success-soft);
     color: var(--success);
 }
@@ -861,43 +815,19 @@ html.in-app .statusbar {
     font-weight: 700;
 }
 
-.dl-status-pill {
-    flex-shrink: 0;
-    font-size: 0.66rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.1rem 0.5rem;
-    border-radius: 999px;
-    white-space: nowrap;
-    background: var(--tint);
-    color: var(--muted);
-}
-.dl-status-pill.active {
-    background: var(--accent-soft);
-    color: var(--accent);
-}
-.dl-status-pill.complete {
-    background: var(--success-soft);
-    color: var(--success);
-}
-.dl-status-pill.paused {
-    background: var(--warning-soft);
-    color: var(--warning);
-}
-.dl-status-pill.error {
-    background: var(--danger-soft);
-    color: var(--danger);
-}
-.dl-status-pill.seeding {
-    background: var(--brand-soft);
-    color: var(--brand);
+.dl-status-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
 }
 
 .dl-bar-track {
-    height: 8px;
+    width: 96px;
+    flex: 0 0 96px;
+    height: 7px;
     border-radius: 999px;
-    background: var(--tint);
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
     overflow: hidden;
     position: relative;
 }
@@ -905,22 +835,32 @@ html.in-app .statusbar {
 .dl-bar-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--bar-end));
+    background: #3b7ddd;
     transition: width 0.4s ease;
 }
 
-.dl-item[data-status="complete"] .dl-bar-fill {
-    background: var(--success);
-}
-.dl-item[data-status="error"] .dl-bar-fill {
-    background: var(--danger);
-}
 .dl-item[data-status="paused"] .dl-bar-fill {
-    background: var(--warning);
+    background: color-mix(in srgb, #3b7ddd 55%, var(--muted));
 }
-/* The bar is full and stays full — what moves on a seeding row is the ratio. */
-.dl-item[data-status="seeding"] .dl-bar-fill {
-    background: var(--brand);
+
+.dl-status-text {
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.dl-status-text.is-progress {
+    color: var(--text);
+    min-width: 2.6rem;
+}
+.dl-status-text.is-error {
+    color: var(--danger);
+}
+.dl-status-text.is-seeding {
+    color: var(--brand);
 }
 
 /* Indeterminate state: active download with unknown total size */
@@ -945,135 +885,74 @@ html.in-app .statusbar {
     animation: indeterminate 1.4s ease-in-out infinite;
 }
 
-.dl-meta {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Optional numbers on the right of every row, so a long list can be scanned
-   the way a table can. Name, bar, and actions stay where they are; the
-   labels share the table grid so they sit on the values. */
 .col-head {
     position: sticky;
     top: 0;
-    z-index: 2;
-    padding: 0 0 0.4rem;
-    margin: 0 0 0.15rem;
+    z-index: 3;
+    min-height: 28px;
+    padding: 0.35rem 0;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
 }
-.col-head-spacer {
-    grid-column: 1 / 4;
+.col-head-icon,
+.col-head-actions {
     min-width: 0;
 }
 .col-head-label {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
     color: var(--muted);
     cursor: default;
+    white-space: nowrap;
 }
 
 .dl-cols {
-    grid-column: 4;
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    gap: 0;
+    display: contents;
 }
+.dl-size,
 .dl-col {
-    flex: 0 0 auto;
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 0.45rem;
-}
-.dl-col.is-num {
-    text-align: right;
+    font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
-}
-.col-head .dl-col.is-num {
-    text-align: right;
-}
-.dl-col.is-empty {
-    color: var(--border-strong);
-}
-
-/* Why a download failed — the line that turns "Failed" into something you can
-   act on. Full text lives in the title attribute when it overflows. */
-.dl-error {
-    font-size: 0.74rem;
-    color: var(--danger);
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.col-head .dl-size,
+.col-head .dl-col {
+    color: var(--muted);
+    font-weight: 500;
+}
+.dl-size.is-empty,
+.dl-col.is-empty {
+    color: var(--muted);
+    opacity: 0.55;
 }
 
 .dl-actions {
-    grid-column: 3;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.3rem;
+    gap: 0.1rem;
+    min-width: 52px;
     flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
 }
-
-.dl-action-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.7rem;
-    min-width: 84px;
-    justify-content: center;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 0.76rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-        background 0.15s,
-        border-color 0.15s;
-}
-.dl-action-pill svg {
-    display: block;
-    width: 12px;
-    height: 12px;
-}
-
-.dl-action-pill.tone-accent {
-    background: var(--accent-soft);
-    color: var(--accent);
-}
-.dl-action-pill.tone-accent:hover {
-    background: var(--accent-mid);
-    border-color: var(--accent);
-}
-
-.dl-action-pill.tone-success {
-    background: var(--success-soft);
-    color: var(--success);
-}
-.dl-action-pill.tone-success:hover {
-    background: var(--success-mid);
-    border-color: var(--success);
+.dl-item:hover .dl-actions,
+.dl-item.is-selected .dl-actions,
+.dl-item:focus-within .dl-actions {
+    opacity: 1;
 }
 
 .dl-btn {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     background: transparent;
     color: var(--muted);
     font-size: 0.8rem;
@@ -1107,7 +986,7 @@ html.in-app .statusbar {
     justify-content: center;
     gap: 0.35rem;
     padding: 3rem 1.5rem;
-    margin-top: 1.5rem;
+    margin: 1.25rem 1rem 1.5rem;
     border: 2px dashed var(--border-strong);
     border-radius: var(--radius-lg);
     color: var(--muted);
@@ -2868,13 +2747,6 @@ html.prefs.in-app .modal {
 .add-start .field-input {
     flex: 1;
     min-width: 12rem;
-}
-
-/* Paused and paused-by-the-clock are the same thing to aria2 and two very
-   different things to the person waiting. */
-.dl-status-pill.scheduled {
-    background: var(--warning-soft);
-    color: var(--warning);
 }
 
 .detail-start {

@@ -923,6 +923,10 @@ function formatEta(remaining, bytesPerSec) {
 }
 
 function fileName(download) {
+  const btName = download.bittorrent?.info?.name;
+  if (btName && (download.bittorrent?.mode === "multi" || (download.files || []).length > 1)) {
+    return btName;
+  }
   const f = download.files?.[0];
   if (f?.path) return f.path.split("/").pop() || f.path;
   const uri = f?.uris?.[0]?.uri || "";
@@ -950,16 +954,60 @@ function statusRank(status) {
 }
 
 // ── Inline icons ─────────────────────────────────────────────────────────
+const FILL_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">';
 const SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">';
 
-const STATUS_ICONS = {
-  active:   SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>',
-  waiting:  SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
-  paused:   SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>',
-  complete: SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8.5 12.5 11 15 15.5 9.5"/></svg>',
-  seeding:  SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="8 12 12 8 16 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>',
-  error:    SVG_OPEN + '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>',
+const ROW_ICONS = {
+  pause: FILL_OPEN + '<rect x="6" y="4.5" width="4.2" height="15" rx="1.1"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.1"/></svg>',
+  play: FILL_OPEN + '<path d="M8 4.8v14.4L19.2 12z"/></svg>',
+  clock: SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
+  error: FILL_OPEN + '<path d="M12 2 22 20H2L12 2zm0 6.4c-.5 0-.85.4-.8.9l.45 5.1h.7l.45-5.1c.05-.5-.3-.9-.8-.9zm0 8.1a.95.95 0 1 0 0 1.9.95.95 0 0 0 0-1.9z"/></svg>',
+  seed: FILL_OPEN + '<path d="M12 3.2 19.2 12h-4.1v8.8H8.9V12H4.8L12 3.2z"/></svg>',
+  folder: FILL_OPEN + '<path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.3l1.5 1.7h8.8A2.2 2.2 0 0 1 21 8.9v8.9A2.2 2.2 0 0 1 18.8 20H5.2A2.2 2.2 0 0 1 3 17.8V7.2z"/></svg>',
+  video: FILL_OPEN + '<path fill-rule="evenodd" d="M4 6.2A2.2 2.2 0 0 1 6.2 4h11.6A2.2 2.2 0 0 1 20 6.2v11.6A2.2 2.2 0 0 1 17.8 20H6.2A2.2 2.2 0 0 1 4 17.8V6.2zm5.3 3v5.6L16 12l-6.7-2.8z"/></svg>',
+  audio: FILL_OPEN + '<path d="M9 3.8v10.4a3.2 3.2 0 1 1-1.8-2.9V7.6L18.4 5v8.1a3.2 3.2 0 1 1-1.8-2.9V3.8L9 3.8z"/></svg>',
+  document: FILL_OPEN + '<path d="M6 2h8.2L20 7.8V22H6V2zm8.2 0v5.8H20"/></svg>',
+  archive: FILL_OPEN + '<path d="M3 6.5 5.2 3h13.6L21 6.5H3zM4 8h16v11.2A1.8 1.8 0 0 1 18.2 21H5.8A1.8 1.8 0 0 1 4 19.2V8zm6.4 2h3.2v2.2h-3.2V10zm0 3.4h3.2V21H10.4v-7.6z"/></svg>',
+  file: FILL_OPEN + '<path d="M6 2h8.4L20 7.6V22H6V2z"/></svg>',
 };
+
+const ARCHIVE_EXTS = new Set([
+  ...FOLDERS.Archives, "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "xip",
+]);
+
+function fileKind(dl) {
+  const files = dl.files || [];
+  if (files.length > 1 || dl.bittorrent?.mode === "multi") return "folder";
+  const url = sourceUrl(dl) || "";
+  if (url.startsWith("magnet:") || extensionOf(fileName(dl)) === "torrent") return "folder";
+  const ext = extensionOf(fileName(dl)) || extensionOf(url);
+  if (FOLDERS.Video.includes(ext)) return "video";
+  if (FOLDERS.Music.includes(ext)) return "audio";
+  if (FOLDERS.Documents.includes(ext)) return "document";
+  if (ARCHIVE_EXTS.has(ext)) return "archive";
+  return "file";
+}
+
+function rowIcon(dl) {
+  if (dl.status === "merging") return { svg: ROW_ICONS.video, kind: "video" };
+  const cls = statusClass(dl.status);
+  if (cls === "active") return { svg: ROW_ICONS.pause, kind: "active" };
+  if (cls === "paused") return { svg: ROW_ICONS.play, kind: "paused" };
+  if (cls === "waiting") return { svg: ROW_ICONS.clock, kind: "waiting" };
+  if (cls === "error") return { svg: ROW_ICONS.error, kind: "error" };
+  if (cls === "seeding") return { svg: ROW_ICONS.seed, kind: "seeding" };
+  const kind = fileKind(dl);
+  return { svg: ROW_ICONS[kind] || ROW_ICONS.file, kind };
+}
+
+function iconAction(dl) {
+  if (dl.status === "active") return "stop";
+  if (dl.status === "paused") return "resume";
+  if (dl.status === "error" && dl.job?.webpageUrl) return "reprobe";
+  if (dl.status === "error" && retryUris(dl).length) return "retry";
+  if ((dl.status === "complete" || dl.status === "seeding") && rowPath(dl)) return "reveal";
+  return "";
+}
 
 const BTN_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
 
@@ -1063,33 +1111,18 @@ function errorReason(dl) {
   return "Download failed";
 }
 
-// Each row gets one primary pill (the verb you'd reach for), a secondary reveal
-// icon when the file exists on disk and isn't already the pill, and delete —
-// which every row gets, because every row has to be removable.
+// Each row's primary verb lives on the icon (pause, resume, reveal). The
+// trailing buttons are extras: stop-seeding, a queued pause, and delete.
 function actionsFor(dl) {
   const out = [];
-  // A merged row names a file that doesn't exist until ffmpeg has run, so it
-  // says so rather than offering to reveal a path that isn't there yet.
+  const primary = iconAction(dl);
   const path = dl.job && !dl.onDisk ? "" : dl.files?.[0]?.path || "";
-  if (dl.status === "merging") {
-    // Nothing to pause: aria2 is finished and ffmpeg is a few seconds.
-  } else if (dl.status === "active" || dl.status === "waiting") {
-    out.push({ action: "stop", kind: "pill", tone: "accent", label: "Pause" });
+  if (dl.status === "waiting") {
+    out.push({ action: "stop", kind: "icon" });
   } else if (dl.status === "seeding") {
-    // The download is over; what is left to stop is the upload.
-    out.push({ action: "unseed", kind: "pill", tone: "success", label: "Stop seeding" });
-  } else if (dl.status === "paused") {
-    out.push({ action: "resume", kind: "pill", tone: "accent", label: "Resume" });
-  } else if (dl.status === "error" && dl.job?.webpageUrl) {
-    // The media URLs a site hands out expire — often within hours — so a
-    // failed video download is re-read from the page, not re-queued.
-    out.push({ action: "reprobe", kind: "pill", tone: "accent", label: "Retry" });
-  } else if (dl.status === "error" && retryUris(dl).length) {
-    out.push({ action: "retry", kind: "pill", tone: "accent", label: "Retry" });
-  } else if (dl.status === "complete" && path) {
-    out.push({ action: "reveal", kind: "pill", tone: "success", label: "Reveal" });
+    out.push({ action: "unseed", kind: "icon" });
   }
-  if (path && !out.some(a => a.action === "reveal")) {
+  if (path && primary !== "reveal") {
     out.push({ action: "reveal", kind: "icon" });
   }
   out.push({ action: "remove", kind: "icon" });
@@ -1097,14 +1130,12 @@ function actionsFor(dl) {
 }
 
 // ── Columns ──────────────────────────────────────────────────────────────
-// The row is still a card. These are extra cells on the right, so a long
-// list can be scanned without opening every detail panel. Name, bar, and
-// actions stay put. What is on is a view preference, not an engine setting,
-// which is why it lives next to the sidebar collapse rather than in
-// settings.json.
+// Optional cells to the right of Status. Size is first-class (its own track)
+// so the progress bar can sit where a table expects it. Name and Status are
+// always on. What else is on is a view preference, next to the sidebar.
 const COLUMNS = [
   { id: "size", label: "Size", width: "7.4rem", numeric: true },
-  { id: "speed", label: "Speed", width: "5.8rem", numeric: true },
+  { id: "speed", label: "Speed", width: "6.4rem", numeric: true },
   { id: "eta", label: "Time left", width: "5.6rem", numeric: true },
   { id: "connections", label: "Sockets", width: "4.4rem", numeric: true },
   { id: "source", label: "Source", width: "8.6rem", numeric: false },
@@ -1136,10 +1167,7 @@ function columnValue(id, dl) {
   if (id === "size") {
     const total = Number(dl.totalLength);
     const done = Number(dl.completedLength);
-    if (dl.status === "complete" || dl.status === "seeding") {
-      return total > 0 ? formatBytes(total) : "";
-    }
-    if (total > 0) return `${formatBytes(done)} / ${formatBytes(total)}`;
+    if (total > 0) return formatBytes(total);
     if (done > 0) return formatBytes(done);
     return "";
   }
@@ -1172,71 +1200,71 @@ function columnValue(id, dl) {
   return "";
 }
 
+function extraColSpecs() {
+  return COLUMNS.filter((c) => c.id !== "size" && columnOn(c.id));
+}
+
+function syncColLayout() {
+  const table = document.querySelector(".dl-table");
+  if (!table) return;
+  const tracks = ["22px", "minmax(10rem, 1fr)"];
+  if (columnOn("size")) tracks.push("7.4rem");
+  tracks.push("minmax(10.5rem, 12rem)");
+  for (const spec of extraColSpecs()) tracks.push(spec.width);
+  tracks.push("max-content");
+  table.style.gridTemplateColumns = tracks.join(" ");
+}
+
 function paintColLabels(host) {
   if (!host) return;
-  const on = COLUMNS.filter((c) => columnOn(c.id));
+  const on = extraColSpecs();
   let cols = host.querySelector(":scope > .dl-cols");
   if (!cols) {
     cols = document.createElement("div");
     cols.className = "dl-cols";
     host.appendChild(cols);
   }
-  cols.classList.toggle("hidden", on.length === 0);
-  if (!on.length) {
-    cols.textContent = "";
-    return;
-  }
   cols.textContent = "";
   for (const spec of on) {
     const cell = document.createElement("div");
     cell.className = `dl-col col-head-label${spec.numeric ? " is-num" : ""}`;
-    cell.style.width = spec.width;
     cell.textContent = spec.label;
     cell.dataset.col = spec.id;
     cols.appendChild(cell);
   }
 }
 
-function paintSectionCols(el) {
-  const wrap = el?.querySelector(".dl-section-cols");
-  if (!wrap) return;
-  const on = COLUMNS.some((c) => columnOn(c.id));
-  wrap.classList.toggle("hidden", !on);
-  paintColLabels(wrap);
-}
-
 function renderColHead() {
   const head = document.getElementById("col-head");
-  const on = COLUMNS.some((c) => columnOn(c.id));
-  // Combined view already names each group; the labels sit on those rows, over
-  // the numbers, rather than in a strip above the first section title.
-  const standalone = on && activeFilter !== "all";
   if (head) {
-    head.classList.toggle("hidden", !standalone);
-    if (standalone) {
-      if (!head.querySelector(".col-head-spacer")) {
-        head.textContent = "";
-        head.appendChild(Object.assign(document.createElement("div"), {
-          className: "col-head-spacer",
-        }));
-      }
-      paintColLabels(head);
-    } else {
-      head.textContent = "";
-    }
+    head.textContent = "";
+    head.appendChild(Object.assign(document.createElement("div"), { className: "col-head-icon" }));
+    const name = document.createElement("div");
+    name.className = "col-head-label col-head-name";
+    name.textContent = "Name";
+    head.appendChild(name);
+
+    const size = document.createElement("div");
+    size.className = "col-head-label dl-size is-num";
+    size.textContent = "Size";
+    size.classList.toggle("hidden", !columnOn("size"));
+    head.appendChild(size);
+
+    const status = document.createElement("div");
+    status.className = "col-head-label col-head-status";
+    status.textContent = "Status";
+    head.appendChild(status);
+
+    paintColLabels(head);
+    head.appendChild(Object.assign(document.createElement("div"), { className: "col-head-actions" }));
   }
-  for (const el of sectionEls.values()) paintSectionCols(el);
+  syncColLayout();
 }
 
 function fillCols(li, dl) {
   const box = li.querySelector(".dl-cols");
   if (!box) return;
-  const on = COLUMNS.filter((c) => columnOn(c.id));
-  box.classList.toggle("hidden", on.length === 0);
-  if (!on.length) {
-    box.textContent = "";
-    return;
-  }
+  const on = extraColSpecs();
   const key = on.map((c) => c.id).join("|");
   if (box.dataset.cols !== key) {
     box.dataset.cols = key;
@@ -1244,7 +1272,6 @@ function fillCols(li, dl) {
     for (const spec of on) {
       const cell = document.createElement("div");
       cell.className = `dl-col${spec.numeric ? " is-num" : ""}`;
-      cell.style.width = spec.width;
       cell.dataset.col = spec.id;
       box.appendChild(cell);
     }
@@ -1295,7 +1322,7 @@ function renderColumnsMenu() {
   }
   const foot = document.createElement("p");
   foot.className = "traffic-menu-foot";
-  foot.textContent = "View → Columns does the same. Off restores the one-line summary.";
+  foot.textContent = "View → Columns does the same. Name and Status stay on.";
   menu.appendChild(foot);
 }
 
@@ -1322,42 +1349,23 @@ function createItemEl(dl) {
   li.tabIndex = -1;
   li.innerHTML = `
     <div class="dl-lead">
-      <div class="dl-icon"></div>
+      <button type="button" class="dl-icon"></button>
       <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
     </div>
-    <div class="dl-content">
-      <div class="dl-head">
-        <button type="button" class="dl-name"></button>
-        <span class="dl-verified hidden">Verified</span>
-        <span class="dl-cap hidden"></span>
-        <span class="dl-status-pill"></span>
-      </div>
-      <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
-      <div class="dl-meta"></div>
-      <div class="dl-error hidden"></div>
+    <div class="dl-name-cell">
+      <button type="button" class="dl-name"></button>
+      <span class="dl-verified hidden">Verified</span>
+      <span class="dl-cap hidden"></span>
     </div>
+    <div class="dl-size is-num"></div>
+    <div class="dl-status-cell">
+      <div class="dl-bar-track"><div class="dl-bar-fill"></div></div>
+      <span class="dl-status-text"></span>
+    </div>
+    <div class="dl-cols"></div>
     <div class="dl-actions"></div>
-    <div class="dl-cols hidden"></div>
   `;
   return li;
-}
-
-function progressMeta(dl) {
-  const total = Number(dl.totalLength);
-  const done = Number(dl.completedLength);
-  const parts = [];
-  if (!columnOn("size")) {
-    if (total > 0) parts.push(`${formatBytes(done)} / ${formatBytes(total)}`);
-    else if (done > 0) parts.push(formatBytes(done));
-  }
-  const speed = formatSpeed(dl.downloadSpeed);
-  if (speed && !columnOn("speed")) parts.push(speed);
-  if (total > 0 && !columnOn("size")) parts.push(`${Math.round((done / total) * 100)}%`);
-  if (dl.status === "active" && total > 0 && !columnOn("eta")) {
-    const eta = formatEta(total - done, dl.downloadSpeed);
-    if (eta) parts.push(eta);
-  }
-  return parts;
 }
 
 // A seeding row has no percentage left to report and no arrival to wait for.
@@ -1379,7 +1387,6 @@ function updateItemEl(li, dl) {
   const total = Number(dl.totalLength);
   const done = Number(dl.completedLength);
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const cls = statusClass(dl.status);
   const name = fileName(dl);
 
   li.dataset.status = dl.status;
@@ -1391,10 +1398,26 @@ function updateItemEl(li, dl) {
   );
 
   const iconEl = li.querySelector(".dl-icon");
-  if (iconEl.dataset.status !== cls) {
-    iconEl.dataset.status = cls;
-    iconEl.innerHTML = STATUS_ICONS[cls] || STATUS_ICONS.waiting;
+  const icon = rowIcon(dl);
+  if (iconEl.dataset.kind !== icon.kind) {
+    iconEl.dataset.kind = icon.kind;
+    iconEl.innerHTML = icon.svg;
   }
+  const act = iconAction(dl);
+  if (act) {
+    iconEl.dataset.action = act;
+    iconEl.dataset.gid = dl.gid;
+    iconEl.title = ACTION_TITLES[act];
+    iconEl.setAttribute("aria-label", ACTION_TITLES[act]);
+  } else {
+    delete iconEl.dataset.action;
+    iconEl.removeAttribute("title");
+    iconEl.removeAttribute("aria-label");
+  }
+  if (act === "reveal") iconEl.dataset.path = rowPath(dl);
+  else delete iconEl.dataset.path;
+  if (act === "reprobe") iconEl.dataset.url = dl.job?.webpageUrl || "";
+  else delete iconEl.dataset.url;
 
   const nameEl = li.querySelector(".dl-name");
   if (nameEl.textContent !== name) {
@@ -1423,38 +1446,46 @@ function updateItemEl(li, dl) {
     verifiedEl.title = `${checked.label} matched: ${checked.digest}`;
   }
 
-  // Downloading rows already say it twice over — the moving bar, the speed, and
-  // the Pause button. The chip only earns its place on the other statuses.
-  // "Paused" on a row the schedule stopped is true and useless: the user did
-  // not pause it and cannot tell why it isn't going, so the chip says which of
-  // the two kinds of paused this is and the meta line says until when.
-  const pill = li.querySelector(".dl-status-pill");
-  const held = dl.status === "paused" ? heldNote(dl.gid) : "";
-  const showChip = dl.status !== "active";
-  pill.className = showChip ? `dl-status-pill ${held ? "scheduled" : cls}` : "dl-status-pill hidden";
-  if (showChip) pill.textContent = held ? "Scheduled" : statusLabel(dl.status);
+  const sizeEl = li.querySelector(".dl-size");
+  const sizeVal = columnValue("size", dl);
+  sizeEl.classList.toggle("hidden", !columnOn("size"));
+  const sizeText = sizeVal || "—";
+  if (sizeEl.textContent !== sizeText) sizeEl.textContent = sizeText;
+  sizeEl.classList.toggle("is-empty", !sizeVal);
 
-  // Progress bar
+  const held = dl.status === "paused" ? heldNote(dl.gid) : "";
   const isIndeterminate = dl.status === "active" && total === 0;
+  const showBar = ["active", "paused", "merging"].includes(dl.status) ||
+    (dl.status === "waiting" && total > 0 && done > 0);
+  const track = li.querySelector(".dl-bar-track");
   const fill = li.querySelector(".dl-bar-fill");
+  track.classList.toggle("hidden", !showBar && !isIndeterminate);
   fill.classList.toggle("indeterminate", isIndeterminate);
   fill.style.width = isIndeterminate ? "" : `${pct}%`;
 
-  // Meta line: size · speed · percent · eta — or, once the download is over
-  // and the uploading isn't, what has gone back out and how far past even.
-  const meta = dl.status === "seeding" ? seedingMeta(dl) : progressMeta(dl);
-  if (held) meta.push(held);
-  li.querySelector(".dl-meta").textContent = meta.join(" · ");
-  fillCols(li, dl);
+  let statusText = "";
+  if (held) statusText = "Scheduled";
+  else if (dl.status === "complete") statusText = "Complete";
+  else if (dl.status === "error") statusText = "Error";
+  else if (dl.status === "seeding") statusText = "Seeding";
+  else if (dl.status === "waiting" && !showBar) statusText = "Queued";
+  else if (dl.status === "merging") statusText = "Merging";
+  else if (isIndeterminate) statusText = "";
+  else if (showBar) statusText = `${pct}%`;
+  else statusText = statusLabel(dl.status);
 
-  // "Failed" on its own is a dead end — say what aria2 actually reported.
-  const errEl = li.querySelector(".dl-error");
+  const statusEl = li.querySelector(".dl-status-text");
+  if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
+  statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
+  statusEl.classList.toggle("is-error", dl.status === "error");
+  statusEl.classList.toggle("is-seeding", dl.status === "seeding");
   const reason = dl.status === "error" ? errorReason(dl) : "";
-  errEl.classList.toggle("hidden", !reason);
-  if (reason && errEl.textContent !== reason) {
-    errEl.textContent = reason;
-    errEl.title = reason;
-  }
+  const seedTip = dl.status === "seeding"
+    ? seedingMeta(dl).join(" · ")
+    : "";
+  statusEl.title = held || reason || seedTip;
+
+  fillCols(li, dl);
 
   // Action buttons — rebuilt only when the available set actually changes
   const actions = actionsFor(dl);
@@ -1469,14 +1500,8 @@ function updateItemEl(li, dl) {
       btn.dataset.gid = dl.gid;
       btn.title = ACTION_TITLES[a.action];
       btn.setAttribute("aria-label", ACTION_TITLES[a.action]);
-      if (a.kind === "pill") {
-        btn.className = `dl-action-pill tone-${a.tone}`;
-        btn.innerHTML = ACTION_ICONS[a.action];
-        btn.appendChild(document.createTextNode(a.label));
-      } else {
-        btn.className = "dl-btn";
-        btn.innerHTML = ACTION_ICONS[a.action];
-      }
+      btn.className = "dl-btn";
+      btn.innerHTML = ACTION_ICONS[a.action];
       box.appendChild(btn);
     }
   }
@@ -1514,13 +1539,9 @@ function sectionEl(status) {
         <span class="dl-section-count"></span>
         <button class="dl-section-link" type="button">View all</button>
       </div>
-      <div class="dl-section-cols hidden">
-        <div class="col-head-spacer"></div>
-      </div>
     `;
     el.querySelector(".dl-section-label").textContent = SECTION_LABELS[status] || status;
     el.querySelector(".dl-section-link").dataset.filter = status;
-    paintSectionCols(el);
     sectionEls.set(status, el);
   }
   return el;
@@ -1537,6 +1558,8 @@ const KEYS = [
   "seeder", "uploadLength", "uploadSpeed",
   // Sockets on the row, once the column is on. Cheap: aria2 already has it.
   "connections",
+  // The torrent name is what a multi-file row should show, not its first file.
+  "bittorrent",
 ];
 
 // aria2 has no status for "finished downloading, still uploading" — a seeding
@@ -1652,11 +1675,6 @@ function applyFilter(listEl) {
     document.getElementById("empty-sub").textContent = sub;
   }
 
-  const head = document.getElementById("col-head");
-  if (head) {
-    const on = COLUMNS.some((c) => columnOn(c.id));
-    head.classList.toggle("hidden", !on || showSections);
-  }
   onFilterApplied();
 }
 
