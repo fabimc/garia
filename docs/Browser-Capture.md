@@ -1,0 +1,11 @@
+# Browser capture
+
+Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia.
+
+A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner rather than queued on the spot, because copying is not the same as asking. The first clipboard contents at launch are ignored, so a leftover copy doesn't greet you. Anything sent on purpose through `garia://add?url=…` is an instruction: the bookmarklet and Services → Download with Garia go straight in, or open the quality picker when the URL is a video page. The browser extension uses the same scheme with `from=extension`, and a file it intercepted gets a sheet for the name, the folder, and start-now vs queue — a video page still goes to the picker, which is its confirm. On a watch page the extension also draws a Download button on the player; it sends the page, not the stream, so playlists still work and you do not have to play first. × hides it until the next video. Hold Option (or Alt) on a file link to leave the download with the browser. A `magnet:` link or a `.torrent` file the system opens — Safari, Finder, Open With — is an instruction, the same as the scheme.
+
+The extension lives in `extensions/garia`. Settings → Capture → Show extension folder opens it. Chrome, Edge, Brave, and Arc load that folder unpacked. Firefox loads the same `manifest.json` from `about:debugging` (Load Temporary Add-on) until addons.mozilla.org signs it. Safari cannot cancel its own downloads, so the same package captures file-link clicks, the context menu, and the on-page Download button; `scripts/make-safari-extension.sh` runs Apple's converter. Right-click the page to send every link, reviewed in the add dialog. `npm run ext:pack` writes the two store zips; [Publishing the browser extension](Publishing-the-Extension.md) is the Chrome Web Store and AMO checklist.
+
+The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
+
+The extension [privacy policy](../extensions/PRIVACY.md) is what the stores need as a public URL.

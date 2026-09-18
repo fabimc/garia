@@ -1,0 +1,35 @@
+# Features
+
+- Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from Finder
+- Close the window and downloads keep going; Quit (⌘Q) is what stops them
+- A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
+- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Open Download Folder
+- A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,), View → Columns
+- The window comes back where you left it; launch at login is a switch in Settings
+- File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
+- Select rows, right-click them, and use the keyboard — Space pauses, ⌘⌫ deletes, ⌘C copies the URL
+- Follows the system appearance, including a translucent sidebar; drag a finished file out to Finder
+- Check for Updates from the Garia menu, once a signed GitHub release exists
+- Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
+- Multi-connection downloads — 16 segments per file
+- Live progress bars, and View → Columns for size, speed, time left, sockets, source, and category on every row
+- Pause and resume downloads
+- Drag a queued download somewhere else in the queue — or move it with ⌥↑ / ⌥↓
+- A detail panel on every row — where the bytes come from, where they land, how many sockets are open, and every peer of a torrent
+- Delete a download, and optionally move the file it wrote to the Trash
+- Retry a failed download — the row says why it failed
+- Queued and unfinished downloads survive a restart
+- A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
+- Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia
+- Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives
+- Add several URLs at once — paste, drop, or send every link on a page from the extension, then uncheck the ones you do not want
+- A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header
+- When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
+- Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
+- Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, an HTTP proxy, and both switches above
+- Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
+- Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
+- An HTTP proxy: host, port, and an optional login — HTTP, HTTPS, and FTP, not BitTorrent peers
+- Checksum verification: paste a hash beside the URL and aria2 checks the file as it arrives — before it starts, while it runs, or against one already on disk
+- Remote control: open the aria2 port to the local network and pair a phone by scanning the secret
+- Status badges: Downloading, Seeding, Merging, Queued, Paused, Complete, Error
