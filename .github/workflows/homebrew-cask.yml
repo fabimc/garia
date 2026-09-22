@@ -1,0 +1,30 @@
+name: Update Homebrew cask
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to pin (empty = this event's tag, or latest)
+        required: false
+
+jobs:
+  dispatch-tap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask homebrew-garia to pin the DMG
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Add a HOMEBREW_TAP_TOKEN secret (repo scope on fabimc/homebrew-garia) to bump the cask automatically."
+            exit 0
+          fi
+          if [ -z "${TAG}" ]; then
+            TAG="$(gh release view --repo fabimc/garia --json tagName --jq .tagName)"
+          fi
+          gh api repos/fabimc/homebrew-garia/dispatches \
+            --raw-field event_type=garia-released \
+            --raw-field "client_payload[tag]=${TAG}"

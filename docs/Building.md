@@ -91,6 +91,8 @@ Tauri picks the Developer ID identity, signs with the hardened runtime and `src-
 
 The first published release is what makes Check for Updates have something to find. Until then the menu says it could not check, and a quiet launch check stays quiet.
 
+Publishing the draft is also what the Homebrew tap can download. The [homebrew-garia](https://github.com/fabimc/homebrew-garia) cask tracks `Garia_<version>_universal.dmg`. After the release is public, the tap's **Update cask** workflow pins the version and SHA (daily cron, or immediately if this repo has a `HOMEBREW_TAP_TOKEN` secret that can dispatch to that tap).
+
 For an alpha, mark the GitHub release as a pre-release once the draft is up. The workflow currently opens a regular draft (`prerelease: false` in `.github/workflows/release.yml`); tick **Set as a pre-release** on the draft if that is what you are shipping.
 
 ## Project structure

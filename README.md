@@ -12,6 +12,13 @@ It comes as:
 
 This is an **alpha**. Pre-built `.app` and `.dmg` builds are on the [Releases](https://github.com/fabimc/garia/releases) page.
 
+Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia):
+
+```sh
+brew tap fabimc/garia
+brew install --cask garia
+```
+
 Visit https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation
