@@ -36,3 +36,13 @@ As with aria2, the bundled binary wins and a system `ffmpeg` is the fallback —
 The order is the opposite of aria2's: **a yt-dlp on `PATH` wins, and the bundled copy is the fallback.** aria2 is stable and the bundled build is the one Garia knows; yt-dlp breaks whenever a site changes and ships a fix within days, so the user's own copy — the one that gets updated — is always the better bet.
 
 The zipapp needs a `python3` 3.10 or newer, which macOS does not provide: `/usr/bin/python3` is 3.9, and yt-dlp dropped it. Garia looks past it to Homebrew and python.org installs. The alternative was one of the standalone builds, and both are worse: the 37 MB onefile re-extracts itself on every run, which macOS then rescans — 22 seconds per probe, measured — and the onedir build that fixes the speed weighs 124 MB unpacked.
+
+## Licenses
+
+Garia itself is MIT. The sidecars keep their own licenses and run as separate processes:
+
+| Tool | License |
+|------|---------|
+| aria2 1.37.0 | GPL-2.0-or-later |
+| ffmpeg (trimmed build) | LGPL-2.1 |
+| yt-dlp zipapp | Unlicense |

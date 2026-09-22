@@ -12,10 +12,11 @@ It comes as:
 
 This is an **alpha**. Pre-built `.app` and `.dmg` builds are on the [Releases](https://github.com/fabimc/garia/releases) page.
 
-Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia):
+Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published:
 
 ```sh
 brew tap fabimc/garia
+brew trust fabimc/garia
 brew install --cask garia
 ```
 
@@ -77,3 +78,5 @@ Bug reports and pull requests are welcome.
  * Check [existing issues](https://github.com/fabimc/garia/issues) before opening a new one.
  * Documentation lives in `docs/`. Fixes and new pages there are as useful as code.
  * The [browser extension store checklist](docs/Publishing-the-Extension.md) is the path to Chrome Web Store and addons.mozilla.org.
+
+Garia is [MIT](LICENSE). The copy of aria2 inside the app is GPL-2.0-or-later, ffmpeg is LGPL-2.1, and yt-dlp is Unlicense.

@@ -68,6 +68,8 @@
       }
     ],
     "category": "Utility",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "macOS": {
       "entitlements": "entitlements.plist",
       "hardenedRuntime": true,
