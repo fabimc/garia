@@ -1513,6 +1513,66 @@ html.in-app .modal.modal-lg {
     color: var(--accent);
 }
 
+/* Cask-like status rows for bundled/runtime tooling in Settings → About. */
+.sidecar-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0.2rem 0 0;
+    padding: 0;
+}
+
+.sidecar-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+
+.sidecar-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.sidecar-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.sidecar-state {
+    font-size: 0.75rem;
+}
+.sidecar-state.is-ok {
+    color: var(--success);
+}
+.sidecar-state.is-missing {
+    color: var(--danger);
+}
+
+.sidecar-meta {
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.sidecar-path {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    word-break: break-all;
+}
+
+.sidecar-empty {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
 .update-notes {
     margin-top: 0.7rem;
     max-height: 10rem;

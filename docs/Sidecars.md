@@ -2,6 +2,8 @@
 
 Garia ships three tools inside the app so a download does not depend on Homebrew. `npm run sidecar` (run for you before every `tauri dev` and `tauri build`) is the one command that produces all three.
 
+Settings → About shows which copy is active at runtime (bundled or system), plus the resolved version and path for each sidecar.
+
 ## The bundled aria2
 
 `npm run sidecar` compiles aria2 from the upstream 1.37.0 release into `src-tauri/binaries/`, and Tauri copies it into the app bundle. A release build asks for both Mac chips and `lipo`s them; Tauri will not do that for an external binary.

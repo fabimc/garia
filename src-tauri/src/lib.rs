@@ -2105,6 +2105,19 @@ struct VideoTools {
     ffmpeg_source: String,
 }
 
+/// One runtime tool row for the Settings → About sidecar list.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SidecarTool {
+    id: String,
+    name: String,
+    installed: bool,
+    version: String,
+    /// "bundled" or "system", or empty when no tool was found.
+    source: String,
+    path: String,
+}
+
 /// One downloadable stream, trimmed to what the picker shows and what aria2
 /// needs. yt-dlp's own JSON runs to 150 KB for a single YouTube video; almost
 /// none of it survives this.
@@ -2325,6 +2338,16 @@ fn python_for(zipapp: &Path) -> Option<Vec<String>> {
 
 /// Doubles as the "does this actually work" test: a yt-dlp that cannot print
 /// its own version is not one we should hand a URL to.
+fn version_after(line: &str, needle: &str) -> Option<String> {
+    let mut parts = line.split_whitespace();
+    while let Some(part) = parts.next() {
+        if part.eq_ignore_ascii_case(needle) {
+            return parts.next().map(|s| s.to_string());
+        }
+    }
+    None
+}
+
 fn ytdlp_version(cmd: &[String]) -> Option<String> {
     let mut args: Vec<String> = cmd[1..].to_vec();
     args.push("--version".to_string());
@@ -2392,22 +2415,40 @@ fn ffmpeg_candidates() -> Vec<(String, &'static str)> {
     candidates
 }
 
-/// The first candidate that runs, paired with where it came from. Asking for
-/// its version doubles as the "does this actually work" test, the same way it
-/// does for yt-dlp: a sidecar that won't launch is not one to hand two files.
-fn ffmpeg_found() -> Option<(String, &'static str)> {
+fn ffmpeg_version(bin: &str) -> Option<String> {
+    let out = run_capped(bin, &["-version".to_string()], 10).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let first = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if first.is_empty() {
+        return None;
+    }
+    version_after(&first, "version").or(Some(first))
+}
+
+fn ffmpeg_probe() -> Option<(String, &'static str, String)> {
     for (bin, origin) in ffmpeg_candidates() {
         if bin.contains('/') && !is_executable(&bin) {
             continue;
         }
-        let ok = run_capped(&bin, &["-version".to_string()], 10)
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if ok {
-            return Some((bin, origin));
+        if let Some(version) = ffmpeg_version(&bin) {
+            return Some((bin, origin, version));
         }
     }
     None
+}
+
+/// The first candidate that runs, paired with where it came from. Asking for
+/// its version doubles as the "does this actually work" test, the same way it
+/// does for yt-dlp: a sidecar that won't launch is not one to hand two files.
+fn ffmpeg_found() -> Option<(String, &'static str)> {
+    ffmpeg_probe().map(|(bin, origin, _)| (bin, origin))
 }
 
 fn ffmpeg_path() -> Option<String> {
@@ -2426,10 +2467,17 @@ fn video_tools(video: tauri::State<Video>) -> VideoTools {
     // Resolution already proved the command works by asking it its version;
     // this is the same answer, kept rather than asked for twice.
     let bundled = cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
+    let version = cmd.as_deref().and_then(ytdlp_version).unwrap_or_default();
     let ffmpeg = ffmpeg_found();
     let tools = VideoTools {
-        version: cmd.as_deref().and_then(ytdlp_version).unwrap_or_default(),
-        source: if bundled { "bundled" } else { "system" }.to_string(),
+        version: version.clone(),
+        source: if version.is_empty() {
+            String::new()
+        } else if bundled {
+            "bundled".to_string()
+        } else {
+            "system".to_string()
+        },
         ffmpeg: ffmpeg.is_some(),
         ffmpeg_source: ffmpeg.map(|(_, src)| src).unwrap_or_default().to_string(),
     };
@@ -2443,6 +2491,161 @@ fn video_tools(video: tauri::State<Video>) -> VideoTools {
         }
     }
     tools
+}
+
+fn aria2c_candidates_with_origin() -> Vec<(String, &'static str)> {
+    let mut c = Vec::new();
+
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        c.push((dir.join("aria2c").display().to_string(), "bundled"));
+    }
+
+    c.push(("aria2c".to_string(), "system"));
+
+    // macOS GUI apps (launched via Finder) often don't inherit Homebrew PATH.
+    // Try common Homebrew install locations explicitly.
+    #[cfg(target_os = "macos")]
+    c.extend([
+        ("/opt/homebrew/bin/aria2c".to_string(), "system"),
+        ("/usr/local/bin/aria2c".to_string(), "system"),
+    ]);
+
+    // Common Linux locations.
+    #[cfg(target_os = "linux")]
+    c.extend([
+        ("/usr/bin/aria2c".to_string(), "system"),
+        ("/bin/aria2c".to_string(), "system"),
+        ("/snap/bin/aria2c".to_string(), "system"),
+    ]);
+
+    c
+}
+
+fn aria2c_version(bin: &str) -> Option<String> {
+    let out = run_capped(bin, &["--version".to_string()], 10).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(v) = version_after(line, "version") {
+            return Some(v);
+        }
+        return Some(line.to_string());
+    }
+    None
+}
+
+fn aria2c_probe() -> Option<(String, &'static str, String)> {
+    for (bin, origin) in aria2c_candidates_with_origin() {
+        if bin.contains('/') && !Path::new(&bin).exists() {
+            continue;
+        }
+        if let Some(version) = aria2c_version(&bin) {
+            return Some((bin, origin, version));
+        }
+    }
+    None
+}
+
+fn running_aria2_version(aria2: &Aria2) -> Option<String> {
+    aria2_request(
+        aria2.port,
+        &aria2.secret(),
+        "aria2.getVersion",
+        serde_json::json!([]),
+    )
+    .ok()?
+    .get("result")
+    .and_then(|r| r.get("version"))
+    .and_then(|v| v.as_str())
+    .map(|v| v.to_string())
+}
+
+#[tauri::command]
+fn sidecar_tools(video: tauri::State<Video>, aria2: tauri::State<Aria2>) -> Vec<SidecarTool> {
+    let aria2_probe = aria2c_probe();
+    let aria2_version = running_aria2_version(&aria2)
+        .or_else(|| aria2_probe.as_ref().map(|(_, _, v)| v.clone()))
+        .unwrap_or_default();
+    let aria2_path = aria2_probe
+        .as_ref()
+        .map(|(bin, _, _)| bin.clone())
+        .unwrap_or_default();
+    let aria2_source = aria2_probe
+        .as_ref()
+        .map(|(_, src, _)| src.to_string())
+        .unwrap_or_default();
+
+    let ytdlp_cmd = resolve_ytdlp(&video);
+    let ytdlp_version = ytdlp_cmd
+        .as_deref()
+        .and_then(ytdlp_version)
+        .unwrap_or_default();
+    let ytdlp_bundled = ytdlp_cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
+    let ytdlp_path = ytdlp_cmd
+        .as_ref()
+        .map(|cmd| {
+            if ytdlp_bundled {
+                cmd.get(1).cloned().unwrap_or_else(|| cmd.join(" "))
+            } else {
+                cmd.first().cloned().unwrap_or_default()
+            }
+        })
+        .unwrap_or_default();
+
+    let ffmpeg_info = ffmpeg_probe();
+    let ffmpeg_version = ffmpeg_info
+        .as_ref()
+        .map(|(_, _, v)| v.clone())
+        .unwrap_or_default();
+    let ffmpeg_path = ffmpeg_info
+        .as_ref()
+        .map(|(bin, _, _)| bin.clone())
+        .unwrap_or_default();
+    let ffmpeg_source = ffmpeg_info
+        .as_ref()
+        .map(|(_, src, _)| src.to_string())
+        .unwrap_or_default();
+
+    vec![
+        SidecarTool {
+            id: "aria2".to_string(),
+            name: "aria2".to_string(),
+            installed: !aria2_version.is_empty(),
+            version: aria2_version,
+            source: aria2_source,
+            path: aria2_path,
+        },
+        SidecarTool {
+            id: "ffmpeg".to_string(),
+            name: "ffmpeg".to_string(),
+            installed: !ffmpeg_version.is_empty(),
+            version: ffmpeg_version,
+            source: ffmpeg_source,
+            path: ffmpeg_path,
+        },
+        SidecarTool {
+            id: "yt-dlp".to_string(),
+            name: "yt-dlp".to_string(),
+            installed: !ytdlp_version.is_empty(),
+            version: ytdlp_version,
+            source: if ytdlp_bundled {
+                "bundled".to_string()
+            } else if ytdlp_path.is_empty() {
+                String::new()
+            } else {
+                "system".to_string()
+            },
+            path: ytdlp_path,
+        },
+    ]
 }
 
 fn as_str(v: &serde_json::Value, key: &str) -> String {
@@ -2923,34 +3126,10 @@ fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
 /// they rescue a bundle whose sidecar went missing.
 fn aria2c_candidates() -> Vec<String> {
-    let mut c = Vec::new();
-
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-    {
-        c.push(dir.join("aria2c").display().to_string());
-    }
-
-    c.push("aria2c".to_string());
-
-    // macOS GUI apps (launched via Finder) often don't inherit Homebrew PATH.
-    // Try common Homebrew install locations explicitly.
-    #[cfg(target_os = "macos")]
-    c.extend([
-        "/opt/homebrew/bin/aria2c".to_string(),
-        "/usr/local/bin/aria2c".to_string(),
-    ]);
-
-    // Common Linux locations.
-    #[cfg(target_os = "linux")]
-    c.extend([
-        "/usr/bin/aria2c".to_string(),
-        "/bin/aria2c".to_string(),
-        "/snap/bin/aria2c".to_string(),
-    ]);
-
-    c
+    aria2c_candidates_with_origin()
+        .into_iter()
+        .map(|(bin, _)| bin)
+        .collect()
 }
 
 /// Everything aria2 is started with. A Vec rather than an array because one
@@ -3266,6 +3445,7 @@ pub fn run() {
             read_torrent,
             copy_text,
             video_tools,
+            sidecar_tools,
             video_probe,
             ftp_list,
             mux_video,
@@ -4415,4 +4595,3 @@ mod tests {
         assert!(candidates[1..].iter().all(|(_, origin)| *origin == "system"));
     }
 }
-

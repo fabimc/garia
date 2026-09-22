@@ -34,7 +34,7 @@ let settings = {
 };
 
 let logins = [];
-let videoTools = { version: "", source: "", ffmpeg: false, ffmpegSource: "" };
+let sidecarTools = [];
 let editingHost = "";
 let saving = false;
 let saveQueued = false;
@@ -231,22 +231,86 @@ function renderProxy() {
   document.getElementById("proxy-block").classList.toggle("hidden", !settingsProxy.checked);
 }
 
+function sidecarBy(id) {
+  return sidecarTools.find((tool) => tool.id === id);
+}
+
+function renderSidecars() {
+  const list = document.getElementById("settings-sidecars");
+  if (!list) return;
+  list.textContent = "";
+
+  const shown = ["aria2", "ffmpeg", "yt-dlp"]
+    .map((id) => sidecarBy(id))
+    .filter(Boolean);
+
+  if (!shown.length) {
+    const li = document.createElement("li");
+    li.className = "sidecar-empty";
+    li.textContent = "No sidecars found.";
+    list.append(li);
+    return;
+  }
+
+  for (const tool of shown) {
+    const li = document.createElement("li");
+    li.className = "sidecar-row";
+
+    const head = document.createElement("div");
+    head.className = "sidecar-head";
+
+    const name = document.createElement("span");
+    name.className = "sidecar-name";
+    name.textContent = tool.name || tool.id;
+
+    const state = document.createElement("span");
+    state.className = `sidecar-state ${tool.installed ? "is-ok" : "is-missing"}`;
+    state.textContent = tool.installed
+      ? `Installed${tool.version ? ` (${tool.version})` : ""}`
+      : "Not found";
+
+    head.append(name, state);
+    li.append(head);
+
+    const meta = [];
+    if (tool.source === "bundled") meta.push("Bundled");
+    else if (tool.source === "system") meta.push("System");
+    if (meta.length) {
+      const info = document.createElement("div");
+      info.className = "sidecar-meta";
+      info.textContent = meta.join(" · ");
+      li.append(info);
+    }
+
+    if (tool.path) {
+      const path = document.createElement("code");
+      path.className = "sidecar-path";
+      path.textContent = tool.path;
+      li.append(path);
+    }
+
+    list.append(li);
+  }
+}
+
 function renderVideoTools() {
   const el = document.getElementById("settings-video");
   if (!el) return;
-  if (!videoTools.version) {
+  const ytdlp = sidecarBy("yt-dlp");
+  const ffmpeg = sidecarBy("ffmpeg");
+  if (!ytdlp?.installed) {
     el.textContent =
       "No yt-dlp found, so video pages download as web pages. Install with " +
       "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.";
     return;
   }
-  const where = videoTools.source === "bundled" ? "built-in" : "yours";
-  const merge = !videoTools.ffmpeg
+  const where = ytdlp.source === "bundled" ? "built-in" : "yours";
+  const merge = !ffmpeg?.installed
     ? "No ffmpeg — only qualities that come as a single file are offered."
-    : videoTools.ffmpegSource === "system"
+    : ffmpeg.source === "system"
       ? "Merging uses your ffmpeg."
       : "Merging uses the ffmpeg Garia ships, so split video-and-audio qualities work.";
-  el.textContent = `yt-dlp ${videoTools.version} (${where}). ${merge}`;
+  el.textContent = `yt-dlp ${ytdlp.version} (${where}). ${merge}`;
 }
 
 function fillForm() {
@@ -400,17 +464,20 @@ async function loadLogins() {
   }
 }
 
-async function loadVideoTools() {
+async function loadSidecarTools() {
   const invoke = invoker();
   if (typeof invoke !== "function") {
+    renderSidecars();
     renderVideoTools();
     return;
   }
   try {
-    videoTools = await invoke("video_tools");
+    sidecarTools = await invoke("sidecar_tools");
   } catch (err) {
     console.error(err);
+    sidecarTools = [];
   }
+  renderSidecars();
   renderVideoTools();
 }
 
@@ -947,6 +1014,6 @@ if (typeof listen === "function") {
   showPane(pane);
   await loadSettings();
   fillForm();
-  await Promise.all([loadLogins(), loadVideoTools(), loadAutostart(), loadRemote()]);
+  await Promise.all([loadLogins(), loadSidecarTools(), loadAutostart(), loadRemote()]);
   renderLogins();
 })();
