@@ -4,6 +4,8 @@ Garia is a fast, easy, and free download manager for macOS. It is built on [aria
 
 Garia manages aria2 automatically — it ships its own copy inside the app and starts it with the app. Closing the window leaves downloads running; Quit is what stops them. You never have to touch the command line to download a file.
 
+![Garia downloading files](docs/images/downloading.png)
+
 It comes as:
 
  * A native macOS GUI application
