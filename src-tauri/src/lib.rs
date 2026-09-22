@@ -1386,13 +1386,16 @@ fn set_status_item(app: tauri::AppHandle, active: u32) -> Result<(), String> {
     let Some(tray) = app.tray_by_id("status") else {
         return Ok(());
     };
+    // tray-icon ignores None, so an empty string is what actually takes
+    // the number away. A literal "0" would sit there the way a dock
+    // badge of zero does.
     let title = if active == 0 {
-        None
+        String::new()
     } else {
-        Some(active.to_string())
+        active.to_string()
     };
     #[cfg(target_os = "macos")]
-    tray.set_title(title.as_deref())
+    tray.set_title(Some(&title))
         .map_err(|e| format!("could not set the menu-bar title: {e}"))?;
     #[cfg(not(target_os = "macos"))]
     let _ = title;
@@ -3731,9 +3734,14 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&show)
         .build()?;
 
-    let mut builder = TrayIconBuilder::with_id("status")
+    // The dock icon is the shovel on a cream tile. As a template that
+    // tile is every opaque pixel, so the extra rendered as a white
+    // square. This file is just the shovel, black on clear.
+    let icon = tauri::include_image!("icons/tray-template.png");
+    TrayIconBuilder::with_id("status")
         .menu(&menu)
         .tooltip("Garia")
+        .icon(icon)
         .icon_as_template(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
@@ -3742,11 +3750,8 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
                 let _ = app.emit("menu", id);
             }
             _ => {}
-        });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
-    builder.build(app)?;
+        })
+        .build(app)?;
     Ok(())
 }
 
