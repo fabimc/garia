@@ -24,9 +24,11 @@ jobs:
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      # Empty Apple secrets are still "set", and Tauri then tries to import a
+      # blank certificate. Publish each one only when it has a value. Without
+      # an updater key, skip update signatures so the DMG still builds.
+      - name: Configure signing when secrets exist
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -35,6 +37,33 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          publish() {
+            if [ -n "$2" ]; then
+              {
+                echo "$1<<EOF"
+                echo "$2"
+                echo "EOF"
+              } >> "$GITHUB_ENV"
+            fi
+          }
+          publish TAURI_SIGNING_PRIVATE_KEY "$TAURI_SIGNING_PRIVATE_KEY"
+          publish TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          publish APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+          publish APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+          publish APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
+          publish APPLE_ID "$APPLE_ID"
+          publish APPLE_PASSWORD "$APPLE_PASSWORD"
+          publish APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            python3 -c 'import json; from pathlib import Path; p = Path("src-tauri/tauri.conf.json"); data = json.loads(p.read_text()); data["bundle"]["createUpdaterArtifacts"] = False; p.write_text(json.dumps(data, indent=2) + "\n")'
+            echo "No updater signing key; building the DMG without update signatures."
+          fi
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target universal-apple-darwin
           tagName: v__VERSION__
