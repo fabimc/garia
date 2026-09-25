@@ -15,7 +15,7 @@ export function initAddDialog(api) {
     takesChecksum,
     parseChecksum,
     checksumOption,
-    videoTools,
+    getVideoTools,
     looksLikeAPage,
     isFtpUrl,
     looksLikeFtpFile,
@@ -380,7 +380,7 @@ export function initAddDialog(api) {
     // A hash is a claim that this URL is a file, which is the question the
     // probe exists to answer. Nobody publishes a SHA-256 for a video page.
     const hashed = takesChecksum(url) && Boolean(parseChecksum(modalChecksum.value));
-    if (hashed || !videoTools.version || !looksLikeAPage(url)) {
+    if (hashed || !getVideoTools().version || !looksLikeAPage(url)) {
       await addPlainUrl(url);
       return;
     }
@@ -431,7 +431,7 @@ export function initAddDialog(api) {
 
   // ── The quality picker ──────────────────────────────────────────────────
   function showPicker(info, sourceUrl) {
-    const choices = buildChoices(info, videoTools.ffmpeg);
+    const choices = buildChoices(info, getVideoTools().ffmpeg);
     probed = { info: { ...info, webpageUrl: info.webpageUrl || sourceUrl }, choices, selected: 0 };
 
     document.getElementById("video-title").textContent = info.title || sourceUrl;
@@ -463,7 +463,7 @@ export function initAddDialog(api) {
       videoChoices.appendChild(btn);
     });
 
-    const note = missingNote(info, choices, videoTools.ffmpeg);
+    const note = missingNote(info, choices, getVideoTools().ffmpeg);
     videoNote.textContent = note;
     videoNote.classList.toggle("hidden", !note);
 
@@ -778,10 +778,10 @@ export function initAddDialog(api) {
         continue;
       }
 
-      const choices = buildChoices(probe, videoTools.ffmpeg);
+      const choices = buildChoices(probe, getVideoTools().ffmpeg);
       const choice = pickByRule(choices, rule);
       if (!choice) {
-        failures.push([name, missingNote(probe, choices, videoTools.ffmpeg) ||
+        failures.push([name, missingNote(probe, choices, getVideoTools().ffmpeg) ||
           "nothing on it can be fetched as a plain file"]);
         continue;
       }

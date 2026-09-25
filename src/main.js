@@ -3418,10 +3418,13 @@ window.addEventListener("DOMContentLoaded", () => {
   const addDialog = initAddDialog({
     rpc, pollAndSync, parseDownloadUrls, addOptions, orderOptions,
     loginHeaders, loginFor, catchLabel, matchCategory, takesChecksum,
-    parseChecksum, checksumOption, videoTools, looksLikeAPage, isFtpUrl,
+    parseChecksum, checksumOption, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, holdAdded, modalStartAt,
     resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl,
+    // loadVideoTools() replaces the object after this runs, so hand over a
+    // way to read it rather than the empty placeholder.
+    getVideoTools: () => videoTools,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
