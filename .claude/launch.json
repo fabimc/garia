@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-p", "5173", "src"],
       "port": 5173
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5174", "site"],
+      "port": 5174
     }
   ]
 }

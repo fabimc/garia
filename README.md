@@ -22,7 +22,7 @@ brew trust fabimc/garia
 brew install --cask garia
 ```
 
-Visit https://github.com/fabimc/garia for source, issues, and releases.
+Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation
 
@@ -80,5 +80,6 @@ Bug reports and pull requests are welcome.
  * Check [existing issues](https://github.com/fabimc/garia/issues) before opening a new one.
  * Documentation lives in `docs/`. Fixes and new pages there are as useful as code.
  * The [browser extension store checklist](docs/Publishing-the-Extension.md) is the path to Chrome Web Store and addons.mozilla.org.
+ * The website lives in `site/` — plain HTML and CSS, no build step. A push to `master` that touches it deploys it to GitHub Pages through `.github/workflows/pages.yml`.
 
 Garia is [MIT](LICENSE). The copy of aria2 inside the app is GPL-2.0-or-later, ffmpeg is LGPL-2.1, and yt-dlp is Unlicense.
