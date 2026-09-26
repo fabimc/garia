@@ -831,11 +831,16 @@ html.in-app .statusbar {
     position: relative;
 }
 
+/* Full width and slid into place, rather than sized: a width is a layout on
+   every frame of the transition, for every running row, every second. The
+   track clips the left end; the fill's own radius is the right one. */
 .dl-bar-fill {
+    width: 100%;
     height: 100%;
     border-radius: 999px;
     background: #3b7ddd;
-    transition: width 0.4s ease;
+    transform: translateX(-100%);
+    transition: transform 0.4s ease;
 }
 
 .dl-item[data-status="paused"] .dl-bar-fill {
@@ -863,25 +868,34 @@ html.in-app .statusbar {
 }
 
 /* Indeterminate state: active download with unknown total size */
+/* A 40% sliver crossing the track. Translations are of its own width, so
+   -100% is just off the left edge and 250% just off the right. */
 @keyframes indeterminate {
     0% {
-        left: -40%;
-        width: 40%;
+        transform: translateX(-100%);
     }
-    60% {
-        left: 100%;
-        width: 40%;
-    }
+    60%,
     100% {
-        left: 100%;
-        width: 40%;
+        transform: translateX(250%);
     }
 }
 
 .dl-bar-fill.indeterminate {
     position: absolute;
-    width: 40% !important;
+    width: 40%;
     animation: indeterminate 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dl-bar-fill {
+        transition: none;
+    }
+    /* Still says "working, size unknown" — a sliver held in the middle. */
+    .dl-bar-fill.indeterminate {
+        animation: none;
+        transform: translateX(75%);
+        opacity: 0.6;
+    }
 }
 
 .col-head {
@@ -2085,6 +2099,20 @@ html.in-app .modal.modal-lg {
 .catch-banner .btn-secondary {
     padding: 0.32rem 0.75rem;
     font-size: 0.78rem;
+}
+
+/* An error is a sentence from aria2 or the OS, not a file name: it wraps to a
+   second line rather than losing its end, and the full text is the tooltip. */
+.notice-banner .catch-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    font-weight: 500;
+}
+.notice-banner.is-error {
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+    box-shadow: inset 3px 0 0 var(--danger), var(--shadow-sm);
 }
 
 #settings-extension {

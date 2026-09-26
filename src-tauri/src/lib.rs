@@ -4,7 +4,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock, RwLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -38,7 +40,18 @@ struct Aria2 {
     /// turned off, which is what makes turning it off an un-pairing rather
     /// than a closed door.
     remote_secret: PathBuf,
+    /// How many of the frontend's calls may be in flight at once. Launch asks
+    /// `getOption` once per download, and a long list would otherwise be a
+    /// thread and a socket for every row, all at the same moment.
+    calls: tokio::sync::Semaphore,
+    /// Held for reading by every frontend call and for writing by a restart,
+    /// so a poll that lands while aria2 is down waits for it to come back
+    /// instead of reporting it unreachable.
+    restarting: RwLock<()>,
 }
+
+/// Frontend calls to aria2 allowed in flight at once.
+const RPC_CONCURRENCY: usize = 6;
 
 impl Aria2 {
     /// Every caller wants an owned copy for the length of one request, and
@@ -836,18 +849,54 @@ fn remote_info(aria2: tauri::State<Aria2>, settings: tauri::State<SettingsState>
     }
 }
 
+/// One agent for every call to aria2: it keeps the connection open between
+/// polls rather than opening a fresh one each second, and it has timeouts. A
+/// hung aria2 used to hang the call with it, with no end.
+fn rpc_agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(2))
+            .timeout(Duration::from_secs(30))
+            .build()
+    })
+}
+
+/// The params aria2 is sent, with the secret where it looks for it: first in
+/// the call, or first in each call of a batch.
+fn rpc_args(method: &str, params: serde_json::Value, secret: &str) -> Vec<serde_json::Value> {
+    let mut args = match params {
+        serde_json::Value::Array(a) => a,
+        serde_json::Value::Null => Vec::new(),
+        other => vec![other],
+    };
+    let token = serde_json::json!(format!("token:{secret}"));
+    if method == "system.multicall" {
+        // aria2 wants the token inside each call of a batch, and refuses one
+        // put on the batch itself.
+        if let Some(serde_json::Value::Array(calls)) = args.first_mut() {
+            for call in calls.iter_mut().filter_map(|c| c.as_object_mut()) {
+                match call.get_mut("params") {
+                    Some(serde_json::Value::Array(p)) => p.insert(0, token.clone()),
+                    _ => {
+                        call.insert("params".into(), serde_json::json!([token.clone()]));
+                    }
+                }
+            }
+        }
+    } else {
+        args.insert(0, token);
+    }
+    args
+}
+
 fn aria2_request(
     port: u16,
     secret: &str,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut args = match params {
-        serde_json::Value::Array(a) => a,
-        serde_json::Value::Null => Vec::new(),
-        other => vec![other],
-    };
-    args.insert(0, serde_json::json!(format!("token:{secret}")));
+    let args = rpc_args(method, params, secret);
 
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -856,7 +905,8 @@ fn aria2_request(
         "params": args,
     });
 
-    ureq::post(&format!("http://127.0.0.1:{port}/jsonrpc"))
+    rpc_agent()
+        .post(&format!("http://127.0.0.1:{port}/jsonrpc"))
         .set("Content-Type", "application/json")
         .send_json(body)
         .map_err(|e| format!("aria2 request failed: {e}"))?
@@ -875,14 +925,36 @@ fn aria2_request(
 /// The gid is recorded as held on the way back out, because a download nobody
 /// remembers pausing is a download nobody will start again.
 #[tauri::command]
-fn aria2_rpc(
-    aria2: tauri::State<Aria2>,
-    settings: tauri::State<SettingsState>,
-    schedule: tauri::State<schedule::Schedule>,
+async fn aria2_rpc(
+    app: tauri::AppHandle,
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let holding = matches!(method.as_str(), "aria2.addUri" | "aria2.addTorrent")
+    let aria2 = app.state::<Aria2>();
+    let _permit = aria2
+        .calls
+        .acquire()
+        .await
+        .map_err(|_| "aria2 is shutting down".to_string())?;
+    let app = app.clone();
+    off_main(move || aria2_call(&app, &method, params)).await
+}
+
+fn aria2_call(
+    app: &tauri::AppHandle,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let aria2 = app.state::<Aria2>();
+    let settings = app.state::<SettingsState>();
+    let schedule = app.state::<schedule::Schedule>();
+
+    // The scheduler pauses a download on its way in, which it can only do to
+    // one it can see. A batch is for reading the list; adds come one at a time.
+    if method == "system.multicall" && batch_adds(&params) {
+        return Err("add downloads one at a time, not in a batch".to_string());
+    }
+    let holding = matches!(method, "aria2.addUri" | "aria2.addTorrent")
         && !run_allowed(&settings);
     let params = if holding {
         schedule::with_pause(params)
@@ -890,7 +962,8 @@ fn aria2_rpc(
         params
     };
 
-    let out = aria2_request(aria2.port, &aria2.secret(), &method, params)?;
+    let _up = aria2.restarting.read().unwrap_or_else(|e| e.into_inner());
+    let out = aria2_request(aria2.port, &aria2.secret(), method, params)?;
 
     if holding {
         if let Some(gid) = schedule::gid_of(&out) {
@@ -898,6 +971,140 @@ fn aria2_rpc(
         }
     }
     Ok(out)
+}
+
+fn batch_adds(params: &serde_json::Value) -> bool {
+    params
+        .get(0)
+        .and_then(|calls| calls.as_array())
+        .is_some_and(|calls| {
+            calls.iter().any(|c| {
+                c.get("methodName")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m.starts_with("aria2.add"))
+            })
+        })
+}
+
+// ── Off the main thread ──────────────────────────────────────────────────
+// A plain `#[tauri::command] fn` runs on the main thread, the one that draws
+// the window and answers every other invoke. A yt-dlp probe or an ffmpeg merge
+// there is a beachball, and every poll queued behind it is a list that stops
+// moving. So anything that waits on a process, the disk, the network, or an
+// aria2 restart is an async command that hands its work to the blocking pool.
+
+async fn off_main<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("the task did not finish: {e}"))?
+}
+
+#[tauri::command]
+async fn set_download_start(
+    app: tauri::AppHandle,
+    gid: String,
+    at: Option<i64>,
+) -> Result<schedule::ScheduleState, String> {
+    off_main(move || set_download_start_blocking(app.state(), app.state(), app.state(), gid, at))
+        .await
+}
+
+#[tauri::command]
+async fn set_queue_stopped(
+    app: tauri::AppHandle,
+    stopped: bool,
+) -> Result<schedule::ScheduleState, String> {
+    off_main(move || set_queue_stopped_blocking(app.clone(), app.state(), app.state(), stopped))
+        .await
+}
+
+#[tauri::command]
+async fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<Settings, String> {
+    off_main(move || save_settings_blocking(app.clone(), app.state(), app.state(), settings)).await
+}
+
+#[tauri::command]
+async fn save_login(
+    app: tauri::AppHandle,
+    host: String,
+    username: String,
+    password: Option<String>,
+    headers: Vec<String>,
+) -> Result<Vec<logins::LoginView>, String> {
+    off_main(move || {
+        save_login_blocking(
+            app.clone(),
+            app.state(),
+            app.state(),
+            app.state(),
+            host,
+            username,
+            password,
+            headers,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn delete_login(
+    app: tauri::AppHandle,
+    host: String,
+) -> Result<Vec<logins::LoginView>, String> {
+    off_main(move || {
+        delete_login_blocking(app.clone(), app.state(), app.state(), app.state(), host)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn ftp_list(app: tauri::AppHandle, url: String) -> Result<ftp::FtpListing, String> {
+    off_main(move || ftp_list_blocking(app.state(), url)).await
+}
+
+#[tauri::command]
+async fn trash_files(paths: Vec<String>) -> Result<(), String> {
+    off_main(move || trash_files_blocking(paths)).await
+}
+
+#[tauri::command]
+async fn video_tools(app: tauri::AppHandle) -> Result<VideoTools, String> {
+    off_main(move || Ok(video_tools_blocking(app.state()))).await
+}
+
+#[tauri::command]
+async fn sidecar_tools(app: tauri::AppHandle) -> Result<Vec<SidecarTool>, String> {
+    off_main(move || Ok(sidecar_tools_blocking(app.state(), app.state()))).await
+}
+
+#[tauri::command]
+async fn video_probe(app: tauri::AppHandle, url: String) -> Result<Probe, String> {
+    off_main(move || video_probe_blocking(app.state(), app.state(), url)).await
+}
+
+/// The Add dialog closed: whatever yt-dlp is reading for it can stop.
+#[tauri::command]
+fn cancel_video_probes() {
+    PROBES_CANCELLED.fetch_add(1, Ordering::SeqCst);
+}
+
+#[tauri::command]
+async fn mux_video(
+    app: tauri::AppHandle,
+    video_path: String,
+    audio_path: String,
+    out_path: String,
+) -> Result<String, String> {
+    off_main(move || mux_video_blocking(app, video_path, audio_path, out_path)).await
+}
+
+#[tauri::command]
+async fn preview_state(path: String, ready_bytes: u64) -> Result<PreviewState, String> {
+    off_main(move || Ok(preview_state_blocking(path, ready_bytes))).await
 }
 
 /// The daily window alone. The status bar names this; `run_allowed` is the
@@ -971,8 +1178,7 @@ fn schedule_state(
 /// the future stops the download now rather than waiting for the next tick —
 /// the click and the effect belong in the same moment — and clearing one lets
 /// it go again, unless the window is what is holding it.
-#[tauri::command]
-fn set_download_start(
+fn set_download_start_blocking(
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
     schedule: tauri::State<schedule::Schedule>,
@@ -1019,8 +1225,7 @@ fn set_download_start(
 /// Stop Queue or Start Queue. The same hold/release path the daily window
 /// uses, so a download the user paused themselves is not started again, and
 /// a download this verb paused is.
-#[tauri::command]
-fn set_queue_stopped(
+fn set_queue_stopped_blocking(
     app: tauri::AppHandle,
     settings: tauri::State<SettingsState>,
     schedule: tauri::State<schedule::Schedule>,
@@ -1070,8 +1275,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 /// — measured against aria2 1.37, not assumed. The rest are the frontend's
 /// to act on: it sends `dir` with each download it adds, which is how smart
 /// folders route by file type without touching this global.
-#[tauri::command]
-fn save_settings(
+fn save_settings_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     state: tauri::State<SettingsState>,
@@ -1208,8 +1412,7 @@ fn get_logins(state: tauri::State<LoginsState>) -> Vec<logins::LoginView> {
 /// Add a site or change one. A `None` password is "leave the one that's
 /// there" — the dialog can say a site has a password without ever being sent
 /// it, so it has to be able to save the rest without asking for it again.
-#[tauri::command]
-fn save_login(
+fn save_login_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
@@ -1262,8 +1465,7 @@ fn save_login(
     commit(&app, &aria2, &settings, &state, current)
 }
 
-#[tauri::command]
-fn delete_login(
+fn delete_login_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
@@ -1318,8 +1520,7 @@ fn commit(
 /// List an FTP directory. The password comes from the site login (or from
 /// userinfo on this URL, for a one-off) and stays here — the frontend gets
 /// names and file URLs, never the secret.
-#[tauri::command]
-fn ftp_list(
+fn ftp_list_blocking(
     state: tauri::State<LoginsState>,
     url: String,
 ) -> Result<ftp::FtpListing, String> {
@@ -1344,8 +1545,7 @@ fn ftp_list(
 /// mis-click then costs a trip to the Finder rather than the download itself.
 /// aria2's `.aria2` control file rides along — it is meaningless without the
 /// partial file it describes.
-#[tauri::command]
-fn trash_files(paths: Vec<String>) -> Result<(), String> {
+fn trash_files_blocking(paths: Vec<String>) -> Result<(), String> {
     for p in paths {
         let path = Path::new(&p);
         // aria2 reports a path for downloads that never wrote a byte, and names
@@ -1435,11 +1635,17 @@ fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(
         let win = window.clone();
         window
             .run_on_main_thread(move || {
+                // The page takes drops itself, and a row dragged out crosses
+                // it on the way to the Finder. It is told when the drag is
+                // over so it can tell its own file from one coming in.
+                let ended = win.clone();
                 let _ = drag::start_drag(
                     &win,
                     drag::DragItem::Files(files),
                     drag::Image::Raw(include_bytes!("../icons/32x32.png").to_vec()),
-                    |_, _| {},
+                    move |_, _| {
+                        let _ = ended.emit("file-drag-ended", ());
+                    },
                     drag::Options::default(),
                 );
             })
@@ -2081,7 +2287,9 @@ struct Video {
     /// The command that actually runs — `None` until first asked. A failed
     /// resolution is never cached, so installing yt-dlp and asking again works
     /// without a relaunch.
-    resolved: Mutex<Option<Vec<String>>>,
+    /// Kept with the version it answered, which is how resolution proved it
+    /// runs — so launch asks yt-dlp once, not twice.
+    resolved: Mutex<Option<(Vec<String>, String)>>,
     /// What the last successful look around found. Working it out costs three
     /// process launches, and Settings asks every time it opens.
     tools: Mutex<Option<VideoTools>>,
@@ -2222,6 +2430,20 @@ fn run_capped_env(
     secs: u64,
     env: &[(&str, &str)],
 ) -> Result<std::process::Output, String> {
+    run_watched(program, args, secs, env, false)
+}
+
+/// Bumped when the Add dialog closes. A probe started before the bump is no
+/// longer wanted, and yt-dlp reading a slow page can take a minute to say so.
+static PROBES_CANCELLED: AtomicU64 = AtomicU64::new(0);
+
+fn run_watched(
+    program: &str,
+    args: &[String],
+    secs: u64,
+    env: &[(&str, &str)],
+    cancellable: bool,
+) -> Result<std::process::Output, String> {
     let mut command = Command::new(program);
     command
         .args(args)
@@ -2231,36 +2453,115 @@ fn run_capped_env(
     for (k, v) in env {
         command.env(k, v);
     }
+    let started = PROBES_CANCELLED.load(Ordering::SeqCst);
     let child = command
         .spawn()
         .map_err(|e| format!("could not run {program}: {e}"))?;
 
-    let pid = child.id();
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-
-    // The watchdog waits to be told the process finished. Being told is what
-    // stops it — so a run that ends on time can never have its pid killed
-    // after the fact, when the number may belong to something else.
-    std::thread::spawn(move || {
-        if done_rx
-            .recv_timeout(std::time::Duration::from_secs(secs))
-            .is_err()
-        {
-            #[cfg(unix)]
-            let _ = Command::new("kill").arg(pid.to_string()).status();
-        }
-    });
-
+    let done = watchdog(child.id(), secs, cancellable.then_some(started));
     let output = child
         .wait_with_output()
         .map_err(|e| format!("{program} failed: {e}"));
-    let _ = done_tx.send(());
+    let _ = done.send(());
     output
+}
+
+/// Kills `pid` once `secs` have passed — or, given the cancel count a probe
+/// started under, once that has moved — unless told first that it finished.
+/// Being told is what stops it, so a run that ends on time can never have its
+/// pid killed after the fact, when the number may belong to something else.
+fn watchdog(pid: u32, secs: u64, cancel_from: Option<u64>) -> std::sync::mpsc::Sender<()> {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match done_rx.recv_timeout(left.min(Duration::from_millis(100))) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                _ => return,
+            }
+            if cancel_from.is_some_and(|n| PROBES_CANCELLED.load(Ordering::SeqCst) != n) {
+                break;
+            }
+        }
+        #[cfg(unix)]
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+    });
+    done_tx
+}
+
+/// ffmpeg with its own account of how far it has got: `-progress` writes
+/// `out_time_us=` to stdout as it goes, and the inputs' durations are on
+/// stderr before the first of those. The fraction goes to `on_progress`;
+/// stderr comes back whole, for the error message.
+fn run_ffmpeg_with_progress(
+    ffmpeg: &str,
+    args: &[String],
+    secs: u64,
+    mut on_progress: impl FnMut(f64),
+) -> Result<std::process::Output, String> {
+    use std::io::{BufRead, BufReader};
+
+    let mut child = Command::new(ffmpeg)
+        .args(["-progress", "pipe:1", "-nostats"])
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run {ffmpeg}: {e}"))?;
+    let done = watchdog(child.id(), secs, None);
+
+    let total_us = std::sync::Arc::new(AtomicU64::new(0));
+    let stderr = child.stderr.take();
+    let seen = total_us.clone();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        for line in stderr.map(BufReader::new).into_iter().flat_map(|r| r.lines()) {
+            let Ok(line) = line else { break };
+            if let Some(us) = ffmpeg_duration_us(&line) {
+                seen.fetch_max(us, Ordering::SeqCst);
+            }
+            text.push_str(&line);
+            text.push('\n');
+        }
+        text
+    });
+
+    for line in child.stdout.take().map(BufReader::new).into_iter().flat_map(|r| r.lines()) {
+        let Ok(line) = line else { break };
+        let Some(Ok(us)) = line.strip_prefix("out_time_us=").map(str::parse::<u64>) else {
+            continue;
+        };
+        let total = total_us.load(Ordering::SeqCst);
+        if total > 0 {
+            on_progress((us as f64 / total as f64).clamp(0.0, 1.0));
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("{ffmpeg} failed: {e}"));
+    let _ = done.send(());
+    let stderr = errors.join().unwrap_or_default().into_bytes();
+    Ok(std::process::Output { status: status?, stdout: Vec::new(), stderr })
+}
+
+/// `  Duration: 00:03:21.45, start: 0.000000, bitrate: 128 kb/s` → µs.
+/// A live input says `N/A`, which is no duration at all.
+fn ffmpeg_duration_us(line: &str) -> Option<u64> {
+    let rest = line.trim_start().strip_prefix("Duration: ")?;
+    let clock = rest.split(',').next()?.trim();
+    let mut parts = clock.split(':');
+    let (h, m, s) = (parts.next()?, parts.next()?, parts.next()?);
+    let secs = h.parse::<f64>().ok()? * 3600.0 + m.parse::<f64>().ok()? * 60.0 + s.parse::<f64>().ok()?;
+    (secs > 0.0).then_some((secs * 1_000_000.0) as u64)
 }
 
 /// A yt-dlp the user installed themselves, newest-first in the sense that
 /// matters: theirs is the one that gets updated when a site breaks.
-fn system_ytdlp() -> Option<Vec<String>> {
+fn system_ytdlp() -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["yt-dlp".to_string()];
 
     #[cfg(target_os = "macos")]
@@ -2279,8 +2580,8 @@ fn system_ytdlp() -> Option<Vec<String>> {
         if bin.contains('/') && !is_executable(&bin) {
             continue;
         }
-        if ytdlp_version(std::slice::from_ref(&bin)).is_some() {
-            return Some(vec![bin]);
+        if let Some(version) = ytdlp_version(std::slice::from_ref(&bin)) {
+            return Some((vec![bin], version));
         }
     }
     None
@@ -2289,7 +2590,7 @@ fn system_ytdlp() -> Option<Vec<String>> {
 /// The bundled copy is a zipapp, so it needs an interpreter — and not just any
 /// one: macOS ships `/usr/bin/python3` as 3.9, which yt-dlp dropped. The
 /// version test is why this looks past the first python3 it finds.
-fn python_for(zipapp: &Path) -> Option<Vec<String>> {
+fn python_for(zipapp: &Path) -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["python3".to_string()];
 
     #[cfg(target_os = "macos")]
@@ -2329,8 +2630,8 @@ fn python_for(zipapp: &Path) -> Option<Vec<String>> {
             continue;
         }
         let cmd = vec![python, zipapp.display().to_string()];
-        if ytdlp_version(&cmd).is_some() {
-            return Some(cmd);
+        if let Some(version) = ytdlp_version(&cmd) {
+            return Some((cmd, version));
         }
     }
     None
@@ -2366,16 +2667,20 @@ fn ytdlp_version(cmd: &[String]) -> Option<String> {
 /// Resolution is cached, but only when it succeeded: a user who installs
 /// yt-dlp and presses the button again should not have to relaunch.
 fn resolve_ytdlp(video: &Video) -> Option<Vec<String>> {
+    resolve_ytdlp_versioned(video).map(|(cmd, _)| cmd)
+}
+
+fn resolve_ytdlp_versioned(video: &Video) -> Option<(Vec<String>, String)> {
     if let Ok(guard) = video.resolved.lock() {
-        if let Some(cmd) = guard.as_ref() {
-            return Some(cmd.clone());
+        if let Some(found) = guard.as_ref() {
+            return Some(found.clone());
         }
     }
 
     let found = system_ytdlp().or_else(|| video.zipapp.as_deref().and_then(python_for));
 
-    if let (Some(cmd), Ok(mut guard)) = (found.as_ref(), video.resolved.lock()) {
-        *guard = Some(cmd.clone());
+    if let (Some(found), Ok(mut guard)) = (found.as_ref(), video.resolved.lock()) {
+        *guard = Some(found.clone());
     }
     found
 }
@@ -2455,19 +2760,18 @@ fn ffmpeg_path() -> Option<String> {
     ffmpeg_found().map(|(bin, _)| bin)
 }
 
-#[tauri::command]
-fn video_tools(video: tauri::State<Video>) -> VideoTools {
+fn video_tools_blocking(video: tauri::State<Video>) -> VideoTools {
     if let Ok(guard) = video.tools.lock() {
         if let Some(tools) = guard.as_ref() {
             return tools.clone();
         }
     }
 
-    let cmd = resolve_ytdlp(&video);
     // Resolution already proved the command works by asking it its version;
     // this is the same answer, kept rather than asked for twice.
-    let bundled = cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
-    let version = cmd.as_deref().and_then(ytdlp_version).unwrap_or_default();
+    let found = resolve_ytdlp_versioned(&video);
+    let bundled = found.as_ref().map(|(c, _)| c.len() > 1).unwrap_or(false);
+    let version = found.map(|(_, v)| v).unwrap_or_default();
     let ffmpeg = ffmpeg_found();
     let tools = VideoTools {
         version: version.clone(),
@@ -2568,8 +2872,10 @@ fn running_aria2_version(aria2: &Aria2) -> Option<String> {
     .map(|v| v.to_string())
 }
 
-#[tauri::command]
-fn sidecar_tools(video: tauri::State<Video>, aria2: tauri::State<Aria2>) -> Vec<SidecarTool> {
+fn sidecar_tools_blocking(
+    video: tauri::State<Video>,
+    aria2: tauri::State<Aria2>,
+) -> Vec<SidecarTool> {
     let aria2_probe = aria2c_probe();
     let aria2_version = running_aria2_version(&aria2)
         .or_else(|| aria2_probe.as_ref().map(|(_, _, v)| v.clone()))
@@ -2696,8 +3002,7 @@ fn format_kind(f: &serde_json::Value) -> &'static str {
     }
 }
 
-#[tauri::command]
-fn video_probe(
+fn video_probe_blocking(
     video: tauri::State<Video>,
     settings: tauri::State<SettingsState>,
     url: String,
@@ -2740,7 +3045,7 @@ fn video_probe(
     } else {
         Vec::new()
     };
-    let out = run_capped_env(&cmd[0], &args, 120, &env)?;
+    let out = run_watched(&cmd[0], &args, 120, &env, true)?;
     if !out.status.success() {
         // yt-dlp's own diagnosis is better than anything we could write: it
         // knows the difference between a private video, a login wall, and a
@@ -2934,8 +3239,12 @@ fn trim_info(info: &serde_json::Value) -> Result<VideoInfo, String> {
 /// stitched into one. `-c copy` means no re-encoding — this is a container
 /// rewrite, seconds for a feature-length video, and the picture and sound come
 /// out bit-identical to what was downloaded.
-#[tauri::command]
-fn mux_video(video_path: String, audio_path: String, out_path: String) -> Result<String, String> {
+fn mux_video_blocking(
+    app: tauri::AppHandle,
+    video_path: String,
+    audio_path: String,
+    out_path: String,
+) -> Result<String, String> {
     let ffmpeg = ffmpeg_path().ok_or_else(|| "no-ffmpeg".to_string())?;
 
     for p in [&video_path, &audio_path] {
@@ -2960,7 +3269,14 @@ fn mux_video(video_path: String, audio_path: String, out_path: String) -> Result
     }
     args.push(out_path.clone());
 
-    let out = run_capped(&ffmpeg, &args, 900)?;
+    // The row says how far along it is. A long film can take a minute to
+    // rewrite, and a full bar that says "Merging" for a minute looks stuck.
+    let out = run_ffmpeg_with_progress(&ffmpeg, &args, 900, |fraction| {
+        let _ = app.emit(
+            "mux-progress",
+            serde_json::json!({ "outPath": out_path, "fraction": fraction }),
+        );
+    })?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let reason = stderr
@@ -3072,8 +3388,7 @@ fn moov_within<R: Read + Seek>(src: &mut R, limit: u64) -> bool {
 /// `ready_bytes` is the contiguous run from the front of the file, which the
 /// panel works out from aria2's piece bitfield. A download can be 90% complete
 /// and have none of it.
-#[tauri::command]
-fn preview_state(path: String, ready_bytes: u64) -> PreviewState {
+fn preview_state_blocking(path: String, ready_bytes: u64) -> PreviewState {
     let file = Path::new(&path);
     let Ok(meta) = fs::metadata(file) else {
         return PreviewState::no("Nothing has been written to disk yet.");
@@ -3262,6 +3577,8 @@ fn restart_aria2(
     settings: &Settings,
     next_secret: Option<String>,
 ) -> Result<(), String> {
+    let _down = aria2.restarting.write().unwrap_or_else(|e| e.into_inner());
+
     // kill() is a SIGKILL and aria2 would never get to write the session.
     if let Err(e) = aria2_request(
         aria2.port,
@@ -3447,6 +3764,7 @@ pub fn run() {
             video_tools,
             sidecar_tools,
             video_probe,
+            cancel_video_probes,
             ftp_list,
             mux_video,
             preview_state,
@@ -3527,6 +3845,8 @@ pub fn run() {
                 session,
                 netrc: netrc_file.clone(),
                 remote_secret: remote_secret_file,
+                calls: tokio::sync::Semaphore::new(RPC_CONCURRENCY),
+                restarting: RwLock::new(()),
             });
             app.manage(SettingsState {
                 file: settings_file,
@@ -3938,6 +4258,67 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rpc_args_put_the_token_first() {
+        let args = rpc_args("aria2.tellActive", serde_json::json!([["gid"]]), "s");
+        assert_eq!(
+            serde_json::json!(args),
+            serde_json::json!(["token:s", ["gid"]])
+        );
+    }
+
+    #[test]
+    fn rpc_args_put_the_token_in_each_call_of_a_batch() {
+        let batch = serde_json::json!([[
+            { "methodName": "aria2.getGlobalStat" },
+            { "methodName": "aria2.tellStatus", "params": ["2089b05ecca3d829", ["files"]] },
+        ]]);
+        let args = rpc_args("system.multicall", batch, "s");
+        assert_eq!(
+            serde_json::json!(args),
+            serde_json::json!([[
+                { "methodName": "aria2.getGlobalStat", "params": ["token:s"] },
+                {
+                    "methodName": "aria2.tellStatus",
+                    "params": ["token:s", "2089b05ecca3d829", ["files"]],
+                },
+            ]])
+        );
+    }
+
+    #[test]
+    fn ffmpeg_duration_lines_become_microseconds() {
+        let line = "  Duration: 00:03:21.45, start: 0.000000, bitrate: 128 kb/s";
+        assert_eq!(ffmpeg_duration_us(line), Some(201_450_000));
+        assert_eq!(ffmpeg_duration_us("  Duration: N/A, start: 0.0"), None);
+        assert_eq!(ffmpeg_duration_us("Stream #0:0: Video: h264"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cancelled_probe_stops_and_other_runs_do_not() {
+        let sleep = || vec!["2".to_string()];
+        let steady = std::thread::spawn(move || run_watched("sleep", &sleep(), 10, &[], false));
+        let t = std::time::Instant::now();
+        let probe = std::thread::spawn(move || run_watched("sleep", &sleep(), 30, &[], true));
+        std::thread::sleep(Duration::from_millis(300));
+        cancel_video_probes();
+
+        let out = probe.join().unwrap().unwrap();
+        assert!(!out.status.success(), "the probe was killed");
+        assert!(t.elapsed() < Duration::from_millis(1500), "and promptly");
+        let out = steady.join().unwrap().unwrap();
+        assert!(out.status.success(), "a run that cannot be cancelled finishes");
+    }
+
+    #[test]
+    fn batch_adds_spots_an_add_in_a_batch() {
+        let reads = serde_json::json!([[{ "methodName": "aria2.tellActive", "params": [] }]]);
+        let adds = serde_json::json!([[{ "methodName": "aria2.addUri", "params": [["u"]] }]]);
+        assert!(!batch_adds(&reads));
+        assert!(batch_adds(&adds));
+    }
 
     /// Real yt-dlp output, trimmed to the fields the parser reads. YouTube
     /// because it is the hard case — 53 formats, not one of which is a

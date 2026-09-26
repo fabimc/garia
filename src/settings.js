@@ -855,6 +855,7 @@ document.getElementById("category-browse").addEventListener("click", async () =>
     if (typeof chosen === "string" && chosen) categoryFolder.value = chosen;
   } catch (err) {
     console.error(err);
+    showError(`Couldn't open the folder picker: ${err?.message || err}`);
   }
 });
 settingsSmart.addEventListener("change", renderCategories);
@@ -925,6 +926,7 @@ document.getElementById("settings-browse").addEventListener("click", async () =>
     }
   } catch (err) {
     console.error(err);
+    showError(`Couldn't open the folder picker: ${err?.message || err}`);
   }
 });
 
@@ -947,6 +949,7 @@ document.getElementById("settings-cookies-browse").addEventListener("click", asy
     }
   } catch (err) {
     console.error(err);
+    showError(`Couldn't open the file picker: ${err?.message || err}`);
   }
 });
 
@@ -989,7 +992,10 @@ document.querySelector(".prefs-main").addEventListener("click", (e) => {
   if (!link || !window.__TAURI__?.opener?.openUrl) return;
   if (link.id === "catch-bookmarklet") return;
   e.preventDefault();
-  window.__TAURI__.opener.openUrl(link.href).catch((err) => console.error(err));
+  window.__TAURI__.opener.openUrl(link.href).catch((err) => {
+    console.error(err);
+    showError(`Couldn't open ${link.href}: ${err?.message || err}`);
+  });
 });
 
 const listen = window.__TAURI__?.event?.listen;

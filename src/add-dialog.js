@@ -35,6 +35,7 @@ export function initAddDialog(api) {
     rowChecksums,
     el,
     alreadyHaveUrl = () => false,
+    failed = (what, err) => console.error(what, err),
   } = api;
 
   let lastBatchKey = "";
@@ -235,7 +236,9 @@ export function initAddDialog(api) {
     openOverlay(overlay, { focus: modalUrlInput, close: closeModal });
   }
   function closeModal() {
-    probeToken++;   // whatever yt-dlp is doing, it is no longer wanted
+    probeToken++;   // whatever yt-dlp is doing, it is no longer wanted —
+    // and it is told so, rather than left to read a slow page for a minute.
+    window.__TAURI__?.core?.invoke("cancel_video_probes").catch(() => {});
     closeOverlay(overlay);
   }
 
@@ -297,7 +300,7 @@ export function initAddDialog(api) {
       await rpc("aria2.addTorrent", [b64, [], addOptions()]);
       await pollAndSync();
     } catch (err) {
-      console.error(err);
+      failed(`Couldn't add ${path.split("/").pop()}`, err);
     }
   }
 
