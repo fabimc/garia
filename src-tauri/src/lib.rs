@@ -4,7 +4,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock, RwLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -38,7 +39,18 @@ struct Aria2 {
     /// turned off, which is what makes turning it off an un-pairing rather
     /// than a closed door.
     remote_secret: PathBuf,
+    /// How many of the frontend's calls may be in flight at once. Launch asks
+    /// `getOption` once per download, and a long list would otherwise be a
+    /// thread and a socket for every row, all at the same moment.
+    calls: tokio::sync::Semaphore,
+    /// Held for reading by every frontend call and for writing by a restart,
+    /// so a poll that lands while aria2 is down waits for it to come back
+    /// instead of reporting it unreachable.
+    restarting: RwLock<()>,
 }
+
+/// Frontend calls to aria2 allowed in flight at once.
+const RPC_CONCURRENCY: usize = 6;
 
 impl Aria2 {
     /// Every caller wants an owned copy for the length of one request, and
@@ -836,6 +848,19 @@ fn remote_info(aria2: tauri::State<Aria2>, settings: tauri::State<SettingsState>
     }
 }
 
+/// One agent for every call to aria2: it keeps the connection open between
+/// polls rather than opening a fresh one each second, and it has timeouts. A
+/// hung aria2 used to hang the call with it, with no end.
+fn rpc_agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(2))
+            .timeout(Duration::from_secs(30))
+            .build()
+    })
+}
+
 fn aria2_request(
     port: u16,
     secret: &str,
@@ -856,7 +881,8 @@ fn aria2_request(
         "params": args,
     });
 
-    ureq::post(&format!("http://127.0.0.1:{port}/jsonrpc"))
+    rpc_agent()
+        .post(&format!("http://127.0.0.1:{port}/jsonrpc"))
         .set("Content-Type", "application/json")
         .send_json(body)
         .map_err(|e| format!("aria2 request failed: {e}"))?
@@ -875,14 +901,31 @@ fn aria2_request(
 /// The gid is recorded as held on the way back out, because a download nobody
 /// remembers pausing is a download nobody will start again.
 #[tauri::command]
-fn aria2_rpc(
-    aria2: tauri::State<Aria2>,
-    settings: tauri::State<SettingsState>,
-    schedule: tauri::State<schedule::Schedule>,
+async fn aria2_rpc(
+    app: tauri::AppHandle,
     method: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let holding = matches!(method.as_str(), "aria2.addUri" | "aria2.addTorrent")
+    let aria2 = app.state::<Aria2>();
+    let _permit = aria2
+        .calls
+        .acquire()
+        .await
+        .map_err(|_| "aria2 is shutting down".to_string())?;
+    let app = app.clone();
+    off_main(move || aria2_call(&app, &method, params)).await
+}
+
+fn aria2_call(
+    app: &tauri::AppHandle,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let aria2 = app.state::<Aria2>();
+    let settings = app.state::<SettingsState>();
+    let schedule = app.state::<schedule::Schedule>();
+
+    let holding = matches!(method, "aria2.addUri" | "aria2.addTorrent")
         && !run_allowed(&settings);
     let params = if holding {
         schedule::with_pause(params)
@@ -890,7 +933,8 @@ fn aria2_rpc(
         params
     };
 
-    let out = aria2_request(aria2.port, &aria2.secret(), &method, params)?;
+    let _up = aria2.restarting.read().unwrap_or_else(|e| e.into_inner());
+    let out = aria2_request(aria2.port, &aria2.secret(), method, params)?;
 
     if holding {
         if let Some(gid) = schedule::gid_of(&out) {
@@ -898,6 +942,120 @@ fn aria2_rpc(
         }
     }
     Ok(out)
+}
+
+// ── Off the main thread ──────────────────────────────────────────────────
+// A plain `#[tauri::command] fn` runs on the main thread, the one that draws
+// the window and answers every other invoke. A yt-dlp probe or an ffmpeg merge
+// there is a beachball, and every poll queued behind it is a list that stops
+// moving. So anything that waits on a process, the disk, the network, or an
+// aria2 restart is an async command that hands its work to the blocking pool.
+
+async fn off_main<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("the task did not finish: {e}"))?
+}
+
+#[tauri::command]
+async fn set_download_start(
+    app: tauri::AppHandle,
+    gid: String,
+    at: Option<i64>,
+) -> Result<schedule::ScheduleState, String> {
+    off_main(move || set_download_start_blocking(app.state(), app.state(), app.state(), gid, at))
+        .await
+}
+
+#[tauri::command]
+async fn set_queue_stopped(
+    app: tauri::AppHandle,
+    stopped: bool,
+) -> Result<schedule::ScheduleState, String> {
+    off_main(move || set_queue_stopped_blocking(app.clone(), app.state(), app.state(), stopped))
+        .await
+}
+
+#[tauri::command]
+async fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<Settings, String> {
+    off_main(move || save_settings_blocking(app.clone(), app.state(), app.state(), settings)).await
+}
+
+#[tauri::command]
+async fn save_login(
+    app: tauri::AppHandle,
+    host: String,
+    username: String,
+    password: Option<String>,
+    headers: Vec<String>,
+) -> Result<Vec<logins::LoginView>, String> {
+    off_main(move || {
+        save_login_blocking(
+            app.clone(),
+            app.state(),
+            app.state(),
+            app.state(),
+            host,
+            username,
+            password,
+            headers,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn delete_login(
+    app: tauri::AppHandle,
+    host: String,
+) -> Result<Vec<logins::LoginView>, String> {
+    off_main(move || {
+        delete_login_blocking(app.clone(), app.state(), app.state(), app.state(), host)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn ftp_list(app: tauri::AppHandle, url: String) -> Result<ftp::FtpListing, String> {
+    off_main(move || ftp_list_blocking(app.state(), url)).await
+}
+
+#[tauri::command]
+async fn trash_files(paths: Vec<String>) -> Result<(), String> {
+    off_main(move || trash_files_blocking(paths)).await
+}
+
+#[tauri::command]
+async fn video_tools(app: tauri::AppHandle) -> Result<VideoTools, String> {
+    off_main(move || Ok(video_tools_blocking(app.state()))).await
+}
+
+#[tauri::command]
+async fn sidecar_tools(app: tauri::AppHandle) -> Result<Vec<SidecarTool>, String> {
+    off_main(move || Ok(sidecar_tools_blocking(app.state(), app.state()))).await
+}
+
+#[tauri::command]
+async fn video_probe(app: tauri::AppHandle, url: String) -> Result<Probe, String> {
+    off_main(move || video_probe_blocking(app.state(), app.state(), url)).await
+}
+
+#[tauri::command]
+async fn mux_video(
+    video_path: String,
+    audio_path: String,
+    out_path: String,
+) -> Result<String, String> {
+    off_main(move || mux_video_blocking(video_path, audio_path, out_path)).await
+}
+
+#[tauri::command]
+async fn preview_state(path: String, ready_bytes: u64) -> Result<PreviewState, String> {
+    off_main(move || Ok(preview_state_blocking(path, ready_bytes))).await
 }
 
 /// The daily window alone. The status bar names this; `run_allowed` is the
@@ -971,8 +1129,7 @@ fn schedule_state(
 /// the future stops the download now rather than waiting for the next tick —
 /// the click and the effect belong in the same moment — and clearing one lets
 /// it go again, unless the window is what is holding it.
-#[tauri::command]
-fn set_download_start(
+fn set_download_start_blocking(
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
     schedule: tauri::State<schedule::Schedule>,
@@ -1019,8 +1176,7 @@ fn set_download_start(
 /// Stop Queue or Start Queue. The same hold/release path the daily window
 /// uses, so a download the user paused themselves is not started again, and
 /// a download this verb paused is.
-#[tauri::command]
-fn set_queue_stopped(
+fn set_queue_stopped_blocking(
     app: tauri::AppHandle,
     settings: tauri::State<SettingsState>,
     schedule: tauri::State<schedule::Schedule>,
@@ -1070,8 +1226,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 /// — measured against aria2 1.37, not assumed. The rest are the frontend's
 /// to act on: it sends `dir` with each download it adds, which is how smart
 /// folders route by file type without touching this global.
-#[tauri::command]
-fn save_settings(
+fn save_settings_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     state: tauri::State<SettingsState>,
@@ -1208,8 +1363,7 @@ fn get_logins(state: tauri::State<LoginsState>) -> Vec<logins::LoginView> {
 /// Add a site or change one. A `None` password is "leave the one that's
 /// there" — the dialog can say a site has a password without ever being sent
 /// it, so it has to be able to save the rest without asking for it again.
-#[tauri::command]
-fn save_login(
+fn save_login_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
@@ -1262,8 +1416,7 @@ fn save_login(
     commit(&app, &aria2, &settings, &state, current)
 }
 
-#[tauri::command]
-fn delete_login(
+fn delete_login_blocking(
     app: tauri::AppHandle,
     aria2: tauri::State<Aria2>,
     settings: tauri::State<SettingsState>,
@@ -1318,8 +1471,7 @@ fn commit(
 /// List an FTP directory. The password comes from the site login (or from
 /// userinfo on this URL, for a one-off) and stays here — the frontend gets
 /// names and file URLs, never the secret.
-#[tauri::command]
-fn ftp_list(
+fn ftp_list_blocking(
     state: tauri::State<LoginsState>,
     url: String,
 ) -> Result<ftp::FtpListing, String> {
@@ -1344,8 +1496,7 @@ fn ftp_list(
 /// mis-click then costs a trip to the Finder rather than the download itself.
 /// aria2's `.aria2` control file rides along — it is meaningless without the
 /// partial file it describes.
-#[tauri::command]
-fn trash_files(paths: Vec<String>) -> Result<(), String> {
+fn trash_files_blocking(paths: Vec<String>) -> Result<(), String> {
     for p in paths {
         let path = Path::new(&p);
         // aria2 reports a path for downloads that never wrote a byte, and names
@@ -2455,8 +2606,7 @@ fn ffmpeg_path() -> Option<String> {
     ffmpeg_found().map(|(bin, _)| bin)
 }
 
-#[tauri::command]
-fn video_tools(video: tauri::State<Video>) -> VideoTools {
+fn video_tools_blocking(video: tauri::State<Video>) -> VideoTools {
     if let Ok(guard) = video.tools.lock() {
         if let Some(tools) = guard.as_ref() {
             return tools.clone();
@@ -2568,8 +2718,10 @@ fn running_aria2_version(aria2: &Aria2) -> Option<String> {
     .map(|v| v.to_string())
 }
 
-#[tauri::command]
-fn sidecar_tools(video: tauri::State<Video>, aria2: tauri::State<Aria2>) -> Vec<SidecarTool> {
+fn sidecar_tools_blocking(
+    video: tauri::State<Video>,
+    aria2: tauri::State<Aria2>,
+) -> Vec<SidecarTool> {
     let aria2_probe = aria2c_probe();
     let aria2_version = running_aria2_version(&aria2)
         .or_else(|| aria2_probe.as_ref().map(|(_, _, v)| v.clone()))
@@ -2696,8 +2848,7 @@ fn format_kind(f: &serde_json::Value) -> &'static str {
     }
 }
 
-#[tauri::command]
-fn video_probe(
+fn video_probe_blocking(
     video: tauri::State<Video>,
     settings: tauri::State<SettingsState>,
     url: String,
@@ -2934,8 +3085,11 @@ fn trim_info(info: &serde_json::Value) -> Result<VideoInfo, String> {
 /// stitched into one. `-c copy` means no re-encoding — this is a container
 /// rewrite, seconds for a feature-length video, and the picture and sound come
 /// out bit-identical to what was downloaded.
-#[tauri::command]
-fn mux_video(video_path: String, audio_path: String, out_path: String) -> Result<String, String> {
+fn mux_video_blocking(
+    video_path: String,
+    audio_path: String,
+    out_path: String,
+) -> Result<String, String> {
     let ffmpeg = ffmpeg_path().ok_or_else(|| "no-ffmpeg".to_string())?;
 
     for p in [&video_path, &audio_path] {
@@ -3072,8 +3226,7 @@ fn moov_within<R: Read + Seek>(src: &mut R, limit: u64) -> bool {
 /// `ready_bytes` is the contiguous run from the front of the file, which the
 /// panel works out from aria2's piece bitfield. A download can be 90% complete
 /// and have none of it.
-#[tauri::command]
-fn preview_state(path: String, ready_bytes: u64) -> PreviewState {
+fn preview_state_blocking(path: String, ready_bytes: u64) -> PreviewState {
     let file = Path::new(&path);
     let Ok(meta) = fs::metadata(file) else {
         return PreviewState::no("Nothing has been written to disk yet.");
@@ -3262,6 +3415,8 @@ fn restart_aria2(
     settings: &Settings,
     next_secret: Option<String>,
 ) -> Result<(), String> {
+    let _down = aria2.restarting.write().unwrap_or_else(|e| e.into_inner());
+
     // kill() is a SIGKILL and aria2 would never get to write the session.
     if let Err(e) = aria2_request(
         aria2.port,
@@ -3527,6 +3682,8 @@ pub fn run() {
                 session,
                 netrc: netrc_file.clone(),
                 remote_secret: remote_secret_file,
+                calls: tokio::sync::Semaphore::new(RPC_CONCURRENCY),
+                restarting: RwLock::new(()),
             });
             app.manage(SettingsState {
                 file: settings_file,
