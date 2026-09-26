@@ -2087,6 +2087,20 @@ html.in-app .modal.modal-lg {
     font-size: 0.78rem;
 }
 
+/* An error is a sentence from aria2 or the OS, not a file name: it wraps to a
+   second line rather than losing its end, and the full text is the tooltip. */
+.notice-banner .catch-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    font-weight: 500;
+}
+.notice-banner.is-error {
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+    box-shadow: inset 3px 0 0 var(--danger), var(--shadow-sm);
+}
+
 #settings-extension {
     align-self: flex-start;
     width: fit-content;

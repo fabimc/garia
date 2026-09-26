@@ -29,6 +29,41 @@ async function rpc(method, params = []) {
   return json.result;
 }
 
+// ── Notices ──────────────────────────────────────────────────────────────
+// Something the user asked for did not happen. The console is not somewhere
+// they look, and a click that changes nothing reads as a click that missed.
+// One at a time: a newer notice replaces the one on screen, and a pointer
+// resting on it keeps it there.
+const NOTICE_MS = 8000;
+let noticeTimer = 0;
+
+function showNotice(text, { error = true } = {}) {
+  const banner = document.getElementById("notice-banner");
+  if (!banner) return;
+  const line = document.getElementById("notice-text");
+  line.textContent = text;
+  line.title = text;
+  banner.classList.toggle("is-error", error);
+  banner.classList.remove("hidden");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(hideNotice, NOTICE_MS);
+}
+
+function hideNotice() {
+  clearTimeout(noticeTimer);
+  document.getElementById("notice-banner")?.classList.add("hidden");
+}
+
+function errorText(err) {
+  return String(err?.message || err || "unknown error").trim();
+}
+
+// The console keeps the stack; the notice says what did not happen, and why.
+function failed(what, err) {
+  console.error(err);
+  showNotice(`${what}: ${errorText(err)}`);
+}
+
 // The user's settings, mirrored from the Rust side, which owns the file they
 // live in and pushes the aria2 ones into the running process. The folder is
 // sent again with every download added here — aria2's global dir is only a
@@ -1038,6 +1073,15 @@ const ACTION_TITLES = {
   remove: "Delete download",
 };
 
+// The same verbs, as the end of "Couldn't …".
+const ACTION_VERBS = {
+  stop: "pause",
+  resume: "resume",
+  reveal: "show in Finder",
+  retry: "retry",
+  unseed: "stop seeding",
+};
+
 // Every URI aria2 still has on record for a download. A failed HTTP download
 // keeps the one it was added with; a torrent's files carry none, which is
 // exactly when there is nothing to retry from.
@@ -2025,7 +2069,7 @@ async function setQueueStopped(stopped) {
     renderQueueToggle();
     renderSchedule();
   } catch (err) {
-    console.error(err);
+    failed(stopped ? "Couldn't stop the queue" : "Couldn't start the queue", err);
   }
 }
 
@@ -2750,7 +2794,8 @@ async function holdAdded(gid, at) {
     schedule = await invoke("set_download_start", { gid, at });
     heldGids = new Set(schedule.held || []);
   } catch (err) {
-    console.error(err);
+    // It went in paused, and nothing is now counting down to start it.
+    failed("Added paused, but its start time didn't take — resume it by hand", err);
   }
 }
 
@@ -3536,7 +3581,7 @@ window.addEventListener("DOMContentLoaded", () => {
     parseChecksum, checksumOption, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, holdAdded, modalStartAt,
-    resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl,
+    resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
@@ -3625,7 +3670,10 @@ window.addEventListener("DOMContentLoaded", () => {
         if (path) await window.__TAURI__.opener.revealItemInDir(path);
       }
       if (action !== "reveal" && extra.poll !== false) await pollAndSync();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      const dl = snapshot.get(gid);
+      failed(`Couldn't ${ACTION_VERBS[action] || action} “${dl ? fileName(dl) : "the download"}”`, err);
+    }
   }
 
   async function runOnSelected(action) {
@@ -3918,7 +3966,11 @@ window.addEventListener("DOMContentLoaded", () => {
         : (dl?.files || []).map(f => f.path).filter(Boolean);
       const invoker = window.__TAURI__?.core?.invoke;
       if (paths.length && typeof invoker === "function") {
-        try { await invoker("trash_files", { paths }); } catch (err) { console.error(err); }
+        try {
+          await invoker("trash_files", { paths });
+        } catch (err) {
+          failed("Removed from the list, but the file couldn't go to the Trash", err);
+        }
       }
     }
 
@@ -3987,7 +4039,7 @@ window.addEventListener("DOMContentLoaded", () => {
       try {
         await setRowLimit(gid, modeLimit(limitBtn.dataset.limitMode));
       } catch (err) {
-        console.error(err);
+        failed("Couldn't change this download's speed", err);
       }
       for (const b of buttons) b.disabled = false;
       refreshDetail();
@@ -4066,7 +4118,7 @@ window.addEventListener("DOMContentLoaded", () => {
       try {
         await applyFileSelection(apply.dataset.gid, sec);
       } catch (err) {
-        console.error(err);
+        failed("Couldn't change which files download", err);
       }
       refreshDetail();
       await pollAndSync();
@@ -4129,14 +4181,24 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
     if (!path) return;
-    try { await window.__TAURI__.opener.revealItemInDir(path); } catch (err) { console.error(err); }
+    try {
+      await window.__TAURI__.opener.revealItemInDir(path);
+    } catch (err) {
+      failed("Couldn't show it in Finder", err);
+    }
   });
 
   // Bulk action helpers
   async function bulkAction(gids, action) {
     const method = action === "pause" ? "aria2.pause" : "aria2.unpause";
-    const all = gids.flatMap(gidsFor);
-    await Promise.allSettled(all.map(gid => rpc(method, [gid])));
+    // Counted by row, as the list shows them: a merged video is two
+    // downloads to aria2 and one to the user.
+    const results = await Promise.allSettled(gids.map((gid) =>
+      Promise.all(gidsFor(gid).map((g) => rpc(method, [g])))));
+    const refused = results.filter((r) => r.status === "rejected");
+    if (refused.length) {
+      failed(`Couldn't ${action} ${refused.length} of ${gids.length} downloads`, refused[0].reason);
+    }
     await pollAndSync();
   }
 
@@ -4349,7 +4411,8 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       await moveInQueue(row.dataset.gid, neighbours);
     } catch (err) {
-      console.error(err);
+      // The next poll puts the row back where aria2 has it.
+      failed("Couldn't move it in the queue", err);
     }
     reorderHold = false;
     // Whatever aria2 made of it is what the list should be showing.
@@ -4374,7 +4437,11 @@ window.addEventListener("DOMContentLoaded", () => {
       if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
       const paths = selectedDownloads().map(rowPath).filter(Boolean);
       if (paths.length) {
-        window.__TAURI__.core.invoke("start_file_drag", { paths }).catch((err) => console.error(err));
+        draggingOut = true;
+        window.__TAURI__.core.invoke("start_file_drag", { paths }).catch((err) => {
+          draggingOut = false;
+          failed("Couldn't drag the file out", err);
+        });
       }
     };
     const cleanup = () => {
@@ -4398,7 +4465,7 @@ window.addEventListener("DOMContentLoaded", () => {
       try {
         await invoke("open_settings_window");
       } catch (err) {
-        console.error(err);
+        failed("Couldn't open Settings", err);
       }
       return;
     }
@@ -4605,7 +4672,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (id === "open-folder") {
         const dir = settings.downloadDir;
         if (dir && window.__TAURI__?.opener?.openPath) {
-          window.__TAURI__.opener.openPath(dir).catch((err) => console.error(err));
+          window.__TAURI__.opener.openPath(dir)
+            .catch((err) => failed("Couldn't open the download folder", err));
         }
       }
       if (id === "licenses") openLicenses();
@@ -4716,8 +4784,14 @@ window.addEventListener("DOMContentLoaded", () => {
   const dropOverlay = document.getElementById("drop-overlay");
   let dragCounter = 0;
 
+  // A finished row dragged out to the Finder crosses this window on its way,
+  // and is not a drop. Rust says when that drag is over.
+  let draggingOut = false;
+  window.__TAURI__?.event?.listen?.("file-drag-ended", () => { draggingOut = false; });
+
   document.addEventListener("dragenter", (e) => {
     e.preventDefault();
+    if (draggingOut) return;
     dragCounter++;
     dropOverlay.classList.remove("hidden");
   });
@@ -4730,26 +4804,51 @@ window.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     dragCounter = 0;
     dropOverlay.classList.add("hidden");
+    if (draggingOut) { draggingOut = false; return; }
 
-    const file = e.dataTransfer.files[0];
-    if (file && (file.name.endsWith(".torrent") || file.type === "application/x-bittorrent")) {
-      const buf = await file.arrayBuffer();
-      const b64 = bytesToBase64(buf);
-      try { await rpc("aria2.addTorrent", [b64, [], addOptions()]); } catch (err) { console.error(err); }
-    } else {
-      const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
-      // A dropped magnet link used to be dropped on the floor — the modal took
-      // it, the drop zone didn't.
-      const urls = parseDownloadUrls(text);
-      if (urls.length > 1) {
-        openModal(urls);
-        return;
+    // Every torrent in the drop, not only the first one picked up.
+    const files = [...e.dataTransfer.files];
+    const torrents = files.filter((f) =>
+      f.name.endsWith(".torrent") || f.type === "application/x-bittorrent");
+    if (torrents.length) {
+      let added = 0;
+      for (const file of torrents) {
+        try {
+          const b64 = bytesToBase64(await file.arrayBuffer());
+          await rpc("aria2.addTorrent", [b64, [], addOptions()]);
+          added++;
+        } catch (err) {
+          failed(`Couldn't add “${file.name}”`, err);
+        }
       }
-      for (const url of urls) {
-        try { await rpc("aria2.addUri", [[url], addOptions(url)]); } catch (err) { console.error(err); }
-      }
+      if (added) await pollAndSync();
+      return;
     }
-    await pollAndSync();
+
+    const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
+    const urls = parseDownloadUrls(text);
+    if (!urls.length) {
+      if (files.length) {
+        showNotice("Only .torrent files can be dropped here — for anything else, drop its link",
+          { error: false });
+      }
+      return;
+    }
+    if (urls.length > 1) {
+      openModal(urls);
+      return;
+    }
+    // One link goes the way a caught one does: a file goes straight in, a
+    // video page gets the quality picker, an FTP folder gets listed — and a
+    // failure lands in the dialog, where it can be read and tried again.
+    if (alreadyHaveUrl(urls[0])) {
+      const label = catchLabel(urls[0]);
+      showNotice(label === "this magnet link"
+        ? "That magnet link is already in the list"
+        : `“${label}” is already in the list`, { error: false });
+      return;
+    }
+    await ingestUrl(urls[0]);
   });
 
   // ── Catch from elsewhere ────────────────────────────────────────────────
@@ -4917,6 +5016,12 @@ window.addEventListener("DOMContentLoaded", () => {
     if (offeredUrl) ingestUrl(offeredUrl);
   });
   document.getElementById("catch-ignore").addEventListener("click", hideCatch);
+  document.getElementById("notice-dismiss").addEventListener("click", hideNotice);
+  const noticeBanner = document.getElementById("notice-banner");
+  noticeBanner.addEventListener("mouseenter", () => clearTimeout(noticeTimer));
+  noticeBanner.addEventListener("mouseleave", () => {
+    noticeTimer = setTimeout(hideNotice, NOTICE_MS);
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !overlayOpen()) hideCatch();
   });

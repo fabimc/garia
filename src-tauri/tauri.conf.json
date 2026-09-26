@@ -21,6 +21,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "acceptFirstMouse": true,
+        "dragDropEnabled": false,
         "transparent": true,
         "windowEffects": {
           "effects": ["sidebar"],

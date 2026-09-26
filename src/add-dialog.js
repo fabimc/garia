@@ -35,6 +35,7 @@ export function initAddDialog(api) {
     rowChecksums,
     el,
     alreadyHaveUrl = () => false,
+    failed = (what, err) => console.error(what, err),
   } = api;
 
   let lastBatchKey = "";
@@ -297,7 +298,7 @@ export function initAddDialog(api) {
       await rpc("aria2.addTorrent", [b64, [], addOptions()]);
       await pollAndSync();
     } catch (err) {
-      console.error(err);
+      failed(`Couldn't add ${path.split("/").pop()}`, err);
     }
   }
 

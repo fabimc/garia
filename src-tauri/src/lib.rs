@@ -1627,11 +1627,17 @@ fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(
         let win = window.clone();
         window
             .run_on_main_thread(move || {
+                // The page takes drops itself, and a row dragged out crosses
+                // it on the way to the Finder. It is told when the drag is
+                // over so it can tell its own file from one coming in.
+                let ended = win.clone();
                 let _ = drag::start_drag(
                     &win,
                     drag::DragItem::Files(files),
                     drag::Image::Raw(include_bytes!("../icons/32x32.png").to_vec()),
-                    |_, _| {},
+                    move |_, _| {
+                        let _ = ended.emit("file-drag-ended", ());
+                    },
                     drag::Options::default(),
                 );
             })
