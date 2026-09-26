@@ -861,18 +861,41 @@ fn rpc_agent() -> &'static ureq::Agent {
     })
 }
 
+/// The params aria2 is sent, with the secret where it looks for it: first in
+/// the call, or first in each call of a batch.
+fn rpc_args(method: &str, params: serde_json::Value, secret: &str) -> Vec<serde_json::Value> {
+    let mut args = match params {
+        serde_json::Value::Array(a) => a,
+        serde_json::Value::Null => Vec::new(),
+        other => vec![other],
+    };
+    let token = serde_json::json!(format!("token:{secret}"));
+    if method == "system.multicall" {
+        // aria2 wants the token inside each call of a batch, and refuses one
+        // put on the batch itself.
+        if let Some(serde_json::Value::Array(calls)) = args.first_mut() {
+            for call in calls.iter_mut().filter_map(|c| c.as_object_mut()) {
+                match call.get_mut("params") {
+                    Some(serde_json::Value::Array(p)) => p.insert(0, token.clone()),
+                    _ => {
+                        call.insert("params".into(), serde_json::json!([token.clone()]));
+                    }
+                }
+            }
+        }
+    } else {
+        args.insert(0, token);
+    }
+    args
+}
+
 fn aria2_request(
     port: u16,
     secret: &str,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut args = match params {
-        serde_json::Value::Array(a) => a,
-        serde_json::Value::Null => Vec::new(),
-        other => vec![other],
-    };
-    args.insert(0, serde_json::json!(format!("token:{secret}")));
+    let args = rpc_args(method, params, secret);
 
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -925,6 +948,11 @@ fn aria2_call(
     let settings = app.state::<SettingsState>();
     let schedule = app.state::<schedule::Schedule>();
 
+    // The scheduler pauses a download on its way in, which it can only do to
+    // one it can see. A batch is for reading the list; adds come one at a time.
+    if method == "system.multicall" && batch_adds(&params) {
+        return Err("add downloads one at a time, not in a batch".to_string());
+    }
     let holding = matches!(method, "aria2.addUri" | "aria2.addTorrent")
         && !run_allowed(&settings);
     let params = if holding {
@@ -942,6 +970,19 @@ fn aria2_call(
         }
     }
     Ok(out)
+}
+
+fn batch_adds(params: &serde_json::Value) -> bool {
+    params
+        .get(0)
+        .and_then(|calls| calls.as_array())
+        .is_some_and(|calls| {
+            calls.iter().any(|c| {
+                c.get("methodName")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m.starts_with("aria2.add"))
+            })
+        })
 }
 
 // ── Off the main thread ──────────────────────────────────────────────────
@@ -4095,6 +4136,42 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rpc_args_put_the_token_first() {
+        let args = rpc_args("aria2.tellActive", serde_json::json!([["gid"]]), "s");
+        assert_eq!(
+            serde_json::json!(args),
+            serde_json::json!(["token:s", ["gid"]])
+        );
+    }
+
+    #[test]
+    fn rpc_args_put_the_token_in_each_call_of_a_batch() {
+        let batch = serde_json::json!([[
+            { "methodName": "aria2.getGlobalStat" },
+            { "methodName": "aria2.tellStatus", "params": ["2089b05ecca3d829", ["files"]] },
+        ]]);
+        let args = rpc_args("system.multicall", batch, "s");
+        assert_eq!(
+            serde_json::json!(args),
+            serde_json::json!([[
+                { "methodName": "aria2.getGlobalStat", "params": ["token:s"] },
+                {
+                    "methodName": "aria2.tellStatus",
+                    "params": ["token:s", "2089b05ecca3d829", ["files"]],
+                },
+            ]])
+        );
+    }
+
+    #[test]
+    fn batch_adds_spots_an_add_in_a_batch() {
+        let reads = serde_json::json!([[{ "methodName": "aria2.tellActive", "params": [] }]]);
+        let adds = serde_json::json!([[{ "methodName": "aria2.addUri", "params": [["u"]] }]]);
+        assert!(!batch_adds(&reads));
+        assert!(batch_adds(&adds));
+    }
 
     /// Real yt-dlp output, trimmed to the fields the parser reads. YouTube
     /// because it is the hard case — 53 formats, not one of which is a

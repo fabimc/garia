@@ -335,49 +335,86 @@ createServer((req, res) => {
     try { ({ id, method, params = [] } = JSON.parse(body)); } catch {}
     // Anything that isn't a poll is the UI actually doing something — printed
     // so the folder each download is added with is visible from here.
-    if (method && !method.startsWith("aria2.tell") &&
+    if (method && !method.startsWith("aria2.tell") && method !== "system.multicall" &&
         method !== "aria2.getServers" && method !== "aria2.getPeers" &&
         method !== "aria2.getOption") {
       console.log(method, JSON.stringify(params));
     }
-    const s = snapshot();
-    const all = [...s.active, ...s.waiting, ...s.stopped];
-    // The detail panel asks about one gid at a time, and about where its bytes
-    // are coming from — which the poll methods never say.
-    const one = (gid) => all.find((d) => d.gid === gid);
-    const result =
-      method === "aria2.changePosition" ? changePosition(params[0], params[1], params[2]) :
-      method === "aria2.changeOption" ? changeOption(params[0], params[1]) :
-      method === "aria2.getOption"    ? getOption(params[0]) :
-      method === "aria2.pause" || method === "aria2.forcePause"
-        ? (paused.add(params[0]), "OK") :
-      method === "aria2.unpause"      ? (paused.delete(params[0]), "OK") :
-      method === "aria2.remove"       ? (removed.add(params[0]), "OK") :
-      // aria2 answers a fresh gid, and the checksum path follows it — the mock
-      // has no row to give it, which is itself the shape a purged gid has.
-      method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :
-      method === "aria2.tellActive"  ? s.active  :
-      method === "aria2.tellWaiting" ? s.waiting.slice(Number(params[0]) || 0, (Number(params[0]) || 0) + (Number(params[1]) || s.waiting.length)) :
-      method === "aria2.tellStopped" ? s.stopped.slice(Number(params[0]) || 0, (Number(params[0]) || 0) + (Number(params[1]) || s.stopped.length)) :
-      method === "aria2.tellStatus"  ? one(params[0]) ?? null :
-      method === "aria2.getServers"  ? serversFor(one(params[0]) ?? { downloadSpeed: "0", files: [] }) :
-      method === "aria2.getPeers"    ? (one(params[0])?.bittorrent ? peersFor(one(params[0])) : []) :
-      "OK";
-    if (result && result.error) {
+    const reply = (body) => {
       res.setHeader("Content-Type", "application/json");
-      return res.end(JSON.stringify({
-        jsonrpc: "2.0", id, error: { code: 1, message: result.error },
-      }));
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, ...body }));
+    };
+    // A batch is answered the way aria2 answers one: each success wrapped in
+    // an array of its own, each failure as a bare fault, and the batch itself
+    // a success either way.
+    if (method === "system.multicall") {
+      const calls = Array.isArray(params[0]) ? params[0] : [];
+      return reply({
+        result: calls.map((c) => {
+          const out = answer(c?.methodName, c?.params || []);
+          return out.error ? { code: 1, message: out.error } : [out.result];
+        }),
+      });
     }
-    // aria2 answers with an error, not a null, when it has never heard of a gid.
-    if (method === "aria2.tellStatus" && !result) {
-      res.setHeader("Content-Type", "application/json");
-      return res.end(JSON.stringify({
-        jsonrpc: "2.0", id,
-        error: { code: 1, message: `No such download for GID#${params[0]}` },
-      }));
-    }
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    const out = answer(method, params);
+    if (out.error) return reply({ error: { code: 1, message: out.error } });
+    reply({ result: out.result });
   });
 }).listen(6800, "127.0.0.1", () => console.log("mock aria2 RPC on http://127.0.0.1:6800/jsonrpc"));
+
+// aria2 sends only the keys it was asked for, and only the ones that apply —
+// no bittorrent on an HTTP download. The mock does the same, or a field the
+// UI forgot to ask for would still turn up here and nowhere else.
+function pick(item, keys) {
+  if (!Array.isArray(keys) || !keys.length || !item) return item;
+  return Object.fromEntries(keys.filter((k) => k in item).map((k) => [k, item[k]]));
+}
+
+// Every gid ever seen stopped: numStoppedTotal counts arrivals, not what is
+// left after a purge, and the UI reads the pair to know whether to re-read.
+const everStopped = new Set();
+
+function answer(method, params = []) {
+  const s = snapshot();
+  for (const d of s.stopped) everStopped.add(d.gid);
+  const all = [...s.active, ...s.waiting, ...s.stopped];
+  // The detail panel asks about one gid at a time, and about where its bytes
+  // are coming from — which the poll methods never say.
+  const one = (gid) => all.find((d) => d.gid === gid);
+  const slice = (list) => {
+    const from = Number(params[0]) || 0;
+    return list.slice(from, from + (Number(params[1]) || list.length));
+  };
+  const result =
+    method === "aria2.changePosition" ? changePosition(params[0], params[1], params[2]) :
+    method === "aria2.changeOption" ? changeOption(params[0], params[1]) :
+    method === "aria2.getOption"    ? getOption(params[0]) :
+    method === "aria2.pause" || method === "aria2.forcePause"
+      ? (paused.add(params[0]), "OK") :
+    method === "aria2.unpause"      ? (paused.delete(params[0]), "OK") :
+    method === "aria2.remove"       ? (removed.add(params[0]), "OK") :
+    // aria2 answers a fresh gid, and the checksum path follows it — the mock
+    // has no row to give it, which is itself the shape a purged gid has.
+    method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :
+    method === "aria2.getGlobalStat" ? {
+      numActive: String(s.active.length),
+      numWaiting: String(s.waiting.length),
+      numStopped: String(s.stopped.length),
+      numStoppedTotal: String(everStopped.size),
+      downloadSpeed: "0",
+      uploadSpeed: "0",
+    } :
+    method === "aria2.tellActive"  ? s.active.map((d) => pick(d, params[0])) :
+    method === "aria2.tellWaiting" ? slice(s.waiting).map((d) => pick(d, params[2])) :
+    method === "aria2.tellStopped" ? slice(s.stopped).map((d) => pick(d, params[2])) :
+    method === "aria2.tellStatus"  ? pick(one(params[0]), params[1]) ?? null :
+    method === "aria2.getServers"  ? serversFor(one(params[0]) ?? { downloadSpeed: "0", files: [] }) :
+    method === "aria2.getPeers"    ? (one(params[0])?.bittorrent ? peersFor(one(params[0])) : []) :
+    "OK";
+  if (result && result.error) return { error: result.error };
+  // aria2 answers with an error, not a null, when it has never heard of a gid.
+  if (method === "aria2.tellStatus" && !result) {
+    return { error: `No such download for GID#${params[0]}` };
+  }
+  return { result };
+}

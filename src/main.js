@@ -1581,7 +1581,7 @@ function sectionEl(status) {
 
 // ── Filtering / view state ───────────────────────────────────────────────
 const KEYS = [
-  "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files",
+  "gid", "status", "totalLength", "completedLength", "downloadSpeed",
   // dir survives a retry; the error pair is what lets a failed row say why.
   "dir", "errorCode", "errorMessage",
   // A finished torrent is still "active" to aria2. seeder is what separates it
@@ -1590,11 +1590,19 @@ const KEYS = [
   "seeder", "uploadLength", "uploadSpeed",
   // Sockets on the row, once the column is on. Cheap: aria2 already has it.
   "connections",
-  // The torrent name is what a multi-file row should show, not its first file.
-  "bittorrent",
   // Matching a caught magnet to a torrent already in the list.
   "infoHash",
 ];
+
+// The heavy half of a row: every file with its URIs, and a torrent's
+// metainfo — the name a multi-file row shows, and its whole tracker list. A
+// torrent of a few thousand files is most of the poll's payload, and almost
+// none of it changes, so it is asked for per download and kept (see needsShape).
+const SHAPE_KEYS = ["files", "bittorrent"];
+const FULL_KEYS = [...KEYS, ...SHAPE_KEYS];
+
+// The most of each list the poll will read — the cap tellPaged used to page to.
+const LIST_MAX = 5000;
 
 // aria2 has no status for "finished downloading, still uploading" — a seeding
 // torrent is `active` with `seeder` set, and looks in every list like a
@@ -3172,28 +3180,112 @@ function setConn(state) {
   return text;
 }
 
-async function tellPaged(method, keys) {
-  const out = [];
-  let offset = 0;
-  const page = 100;
-  while (true) {
-    const chunk = await rpc(method, [offset, page, keys]);
-    if (!Array.isArray(chunk) || !chunk.length) break;
-    if (out.length && chunk[0]?.gid && chunk[0].gid === out[0]?.gid) break;
-    out.push(...chunk);
-    if (chunk.length < page) break;
-    offset += page;
-    if (offset > 5000) break;
-  }
+// Several aria2 calls in one round trip, which aria2 also answers from one
+// moment: a download cannot be missed, or counted twice, by finishing between
+// the question about the active list and the one about the stopped list.
+// Each answer is { result } or { error } — one gid aria2 has just forgotten
+// must not sink the rest of the batch.
+async function rpcBatch(calls) {
+  if (!calls.length) return [];
+  const answers = await rpc("system.multicall", [
+    calls.map(([methodName, params]) => ({ methodName, params })),
+  ]);
+  return calls.map((_, i) => {
+    const a = answers?.[i];
+    return Array.isArray(a) ? { result: a[0] } : { error: a?.message || "no answer" };
+  });
+}
+
+function resultOf(answer) {
+  if (answer.error) throw new Error(answer.error);
+  return answer.result;
+}
+
+// gid → { status, files, bittorrent, settled } as last asked for. See needsShape.
+const shapes = new Map();
+
+// A finished download never changes, so the stopped list — which is most of a
+// long history — is read again only when aria2's counts say it has: a new
+// arrival moves numStoppedTotal, a purge moves numStopped. The age is a
+// backstop, not the mechanism.
+const STOPPED_MAX_AGE_MS = 30_000;
+let stoppedCache = { key: "", at: 0, list: [] };
+
+// Whether a row's files and metainfo have to be asked for again. Anything not
+// running is asked once per status, since a move is what could have changed
+// them. A running download is asked until it has settled: a torrent once its
+// metadata is in, an HTTP download once the server has answered — the answer
+// is where a size and a Content-Disposition name both come from, so a known
+// size means the name is final. One that never sends a size is asked every
+// tick, which is one file and a URI or two.
+function needsShape(dl) {
+  const known = shapes.get(dl.gid);
+  if (!known || known.status !== dl.status) return true;
+  return dl.status === "active" && !known.settled;
+}
+
+function withShape(dl) {
+  const known = shapes.get(dl.gid);
+  const out = { ...dl, files: known.files };
+  if (known.bittorrent) out.bittorrent = known.bittorrent;
   return out;
+}
+
+// The three lists, as aria2 has them right now, each row with its files.
+// Usually one round trip: the counts, the active list and the queue. A second
+// only when something needs its files asked for, or the stopped list moved.
+async function fetchLists() {
+  const [statA, activeA, waitingA] = await rpcBatch([
+    ["aria2.getGlobalStat", []],
+    ["aria2.tellActive", [KEYS]],
+    ["aria2.tellWaiting", [0, LIST_MAX, KEYS]],
+  ]);
+  const stat = resultOf(statA);
+  const live = [...resultOf(activeA), ...resultOf(waitingA)];
+
+  const key = `${stat.numStopped}/${stat.numStoppedTotal}`;
+  const stoppedStale = key !== stoppedCache.key ||
+    Date.now() - stoppedCache.at > STOPPED_MAX_AGE_MS;
+  const unshaped = live.filter(needsShape);
+  const calls = unshaped.map((dl) => ["aria2.tellStatus", [dl.gid, SHAPE_KEYS]]);
+  if (stoppedStale) calls.push(["aria2.tellStopped", [0, LIST_MAX, FULL_KEYS]]);
+
+  const answers = await rpcBatch(calls);
+  unshaped.forEach((dl, i) => {
+    const got = answers[i].result;
+    if (!got) return;
+    const settled = got.bittorrent
+      ? Boolean(got.bittorrent.info)
+      : Number(dl.totalLength) > 0 && Boolean(got.files?.[0]?.path);
+    shapes.set(dl.gid, { status: dl.status, files: got.files, bittorrent: got.bittorrent, settled });
+  });
+  if (stoppedStale) {
+    stoppedCache = { key, at: Date.now(), list: resultOf(answers[answers.length - 1]) };
+  }
+
+  const liveGids = new Set(live.map((dl) => dl.gid));
+  for (const gid of shapes.keys()) {
+    if (!liveGids.has(gid)) shapes.delete(gid);
+  }
+
+  // The stopped list can be a moment newer than the other two, so a download
+  // that finished in between is in both. The newer word wins. A row whose
+  // files could not be asked for is one aria2 forgot in between, and without
+  // them it has no name to show — it is gone by the next tick anyway.
+  const stopped = stoppedCache.list;
+  const done = new Set(stopped.map((dl) => dl.gid));
+  const current = (dl) => !done.has(dl.gid) && shapes.has(dl.gid);
+  return {
+    active: resultOf(activeA).filter(current).map(withShape),
+    waiting: resultOf(waitingA).filter(current).map(withShape),
+    stopped,
+  };
 }
 
 async function poll(listEl) {
   try {
-    const [active, waiting, stopped] = await Promise.all([
-      rpc("aria2.tellActive", [KEYS]),
-      tellPaged("aria2.tellWaiting", KEYS),
-      tellPaged("aria2.tellStopped", KEYS),
+    const [{ active, waiting, stopped }] = await Promise.all([
+      fetchLists(),
       // Asked alongside rather than after: which rows are held changes on the
       // scheduler's tick, not on this one, but a row that says "Paused" for a
       // second before it says "Scheduled" is the flicker worth avoiding.
