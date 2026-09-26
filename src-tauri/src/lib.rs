@@ -4,6 +4,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -1085,13 +1086,20 @@ async fn video_probe(app: tauri::AppHandle, url: String) -> Result<Probe, String
     off_main(move || video_probe_blocking(app.state(), app.state(), url)).await
 }
 
+/// The Add dialog closed: whatever yt-dlp is reading for it can stop.
+#[tauri::command]
+fn cancel_video_probes() {
+    PROBES_CANCELLED.fetch_add(1, Ordering::SeqCst);
+}
+
 #[tauri::command]
 async fn mux_video(
+    app: tauri::AppHandle,
     video_path: String,
     audio_path: String,
     out_path: String,
 ) -> Result<String, String> {
-    off_main(move || mux_video_blocking(video_path, audio_path, out_path)).await
+    off_main(move || mux_video_blocking(app, video_path, audio_path, out_path)).await
 }
 
 #[tauri::command]
@@ -2279,7 +2287,9 @@ struct Video {
     /// The command that actually runs — `None` until first asked. A failed
     /// resolution is never cached, so installing yt-dlp and asking again works
     /// without a relaunch.
-    resolved: Mutex<Option<Vec<String>>>,
+    /// Kept with the version it answered, which is how resolution proved it
+    /// runs — so launch asks yt-dlp once, not twice.
+    resolved: Mutex<Option<(Vec<String>, String)>>,
     /// What the last successful look around found. Working it out costs three
     /// process launches, and Settings asks every time it opens.
     tools: Mutex<Option<VideoTools>>,
@@ -2420,6 +2430,20 @@ fn run_capped_env(
     secs: u64,
     env: &[(&str, &str)],
 ) -> Result<std::process::Output, String> {
+    run_watched(program, args, secs, env, false)
+}
+
+/// Bumped when the Add dialog closes. A probe started before the bump is no
+/// longer wanted, and yt-dlp reading a slow page can take a minute to say so.
+static PROBES_CANCELLED: AtomicU64 = AtomicU64::new(0);
+
+fn run_watched(
+    program: &str,
+    args: &[String],
+    secs: u64,
+    env: &[(&str, &str)],
+    cancellable: bool,
+) -> Result<std::process::Output, String> {
     let mut command = Command::new(program);
     command
         .args(args)
@@ -2429,36 +2453,115 @@ fn run_capped_env(
     for (k, v) in env {
         command.env(k, v);
     }
+    let started = PROBES_CANCELLED.load(Ordering::SeqCst);
     let child = command
         .spawn()
         .map_err(|e| format!("could not run {program}: {e}"))?;
 
-    let pid = child.id();
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-
-    // The watchdog waits to be told the process finished. Being told is what
-    // stops it — so a run that ends on time can never have its pid killed
-    // after the fact, when the number may belong to something else.
-    std::thread::spawn(move || {
-        if done_rx
-            .recv_timeout(std::time::Duration::from_secs(secs))
-            .is_err()
-        {
-            #[cfg(unix)]
-            let _ = Command::new("kill").arg(pid.to_string()).status();
-        }
-    });
-
+    let done = watchdog(child.id(), secs, cancellable.then_some(started));
     let output = child
         .wait_with_output()
         .map_err(|e| format!("{program} failed: {e}"));
-    let _ = done_tx.send(());
+    let _ = done.send(());
     output
+}
+
+/// Kills `pid` once `secs` have passed — or, given the cancel count a probe
+/// started under, once that has moved — unless told first that it finished.
+/// Being told is what stops it, so a run that ends on time can never have its
+/// pid killed after the fact, when the number may belong to something else.
+fn watchdog(pid: u32, secs: u64, cancel_from: Option<u64>) -> std::sync::mpsc::Sender<()> {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match done_rx.recv_timeout(left.min(Duration::from_millis(100))) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                _ => return,
+            }
+            if cancel_from.is_some_and(|n| PROBES_CANCELLED.load(Ordering::SeqCst) != n) {
+                break;
+            }
+        }
+        #[cfg(unix)]
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+    });
+    done_tx
+}
+
+/// ffmpeg with its own account of how far it has got: `-progress` writes
+/// `out_time_us=` to stdout as it goes, and the inputs' durations are on
+/// stderr before the first of those. The fraction goes to `on_progress`;
+/// stderr comes back whole, for the error message.
+fn run_ffmpeg_with_progress(
+    ffmpeg: &str,
+    args: &[String],
+    secs: u64,
+    mut on_progress: impl FnMut(f64),
+) -> Result<std::process::Output, String> {
+    use std::io::{BufRead, BufReader};
+
+    let mut child = Command::new(ffmpeg)
+        .args(["-progress", "pipe:1", "-nostats"])
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run {ffmpeg}: {e}"))?;
+    let done = watchdog(child.id(), secs, None);
+
+    let total_us = std::sync::Arc::new(AtomicU64::new(0));
+    let stderr = child.stderr.take();
+    let seen = total_us.clone();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        for line in stderr.map(BufReader::new).into_iter().flat_map(|r| r.lines()) {
+            let Ok(line) = line else { break };
+            if let Some(us) = ffmpeg_duration_us(&line) {
+                seen.fetch_max(us, Ordering::SeqCst);
+            }
+            text.push_str(&line);
+            text.push('\n');
+        }
+        text
+    });
+
+    for line in child.stdout.take().map(BufReader::new).into_iter().flat_map(|r| r.lines()) {
+        let Ok(line) = line else { break };
+        let Some(Ok(us)) = line.strip_prefix("out_time_us=").map(str::parse::<u64>) else {
+            continue;
+        };
+        let total = total_us.load(Ordering::SeqCst);
+        if total > 0 {
+            on_progress((us as f64 / total as f64).clamp(0.0, 1.0));
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("{ffmpeg} failed: {e}"));
+    let _ = done.send(());
+    let stderr = errors.join().unwrap_or_default().into_bytes();
+    Ok(std::process::Output { status: status?, stdout: Vec::new(), stderr })
+}
+
+/// `  Duration: 00:03:21.45, start: 0.000000, bitrate: 128 kb/s` → µs.
+/// A live input says `N/A`, which is no duration at all.
+fn ffmpeg_duration_us(line: &str) -> Option<u64> {
+    let rest = line.trim_start().strip_prefix("Duration: ")?;
+    let clock = rest.split(',').next()?.trim();
+    let mut parts = clock.split(':');
+    let (h, m, s) = (parts.next()?, parts.next()?, parts.next()?);
+    let secs = h.parse::<f64>().ok()? * 3600.0 + m.parse::<f64>().ok()? * 60.0 + s.parse::<f64>().ok()?;
+    (secs > 0.0).then_some((secs * 1_000_000.0) as u64)
 }
 
 /// A yt-dlp the user installed themselves, newest-first in the sense that
 /// matters: theirs is the one that gets updated when a site breaks.
-fn system_ytdlp() -> Option<Vec<String>> {
+fn system_ytdlp() -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["yt-dlp".to_string()];
 
     #[cfg(target_os = "macos")]
@@ -2477,8 +2580,8 @@ fn system_ytdlp() -> Option<Vec<String>> {
         if bin.contains('/') && !is_executable(&bin) {
             continue;
         }
-        if ytdlp_version(std::slice::from_ref(&bin)).is_some() {
-            return Some(vec![bin]);
+        if let Some(version) = ytdlp_version(std::slice::from_ref(&bin)) {
+            return Some((vec![bin], version));
         }
     }
     None
@@ -2487,7 +2590,7 @@ fn system_ytdlp() -> Option<Vec<String>> {
 /// The bundled copy is a zipapp, so it needs an interpreter — and not just any
 /// one: macOS ships `/usr/bin/python3` as 3.9, which yt-dlp dropped. The
 /// version test is why this looks past the first python3 it finds.
-fn python_for(zipapp: &Path) -> Option<Vec<String>> {
+fn python_for(zipapp: &Path) -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["python3".to_string()];
 
     #[cfg(target_os = "macos")]
@@ -2527,8 +2630,8 @@ fn python_for(zipapp: &Path) -> Option<Vec<String>> {
             continue;
         }
         let cmd = vec![python, zipapp.display().to_string()];
-        if ytdlp_version(&cmd).is_some() {
-            return Some(cmd);
+        if let Some(version) = ytdlp_version(&cmd) {
+            return Some((cmd, version));
         }
     }
     None
@@ -2564,16 +2667,20 @@ fn ytdlp_version(cmd: &[String]) -> Option<String> {
 /// Resolution is cached, but only when it succeeded: a user who installs
 /// yt-dlp and presses the button again should not have to relaunch.
 fn resolve_ytdlp(video: &Video) -> Option<Vec<String>> {
+    resolve_ytdlp_versioned(video).map(|(cmd, _)| cmd)
+}
+
+fn resolve_ytdlp_versioned(video: &Video) -> Option<(Vec<String>, String)> {
     if let Ok(guard) = video.resolved.lock() {
-        if let Some(cmd) = guard.as_ref() {
-            return Some(cmd.clone());
+        if let Some(found) = guard.as_ref() {
+            return Some(found.clone());
         }
     }
 
     let found = system_ytdlp().or_else(|| video.zipapp.as_deref().and_then(python_for));
 
-    if let (Some(cmd), Ok(mut guard)) = (found.as_ref(), video.resolved.lock()) {
-        *guard = Some(cmd.clone());
+    if let (Some(found), Ok(mut guard)) = (found.as_ref(), video.resolved.lock()) {
+        *guard = Some(found.clone());
     }
     found
 }
@@ -2660,11 +2767,11 @@ fn video_tools_blocking(video: tauri::State<Video>) -> VideoTools {
         }
     }
 
-    let cmd = resolve_ytdlp(&video);
     // Resolution already proved the command works by asking it its version;
     // this is the same answer, kept rather than asked for twice.
-    let bundled = cmd.as_ref().map(|c| c.len() > 1).unwrap_or(false);
-    let version = cmd.as_deref().and_then(ytdlp_version).unwrap_or_default();
+    let found = resolve_ytdlp_versioned(&video);
+    let bundled = found.as_ref().map(|(c, _)| c.len() > 1).unwrap_or(false);
+    let version = found.map(|(_, v)| v).unwrap_or_default();
     let ffmpeg = ffmpeg_found();
     let tools = VideoTools {
         version: version.clone(),
@@ -2938,7 +3045,7 @@ fn video_probe_blocking(
     } else {
         Vec::new()
     };
-    let out = run_capped_env(&cmd[0], &args, 120, &env)?;
+    let out = run_watched(&cmd[0], &args, 120, &env, true)?;
     if !out.status.success() {
         // yt-dlp's own diagnosis is better than anything we could write: it
         // knows the difference between a private video, a login wall, and a
@@ -3133,6 +3240,7 @@ fn trim_info(info: &serde_json::Value) -> Result<VideoInfo, String> {
 /// rewrite, seconds for a feature-length video, and the picture and sound come
 /// out bit-identical to what was downloaded.
 fn mux_video_blocking(
+    app: tauri::AppHandle,
     video_path: String,
     audio_path: String,
     out_path: String,
@@ -3161,7 +3269,14 @@ fn mux_video_blocking(
     }
     args.push(out_path.clone());
 
-    let out = run_capped(&ffmpeg, &args, 900)?;
+    // The row says how far along it is. A long film can take a minute to
+    // rewrite, and a full bar that says "Merging" for a minute looks stuck.
+    let out = run_ffmpeg_with_progress(&ffmpeg, &args, 900, |fraction| {
+        let _ = app.emit(
+            "mux-progress",
+            serde_json::json!({ "outPath": out_path, "fraction": fraction }),
+        );
+    })?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let reason = stderr
@@ -3649,6 +3764,7 @@ pub fn run() {
             video_tools,
             sidecar_tools,
             video_probe,
+            cancel_video_probes,
             ftp_list,
             mux_video,
             preview_state,
@@ -4169,6 +4285,31 @@ mod tests {
                 },
             ]])
         );
+    }
+
+    #[test]
+    fn ffmpeg_duration_lines_become_microseconds() {
+        let line = "  Duration: 00:03:21.45, start: 0.000000, bitrate: 128 kb/s";
+        assert_eq!(ffmpeg_duration_us(line), Some(201_450_000));
+        assert_eq!(ffmpeg_duration_us("  Duration: N/A, start: 0.0"), None);
+        assert_eq!(ffmpeg_duration_us("Stream #0:0: Video: h264"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cancelled_probe_stops_and_other_runs_do_not() {
+        let sleep = || vec!["2".to_string()];
+        let steady = std::thread::spawn(move || run_watched("sleep", &sleep(), 10, &[], false));
+        let t = std::time::Instant::now();
+        let probe = std::thread::spawn(move || run_watched("sleep", &sleep(), 30, &[], true));
+        std::thread::sleep(Duration::from_millis(300));
+        cancel_video_probes();
+
+        let out = probe.join().unwrap().unwrap();
+        assert!(!out.status.success(), "the probe was killed");
+        assert!(t.elapsed() < Duration::from_millis(1500), "and promptly");
+        let out = steady.join().unwrap().unwrap();
+        assert!(out.status.success(), "a run that cannot be cancelled finishes");
     }
 
     #[test]

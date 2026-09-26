@@ -226,6 +226,8 @@ function getOption(gid) {
 // way aria2 would between a forcePause and the unpause after it.
 const paused = new Set();
 const removed = new Set();
+// Records the UI has had aria2 forget. Only a stopped download can be.
+const purged = new Set();
 
 function snapshot() {
   // Let the two active downloads creep forward so progress bars animate.
@@ -320,7 +322,17 @@ function snapshot() {
       ? { ...d, status: "paused", downloadSpeed: "0", connections: "0" }
       : d);
 
-  return { active: stillActive, waiting: held, stopped };
+  // Any other download the UI removes goes where aria2 puts it: out of the
+  // running lists and into the stopped one as `removed`, until it is purged.
+  const gone = (d) => removed.has(d.gid) && d.gid !== "eeee2222";
+  const dropped = [...stillActive, ...held].filter(gone)
+    .map((d) => ({ ...d, status: "removed", downloadSpeed: "0", connections: "0" }));
+  const kept = (d) => !purged.has(d.gid);
+  return {
+    active: stillActive.filter((d) => !gone(d) && kept(d)),
+    waiting: held.filter((d) => !gone(d) && kept(d)),
+    stopped: [...dropped, ...stopped].filter(kept),
+  };
 }
 
 createServer((req, res) => {
@@ -393,6 +405,10 @@ function answer(method, params = []) {
       ? (paused.add(params[0]), "OK") :
     method === "aria2.unpause"      ? (paused.delete(params[0]), "OK") :
     method === "aria2.remove"       ? (removed.add(params[0]), "OK") :
+    method === "aria2.removeDownloadResult"
+      ? (s.stopped.some((d) => d.gid === params[0])
+        ? (purged.add(params[0]), "OK")
+        : { error: `Could not remove download result of GID#${params[0]}` }) :
     // aria2 answers a fresh gid, and the checksum path follows it — the mock
     // has no row to give it, which is itself the shape a purged gid has.
     method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :

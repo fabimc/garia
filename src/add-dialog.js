@@ -236,7 +236,9 @@ export function initAddDialog(api) {
     openOverlay(overlay, { focus: modalUrlInput, close: closeModal });
   }
   function closeModal() {
-    probeToken++;   // whatever yt-dlp is doing, it is no longer wanted
+    probeToken++;   // whatever yt-dlp is doing, it is no longer wanted —
+    // and it is told so, rather than left to read a slow page for a minute.
+    window.__TAURI__?.core?.invoke("cancel_video_probes").catch(() => {});
     closeOverlay(overlay);
   }
 

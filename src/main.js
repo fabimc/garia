@@ -243,9 +243,26 @@ function categoryNameFor(dl) {
   return activeCategories().find((c) => c.id === id)?.name || "";
 }
 
+// gid → the category it was filed under, and what that was worked out from.
+// The answer depends on the row's files and on the settings, and both keep
+// their identity from one tick to the next until they change — a row's files
+// come from the poll's per-gid cache, and settings are replaced, not edited.
+const categoryMemo = new Map();
+
 function categoryIdFor(dl) {
+  if (!dl) return "";
+  // A merged row's files are made fresh each tick; there are few of them.
+  if (dl.job) return findCategoryId(dl);
+  const memo = categoryMemo.get(dl.gid);
+  if (memo && memo.files === dl.files && memo.settings === settings) return memo.id;
+  const id = findCategoryId(dl);
+  categoryMemo.set(dl.gid, { files: dl.files, settings, id });
+  return id;
+}
+
+function findCategoryId(dl) {
   const cats = activeCategories();
-  if (!cats.length || !dl) return "";
+  if (!cats.length) return "";
   const dir = destDirOf(dl);
   if (dir) {
     for (const cat of cats) {
@@ -819,6 +836,8 @@ function mergedRow(gid, video, audio, job) {
     job: { ...job, videoGid: gid, audioGid: job.audioGid },
     // Reveal only works once there's something to reveal.
     onDisk: job.state === "done",
+    // How far ffmpeg has got, 0–1, while it is the one working; null otherwise.
+    mergeProgress: muxProgress?.gid === gid ? muxProgress.fraction : null,
   };
 }
 
@@ -875,6 +894,14 @@ function collapseJobs(all) {
 // time: a playlist that lands together must not spawn ten muxes at once.
 let muxBusy = false;
 
+// The merge ffmpeg is doing now, and how far along it says it is. Rust
+// reports by output path, the one thing both sides already name the same way.
+let muxProgress = null;
+window.__TAURI__?.event?.listen?.("mux-progress", (event) => {
+  const { outPath, fraction } = event.payload || {};
+  if (muxProgress && outPath === muxProgress.outPath) muxProgress.fraction = fraction;
+});
+
 function runPendingMerges(rows) {
   const invoker = window.__TAURI__?.core?.invoke;
   if (typeof invoker !== "function" || muxBusy) return;
@@ -896,6 +923,7 @@ function runPendingMerges(rows) {
     muxBusy = true;
 
     const outPath = `${pathDir(videoPath) || job.dir}/${job.out}`;
+    muxProgress = { gid: row.gid, outPath, fraction: 0 };
     invoker("mux_video", { videoPath, audioPath, outPath })
       .then((path) => {
         job.outPath = path;
@@ -911,6 +939,7 @@ function runPendingMerges(rows) {
       })
       .finally(() => {
         muxBusy = false;
+        muxProgress = null;
         saveJobs();
       });
     return;
@@ -1461,12 +1490,22 @@ function seedingMeta(dl) {
 function updateItemEl(li, dl) {
   const total = Number(dl.totalLength);
   const done = Number(dl.completedLength);
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // A merging row has every byte; what is left is ffmpeg's, and the bar says
+  // how far that has got once ffmpeg does.
+  const merging = dl.status === "merging" && dl.mergeProgress != null;
+  const pct = merging
+    ? Math.round(dl.mergeProgress * 100)
+    : total > 0 ? Math.round((done / total) * 100) : 0;
   const name = fileName(dl);
 
+  const category = categoryIdFor(dl);
+  if (li.dataset.status !== dl.status || li.dataset.name !== name ||
+      li.dataset.category !== category) {
+    filterDirty = true;
+  }
   li.dataset.status = dl.status;
   li.dataset.name = name;
-  li.dataset.category = categoryIdFor(dl);
+  li.dataset.category = category;
   li.classList.toggle(
     "is-file-draggable",
     (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
@@ -1536,7 +1575,7 @@ function updateItemEl(li, dl) {
   const fill = li.querySelector(".dl-bar-fill");
   track.classList.toggle("hidden", !showBar && !isIndeterminate);
   fill.classList.toggle("indeterminate", isIndeterminate);
-  fill.style.width = isIndeterminate ? "" : `${pct}%`;
+  fill.style.transform = isIndeterminate ? "" : `translateX(${pct - 100}%)`;
 
   let statusText = "";
   if (held) statusText = "Scheduled";
@@ -1544,6 +1583,7 @@ function updateItemEl(li, dl) {
   else if (dl.status === "error") statusText = "Error";
   else if (dl.status === "seeding") statusText = "Seeding";
   else if (dl.status === "waiting" && !showBar) statusText = "Queued";
+  else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
   else if (isIndeterminate) statusText = "";
   else if (showBar) statusText = `${pct}%`;
@@ -1682,6 +1722,10 @@ const snapshot = new Map();
 // and the poll did that twice per row, every second.
 const rowEls = new Map();
 
+// Rows the user has deleted and aria2 has yet to forget. The poll leaves them
+// out, so a row goes when it is deleted rather than when aria2 catches up.
+const removing = new Set();
+
 function rowEl(gid) {
   return rowEls.get(gid) || null;
 }
@@ -1694,6 +1738,11 @@ let firstPoll = true;
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
+// Whether the filter pass has anything to do. It touches every row, so the
+// poll runs it only when a row's status, name or category moved, a row came
+// or went, or the connection did — searching and switching views run it
+// directly.
+let filterDirty = true;
 let onFilterApplied = () => {};
 let listHost = null;
 let afterPoll = () => {};
@@ -1701,6 +1750,7 @@ let pollInFlight = null;
 let pollQueued = false;
 
 function applyFilter(listEl) {
+  filterDirty = false;
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
   // Headers only earn their keep in the combined view; a single-status filter
@@ -3228,6 +3278,7 @@ function syncStatusItem(active) {
 }
 
 function setConn(state) {
+  if (state !== connState) filterDirty = true;
   connState = state;
   const dot = document.getElementById("conn-dot");
   const text = document.getElementById("conn-text");
@@ -3385,7 +3436,7 @@ async function poll(listEl) {
       rowChecksums.delete(gid);
     }
 
-    const all = collapseJobs(raw);
+    const all = collapseJobs(raw).filter((dl) => !removing.has(dl.gid));
     runPendingMerges(all);
     const tally = { all: all.length, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
@@ -3428,9 +3479,13 @@ async function poll(listEl) {
       if (seen.has(gid)) continue;
       li.remove();
       rowEls.delete(gid);
+      filterDirty = true;
     }
     for (const gid of snapshot.keys()) {
       if (!seen.has(gid)) snapshot.delete(gid);
+    }
+    for (const gid of categoryMemo.keys()) {
+      if (!seen.has(gid)) categoryMemo.delete(gid);
     }
 
     // Reorder by status, stable within each group so aria2's own ordering shows
@@ -3456,6 +3511,7 @@ async function poll(listEl) {
       for (const node of desired) frag.appendChild(node);
       listEl.textContent = "";   // drops headers for groups that no longer exist
       listEl.appendChild(frag);
+      filterDirty = true;
     }
 
     const usedSections = new Set(
@@ -3479,7 +3535,7 @@ async function poll(listEl) {
     if (err?.message) text.title = `${text.title} — ${err.message}`;
     syncStatusItem(0);
   } finally {
-    applyFilter(listEl);
+    if (filterDirty) applyFilter(listEl);
     // Whatever the list did, the open detail panel is looking at the same
     // aria2 and wants the same tick.
     refreshDetail();
@@ -3610,16 +3666,20 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // The filter pass repaints the selection whenever the rows move, so this
+  // only has to when a selected row has gone.
   function pruneSelection() {
+    let pruned = false;
     for (const gid of [...selected]) {
       if (!rowEl(gid)) {
         selected.delete(gid);
+        pruned = true;
       }
     }
     if (selectAnchor && !selected.has(selectAnchor)) {
       selectAnchor = [...selected][0] || null;
     }
-    paintSelection();
+    if (pruned) paintSelection();
   }
   afterPoll = pruneSelection;
   onFilterApplied = paintSelection;
@@ -3939,44 +3999,85 @@ window.addEventListener("DOMContentLoaded", () => {
     return newGid;
   }
 
-  async function removeDownload(gid, alsoTrash, { silent } = {}) {
-    const dl = snapshot.get(gid);
-    const gids = gidsFor(gid);
+  // The purge can lose a race with aria2 filing a just-stopped download's
+  // result, so what it refuses is asked again, twice. Answers the gids it
+  // could not forget, and the last reason why.
+  async function purgeResults(gids) {
+    let left = gids;
+    let reason = "";
+    for (let attempt = 0; attempt < 3 && left.length; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 120));
+      const answers = await rpcBatch(left.map((g) => ["aria2.removeDownloadResult", [g]]));
+      reason = answers.find((a) => a.error)?.error || "";
+      left = left.filter((_, i) => answers[i].error);
+    }
+    return { left, reason };
+  }
 
-    for (const g of gids) {
-      const half = g === gid ? dl : null;
-      // Only a running download has to be stopped first; a finished one
-      // already has a result to purge.
-      const status = half ? half.status : "active";
-      if (["active", "waiting", "paused", "merging"].includes(status)) {
-        try { await rpc("aria2.remove", [g]); } catch (err) { /* already stopped */ }
-      }
-      await purgeResult(g);
+  // What a row has on disk. A merged download can have left three files: the
+  // two halves and the merged one. Whichever of them survive, they all go.
+  function filesOf(dl) {
+    if (!dl.job) return (dl.files || []).map((f) => f.path).filter(Boolean);
+    return [
+      dl.job.videoPath || snapshotPath(dl.gid),
+      dl.job.audioPath || snapshotPath(dl.job.audioGid),
+      dl.job.outPath,
+    ].filter(Boolean);
+  }
+
+  // Several rows at once, the way one is: the rows leave the list the moment
+  // the user confirms, and aria2 is asked in batches — one to stop whatever
+  // is still going, one to forget the records — rather than a round trip and
+  // a back-off per row while the list sits there unchanged.
+  async function removeDownloads(gids, alsoTrash) {
+    const rows = gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+    if (!rows.length) return;
+
+    for (const dl of rows) {
+      removing.add(dl.gid);
+      selected.delete(dl.gid);
+      const li = rowEls.get(dl.gid);
+      if (li) { li.remove(); rowEls.delete(dl.gid); }
+    }
+    filterDirty = true;
+    applyFilter(listEl);
+
+    // Anything aria2 has not filed as stopped has to be stopped before its
+    // record can go — a seeding torrent included, which is running to aria2.
+    // The second half of a merged video is not on the list, so it is asked
+    // either way; an already-stopped download just says no.
+    const STOPPED = ["complete", "error", "removed"];
+    const halves = rows.flatMap((dl) => gidsFor(dl.gid).map((g) => ({
+      gid: g,
+      running: g !== dl.gid || !STOPPED.includes(dl.status),
+    })));
+    await rpcBatch(halves.filter((h) => h.running).map((h) => ["aria2.remove", [h.gid]]));
+    const { left, reason } = await purgeResults(halves.map((h) => h.gid));
+    const stuck = new Set(left);
+    const kept = rows.filter((dl) => gidsFor(dl.gid).some((g) => stuck.has(g)));
+    if (kept.length) {
+      failed(`Couldn't delete ${kept.length} of ${rows.length} downloads`, reason);
     }
 
-    if (alsoTrash) {
-      // A merged download can have left three files behind: the two halves and
-      // the merged one. Whichever of them survive, they all go.
-      const paths = dl?.job
-        ? [
-            dl.job.videoPath || snapshotPath(gid),
-            dl.job.audioPath || snapshotPath(dl.job.audioGid),
-            dl.job.outPath,
-          ].filter(Boolean)
-        : (dl?.files || []).map(f => f.path).filter(Boolean);
-      const invoker = window.__TAURI__?.core?.invoke;
-      if (paths.length && typeof invoker === "function") {
-        try {
-          await invoker("trash_files", { paths });
-        } catch (err) {
-          failed("Removed from the list, but the file couldn't go to the Trash", err);
-        }
+    const invoker = window.__TAURI__?.core?.invoke;
+    // Only what aria2 has let go of: a record it kept still points at its file.
+    const paths = alsoTrash ? rows.filter((dl) => !kept.includes(dl)).flatMap(filesOf) : [];
+    if (paths.length && typeof invoker === "function") {
+      try {
+        await invoker("trash_files", { paths });
+      } catch (err) {
+        failed("Removed from the list, but the files couldn't all go to the Trash", err);
       }
     }
 
-    if (jobs.delete(gid)) saveJobs();
-    selected.delete(gid);
-    if (!silent) await pollAndSync();
+    let jobsChanged = false;
+    for (const dl of rows) {
+      if (!kept.includes(dl) && jobs.delete(dl.gid)) jobsChanged = true;
+    }
+    if (jobsChanged) saveJobs();
+    // A row aria2 would not forget comes back on the next poll, as it should.
+    for (const dl of rows) removing.delete(dl.gid);
+    await pollAndSync();
   }
 
   const confirmOverlay = document.getElementById("confirm-overlay");
@@ -4019,8 +4120,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const gids = confirmGids;
     const alsoTrash = confirmTrash.checked && !confirmFileRow.classList.contains("hidden");
     closeConfirm();
-    for (const gid of gids) await removeDownload(gid, alsoTrash, { silent: true });
-    await pollAndSync();
+    await removeDownloads(gids, alsoTrash);
   });
 
   // ── Detail panel ─────────────────────────────────────────────────────────
@@ -5135,5 +5235,24 @@ window.addEventListener("DOMContentLoaded", () => {
   loadVideoTools();
   listenNotificationClicks();
   pollAndSync();
-  setInterval(pollAndSync, 1000);
+  // Every second while the list can be seen. A window closed to the dock
+  // is still the one noticing downloads finish, so it keeps polling — at a
+  // pace that makes a notification a few seconds late rather than keeping
+  // WebKit redrawing a list nobody is looking at.
+  const POLL_MS = 1000;
+  const HIDDEN_POLL_MS = 5000;
+  let pollTimer = 0;
+  const schedulePoll = () => {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      try { await pollAndSync(); } finally { schedulePoll(); }
+    }, document.hidden ? HIDDEN_POLL_MS : POLL_MS);
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    // Back in view: show where things are now, not up to five seconds ago.
+    pollAndSync();
+    schedulePoll();
+  });
+  schedulePoll();
 });
