@@ -1324,9 +1324,8 @@ function setColumns(next) {
   visibleCols = next.filter((id) => known.has(id));
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(visibleCols)); } catch {}
   renderColHead();
-  const list = document.getElementById("download-list");
   for (const [gid, dl] of snapshot) {
-    const li = list?.querySelector(`[data-gid="${CSS.escape(gid)}"]`);
+    const li = rowEl(gid);
     if (li) updateItemEl(li, dl);
   }
   renderColumnsMenu();
@@ -1634,6 +1633,14 @@ const VIEW_TITLES = {
 // its file paths — more than fits in a data- attribute, and all of it stale by
 // the time the click lands unless it comes from the most recent poll.
 const snapshot = new Map();
+
+// gid → its row. Looking a row up in the list is a walk of the whole list,
+// and the poll did that twice per row, every second.
+const rowEls = new Map();
+
+function rowEl(gid) {
+  return rowEls.get(gid) || null;
+}
 
 // The first poll is what the app was already looking at, not news: without
 // this, every download finished in a previous session would announce itself
@@ -2207,8 +2214,21 @@ async function askQuietly(method, gid) {
 // One download, or the two halves of a merged one. A half aria2 has forgotten
 // comes back as a part with no status — its file is on disk, and saying so is
 // better than leaving a gap.
+//
+// The heavy questions — servers, peers, and whether the file on disk will play
+// — are asked on this clock while a download runs, whose byte count moves
+// every tick. A stopped one is asked again when its count does move, which is
+// the tick it finished or was paused on.
 const DETAIL_HEAVY_MS = 3000;
 const detailCache = new Map();
+
+// The playable run is aria2's own bitfield, known every tick at no cost; only
+// the look at the file is kept between asks. The run only ever grows, so a
+// kept "will play" stays true.
+function freshPreview(preview, st) {
+  if (!preview || !st) return preview ?? null;
+  return { ...preview, bytes: Math.max(preview.bytes, playableBytes(st)) };
+}
 
 async function detailData(gid) {
   const row = snapshot.get(gid);
@@ -2228,7 +2248,7 @@ async function detailData(gid) {
     const prev = cache.parts[id] || {};
     const done = Number(status?.completedLength) || 0;
     const lengthChanged = done !== prev.done;
-    const heavy = stale || lengthChanged;
+    const heavy = stale || (!live && lengthChanged);
     if (heavy) pulledHeavy = true;
     parts.push({
       gid: id,
@@ -2237,7 +2257,7 @@ async function detailData(gid) {
       // fields offering one would be two ways to say the same nothing.
       solo: ids.length === 1,
       status,
-      preview: heavy && status ? await previewOf(status) : (prev.preview ?? null),
+      preview: heavy && status ? await previewOf(status) : freshPreview(prev.preview, status),
       servers: live && heavy ? await askQuietly("aria2.getServers", id) : (prev.servers || []),
       peers: live && status?.bittorrent && heavy
         ? await askQuietly("aria2.getPeers", id)
@@ -3349,17 +3369,20 @@ async function poll(listEl) {
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
       if (dl.status === "seeding") tally.upspeed += Number(dl.uploadSpeed) || 0;
 
-      let li = listEl.querySelector(`[data-gid="${dl.gid}"]`);
+      let li = rowEls.get(dl.gid);
       if (!li) {
         li = createItemEl(dl);
+        rowEls.set(dl.gid, li);
         listEl.appendChild(li);
       }
       updateItemEl(li, dl);
     }
 
     // Drop rows for downloads aria2 no longer reports
-    for (const li of [...listEl.querySelectorAll(".dl-item")]) {
-      if (!seen.has(li.dataset.gid)) li.remove();
+    for (const [gid, li] of rowEls) {
+      if (seen.has(gid)) continue;
+      li.remove();
+      rowEls.delete(gid);
     }
     for (const gid of snapshot.keys()) {
       if (!seen.has(gid)) snapshot.delete(gid);
@@ -3377,7 +3400,7 @@ async function poll(listEl) {
         lastStatus = dl.status;
         desired.push(sectionEl(dl.status));
       }
-      const li = listEl.querySelector(`[data-gid="${dl.gid}"]`);
+      const li = rowEls.get(dl.gid);
       if (li) desired.push(li);
     }
 
@@ -3544,7 +3567,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function pruneSelection() {
     for (const gid of [...selected]) {
-      if (!listEl.querySelector(`.dl-item[data-gid="${CSS.escape(gid)}"]`)) {
+      if (!rowEl(gid)) {
         selected.delete(gid);
       }
     }
