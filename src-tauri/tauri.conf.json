@@ -6,11 +6,10 @@
   "build": {
     "frontendDist": "../src",
     "beforeDevCommand": "npm run sidecar",
-    "beforeBuildCommand": "npm run sidecar -- universal-apple-darwin"
+    "beforeBuildCommand": "npm run sidecar -- \"$TAURI_ENV_TARGET_TRIPLE\""
   },
   "app": {
     "withGlobalTauri": true,
-    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Garia",
@@ -18,15 +17,8 @@
         "height": 720,
         "minWidth": 880,
         "minHeight": 520,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
         "acceptFirstMouse": true,
-        "dragDropEnabled": false,
-        "transparent": true,
-        "windowEffects": {
-          "effects": ["sidebar"],
-          "state": "followsWindowActiveState"
-        }
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -48,7 +40,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": ["app", "dmg", "appimage", "deb"],
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/aria2c", "binaries/ffmpeg"],
     "resources": ["resources/yt-dlp", "../extensions/garia"],
@@ -71,10 +63,10 @@
     "category": "Utility",
     "license": "MIT",
     "licenseFile": "../LICENSE",
-    "macOS": {
-      "entitlements": "entitlements.plist",
-      "hardenedRuntime": true,
-      "minimumSystemVersion": "11.0"
+    "linux": {
+      "deb": {
+        "depends": ["libssl3", "python3"]
+      }
     }
   }
 }

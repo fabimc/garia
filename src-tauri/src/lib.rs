@@ -1843,17 +1843,18 @@ fn show_settings(app: &tauri::AppHandle) -> Result<(), String> {
     .inner_size(780.0, 600.0)
     .min_inner_size(680.0, 480.0)
     .resizable(true)
-    .accept_first_mouse(true)
-    .transparent(true);
+    .accept_first_mouse(true);
 
     #[cfg(target_os = "macos")]
     let builder = builder
+        .transparent(true)
         .hidden_title(true)
         .title_bar_style(tauri::TitleBarStyle::Overlay);
 
     let win = builder
         .build()
         .map_err(|e| format!("Could not open Settings: {e}"))?;
+    #[cfg(target_os = "macos")]
     let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
     Ok(())
 }
@@ -1879,11 +1880,15 @@ fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
     for path in candidates {
         if path.join("manifest.json").is_file() {
             let shown = path.canonicalize().unwrap_or(path);
-            // Finder, on the folder itself — Load unpacked wants this
+            // Reveal the folder itself — Load unpacked wants this
             // directory, not its parent with the folder selected.
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("open").arg(&shown).status();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("xdg-open").arg(&shown).status();
             }
             return Ok(shown.display().to_string());
         }
@@ -2267,12 +2272,47 @@ fn drain_tick(app: &tauri::AppHandle, working: bool, action: DoneAction) {
 }
 
 fn perform_done_action(action: DoneAction) {
-    let script = match action {
-        DoneAction::Sleep => "tell application \"System Events\" to sleep",
-        DoneAction::Shutdown => "tell application \"System Events\" to shut down",
-        DoneAction::None => return,
-    };
-    let _ = Command::new("osascript").args(["-e", script]).status();
+    match action {
+        DoneAction::None => {}
+        #[cfg(target_os = "macos")]
+        DoneAction::Sleep => {
+            let _ = Command::new("osascript")
+                .args(["-e", "tell application \"System Events\" to sleep"])
+                .status();
+        }
+        #[cfg(target_os = "macos")]
+        DoneAction::Shutdown => {
+            let _ = Command::new("osascript")
+                .args(["-e", "tell application \"System Events\" to shut down"])
+                .status();
+        }
+        #[cfg(target_os = "linux")]
+        DoneAction::Sleep => {
+            if Command::new("systemctl")
+                .args(["suspend"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                return;
+            }
+            let _ = Command::new("loginctl").args(["suspend"]).status();
+        }
+        #[cfg(target_os = "linux")]
+        DoneAction::Shutdown => {
+            if Command::new("systemctl")
+                .args(["poweroff"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                return;
+            }
+            let _ = Command::new("loginctl").args(["poweroff"]).status();
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        DoneAction::Sleep | DoneAction::Shutdown => {}
+    }
 }
 
 // ── Video (yt-dlp) ───────────────────────────────────────────────────────
@@ -3909,6 +3949,7 @@ pub fn run() {
                 }
             }
 
+            #[cfg(target_os = "macos")]
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
             }
@@ -3963,14 +4004,14 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // The red button and ⌘W hide the window. Downloads keep going;
-            // the dock icon is how you come back. ⌘Q is the one that exits.
-            #[cfg(target_os = "macos")]
+            // Close hides the window. Downloads keep going; the tray (and on
+            // macOS the dock icon) is how you come back. Quit is the exit.
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
                 api.prevent_close();
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
             let _ = (window, event);
         })
         .build(tauri::generate_context!())

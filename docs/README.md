@@ -18,7 +18,7 @@ Want to learn more?
 ## 2. FAQ
 
 * **Why do downloads keep going after I close the window?**
-  The red button and ⌘W hide the list. aria2 keeps running, the dock icon stays, and clicking it brings the window back. ⌘Q is the only quit.
+  Closing the window hides the list. aria2 keeps running; use the tray (or the Dock on Mac) to bring it back. Quit is the only exit.
 
 * **Where do files land?**
   Settings names the download folder. Optional categories sort new files into folders you name, by file type or by site.

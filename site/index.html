@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Garia — the free download manager for Mac</title>
-  <meta name="description" content="Garia is a fast, free, open-source download manager for macOS. Multi-connection downloads, torrents and magnets, video pages, browser capture, and a scheduler — built on aria2.">
+  <title>Garia — the free download manager for Mac and Linux</title>
+  <meta name="description" content="Garia is a fast, free, open-source download manager for macOS and Linux. Multi-connection downloads, torrents and magnets, video pages, browser capture, and a scheduler — built on aria2.">
   <link rel="canonical" href="https://fabimc.github.io/garia/">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#faf6ef" media="(prefers-color-scheme: light)">
@@ -12,7 +12,7 @@
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Garia">
-  <meta property="og:title" content="Garia — the free download manager for Mac">
+  <meta property="og:title" content="Garia — the free download manager for Mac and Linux">
   <meta property="og:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections and caught straight from your browser.">
   <meta property="og:url" content="https://fabimc.github.io/garia/">
   <meta property="og:image" content="https://fabimc.github.io/garia/assets/og.png">
@@ -29,9 +29,9 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Garia",
-    "operatingSystem": "macOS 11 or later",
+    "operatingSystem": "macOS 11 or later, Linux",
     "applicationCategory": "UtilitiesApplication",
-    "description": "A fast, free, open-source download manager for macOS built on aria2.",
+    "description": "A fast, free, open-source download manager for macOS and Linux built on aria2.",
     "url": "https://fabimc.github.io/garia/",
     "downloadUrl": "https://github.com/fabimc/garia/releases/latest",
     "license": "https://opensource.org/licenses/MIT",
@@ -65,8 +65,8 @@
     <!-- Hero -->
     <section class="hero">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pill">Free &amp; open source</span> <span class="muted">MIT licensed · Apple Silicon &amp; Intel</span></p>
-        <h1>The download manager <br>your Mac was missing.</h1>
+        <p class="eyebrow"><span class="pill">Free &amp; open source</span> <span class="muted">MIT licensed · Mac &amp; Linux</span></p>
+        <h1>The download manager <br>you were missing.</h1>
         <p class="lede">Garia makes big downloads fast and boring in the best way. Files, torrents, magnet links and video pages — split across 16 connections, resumed after a restart, and caught straight from your browser.</p>
         <div class="cta">
           <a class="btn btn-primary btn-lg" id="dl-btn" href="https://github.com/fabimc/garia/releases/latest">
@@ -78,7 +78,7 @@
             <svg class="ico copy-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           </button>
         </div>
-        <p class="fineprint" id="dl-meta">Universal app · macOS 11 Big Sur or later · <a href="https://github.com/fabimc/garia/releases">All releases</a></p>
+        <p class="fineprint" id="dl-meta">macOS 11+ · Linux AppImage &amp; .deb · <a href="https://github.com/fabimc/garia/releases">All releases</a></p>
       </div>
 
       <div class="wrap">
@@ -94,7 +94,7 @@
       <ul class="wrap trust" aria-label="Highlights">
         <li><strong>16×</strong> connections per file</li>
         <li><strong>0</strong> accounts, ads or trackers</li>
-        <li><strong>Native</strong> menu bar, Dock &amp; shortcuts</li>
+        <li><strong>Native</strong> tray, menus &amp; shortcuts</li>
         <li><strong>aria2</strong> engine, bundled</li>
       </ul>
     </section>
@@ -104,7 +104,7 @@
       <div class="wrap section-head">
         <p class="kicker">What it does</p>
         <h2>One place for everything you download.</h2>
-        <p class="sub">Garia runs the battle-tested <a href="https://aria2.github.io/">aria2</a> engine for you — no Terminal, no config files — and wraps it in an app that feels like it shipped with your Mac.</p>
+        <p class="sub">Garia runs the battle-tested <a href="https://aria2.github.io/">aria2</a> engine for you — no Terminal, no config files — and wraps it in a native app.</p>
       </div>
 
       <article class="wrap spot">
@@ -214,7 +214,7 @@
       </div>
       <div class="wrap install-grid">
         <div class="card">
-          <h3><span class="num">1</span> Download the app</h3>
+          <h3><span class="num">1</span> Download for Mac</h3>
           <p>Get the universal <code>.dmg</code> — one app for Apple Silicon and Intel — then drag Garia to Applications.</p>
           <a class="btn btn-primary" id="dl-btn-2" href="https://github.com/fabimc/garia/releases/latest">Download for Mac</a>
           <details>
@@ -233,8 +233,16 @@ brew trust fabimc/garia
 brew install --cask garia</code></pre>
           </div>
         </div>
+        <div class="card" id="linux-install">
+          <h3><span class="num">3</span> Download for Linux</h3>
+          <p>Prefer the <code>.deb</code> on Debian/Ubuntu for deep links and torrent associations. The AppImage runs without installing.</p>
+          <div class="cta" style="gap:0.5rem;flex-wrap:wrap">
+            <a class="btn btn-primary" id="dl-btn-deb" href="https://github.com/fabimc/garia/releases/latest">Download .deb</a>
+            <a class="btn btn-ghost" id="dl-btn-appimage" href="https://github.com/fabimc/garia/releases/latest">AppImage</a>
+          </div>
+        </div>
         <div class="card">
-          <h3><span class="num">3</span> Add the browser extension</h3>
+          <h3><span class="num">4</span> Add the browser extension</h3>
           <p>In Garia, open <strong>Settings → Browser → Show extension folder</strong>, then load it in your browser. Store listings are on the way.</p>
           <p class="small"><a href="https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md">Browser capture guide →</a></p>
         </div>
@@ -270,7 +278,7 @@ brew install --cask garia</code></pre>
         </details>
         <details>
           <summary>Is there a Windows or Linux version?</summary>
-          <p>Not today. Garia is built for macOS 11 Big Sur and later, on Apple Silicon and Intel.</p>
+          <p>Linux yes — AppImage and <code>.deb</code> (x86_64) on the <a href="https://github.com/fabimc/garia/releases">Releases</a> page. macOS 11 Big Sur and later on Apple Silicon and Intel. Windows is not available yet.</p>
         </details>
         <details>
           <summary>How do I report a bug or ask for a feature?</summary>
@@ -284,7 +292,7 @@ brew install --cask garia</code></pre>
       <div class="wrap final-inner">
         <img src="assets/icon-512.png" alt="" width="96" height="96" loading="lazy">
         <h2>Dig in.</h2>
-        <p>Free, open source, and made for the Mac.</p>
+        <p>Free, open source, and made for Mac and Linux.</p>
         <div class="cta center">
           <a class="btn btn-primary btn-lg" id="dl-btn-3" href="https://github.com/fabimc/garia/releases/latest">Download for Mac</a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/fabimc/garia">Star on GitHub</a>

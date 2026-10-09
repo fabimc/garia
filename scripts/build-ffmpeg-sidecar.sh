@@ -7,7 +7,7 @@
 # this builds an ffmpeg with all of that switched off — every muxer, demuxer,
 # parser and bitstream filter is kept, because those are what a remux is made
 # of, and everything that would have made the binary 70 MB is gone. What comes
-# out is 4 MB, LGPL-only, and linked against nothing but the OS.
+# out is ~4 MB, LGPL-only, and linked against nothing but the OS.
 #
 # Usage: scripts/build-ffmpeg-sidecar.sh [target-triple]
 #        (defaults to this machine's triple; re-running is a no-op)
@@ -35,9 +35,17 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 curl -fsSL -o "${WORK}/${TARBALL}" "${URL}"
-echo "${SHA256}  ${WORK}/${TARBALL}" | shasum -a 256 -c - > /dev/null
+"${ROOT}/scripts/sha256-check.sh" "${SHA256}" "${WORK}/${TARBALL}"
 tar xf "${WORK}/${TARBALL}" -C "${WORK}"
 cd "${WORK}/ffmpeg-${VERSION}"
+
+case "${TRIPLE}" in
+  *-apple-darwin | *-unknown-linux-gnu | *-unknown-linux-musl) ;;
+  *)
+    echo "unsupported sidecar target: ${TRIPLE}" >&2
+    exit 1
+    ;;
+esac
 
 CONFIGURE_ARGS=(
   # Never link something this machine happens to have and the next one won't.
@@ -63,16 +71,29 @@ case "${TRIPLE%%-*}" in
   *)       TARGET_ARCH="${TRIPLE%%-*}" ;;
 esac
 
+HOST_ARCH="$(uname -m)"
+case "${HOST_ARCH}" in
+  arm64) HOST_ARCH="aarch64" ;;
+esac
+
 # Building for the other Mac architecture: the SDK is universal, so this is
 # just a matter of telling configure what it is aiming at and not to run what
 # it compiles.
-if [ "${TARGET_ARCH}" != "$(uname -m)" ]; then
+if [[ "${TRIPLE}" == *-apple-darwin ]] && [ "${TRIPLE%%-*}" != "${HOST_ARCH}" ]; then
   CONFIGURE_ARGS+=(
     --enable-cross-compile
     --arch="${TARGET_ARCH}"
     --target-os=darwin
     --extra-cflags="-arch ${TARGET_ARCH}"
     --extra-ldflags="-arch ${TARGET_ARCH}"
+  )
+elif [[ "${TRIPLE}" == *-linux-* ]] && [ "${TRIPLE%%-*}" != "${HOST_ARCH}" ]; then
+  echo "cross-building ffmpeg for ${TRIPLE} is not supported yet" >&2
+  exit 1
+elif [[ "${TRIPLE}" == *-linux-* ]]; then
+  CONFIGURE_ARGS+=(
+    --arch="${TRIPLE%%-*}"
+    --target-os=linux
   )
 fi
 
@@ -86,18 +107,44 @@ if ! grep -q '^License: LGPL' "${WORK}/configure.log"; then
   exit 1
 fi
 
-JOBS="$(sysctl -n hw.ncpu 2>/dev/null || true)"
-make -j"${JOBS:-4}" > "${WORK}/make.log" 2>&1 ||
+if command -v nproc >/dev/null 2>&1; then
+  JOBS="$(nproc)"
+else
+  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+fi
+make -j"${JOBS}" > "${WORK}/make.log" 2>&1 ||
   { tail -30 "${WORK}/make.log"; exit 1; }
 
-strip -x ffmpeg
+if [[ "${TRIPLE}" == *-apple-darwin ]]; then
+  strip -x ffmpeg
+else
+  strip ffmpeg
+fi
 
 # A sidecar that pulls in anything outside the OS would fail on someone else's
 # machine, and it would fail at runtime, quietly. Refuse to ship one.
-if otool -L ffmpeg | tail -n +2 | grep -qvE '^\s+(/usr/lib/|/System/Library/)'; then
-  echo "ffmpeg linked something outside the OS:"
-  otool -L ffmpeg | tail -n +2
-  exit 1
+if [[ "${TRIPLE}" == *-apple-darwin ]]; then
+  if otool -L ffmpeg | tail -n +2 | grep -qvE '^\s+(/usr/lib/|/System/Library/)'; then
+    echo "ffmpeg linked something outside the OS:"
+    otool -L ffmpeg | tail -n +2
+    exit 1
+  fi
+else
+  bad="$(ldd ffmpeg | awk '
+    /not found/ { print; next }
+    {
+      lib = $1
+      if (lib ~ /^linux-vdso/ || lib ~ /^\/lib/ || lib ~ /^\/usr\/lib/) next
+      if (lib ~ /^lib(c|m|dl|pthread|rt|resolv|util|gcc_s|stdc\+\+|z)\.so/) next
+      print
+    }
+  ')"
+  if [ -n "${bad}" ]; then
+    echo "ffmpeg linked something unexpected:"
+    echo "${bad}"
+    ldd ffmpeg
+    exit 1
+  fi
 fi
 
 mkdir -p "${ROOT}/src-tauri/binaries"

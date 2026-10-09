@@ -36,7 +36,8 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 curl -fsSL -o "${WORK}/yt-dlp" "${URL}"
-echo "${SHA256}  ${WORK}/yt-dlp" | shasum -a 256 -c - > /dev/null
+"${ROOT}/scripts/sha256-check.sh" "${SHA256}" "${WORK}/yt-dlp"
+
 
 # Pure Python, so one copy serves every architecture. Garia never execs it
 # directly — a GUI app doesn't inherit the PATH the shebang would need — so it
