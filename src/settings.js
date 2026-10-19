@@ -3,6 +3,34 @@ const PANE_KEY = "garia:settings-pane";
 const LOGINS_KEY = "garia:logins";
 const MODES = ["full", "medium", "light"];
 
+// Same host-OS class the main window sets, so the prefs sidebar clears the
+// traffic lights only on macOS.
+let platform = "macos";
+
+async function initPlatform() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke === "function") {
+    try {
+      platform = await invoke("platform");
+    } catch {
+      platform = "macos";
+    }
+  }
+  const root = document.documentElement;
+  root.classList.remove("platform-mac", "platform-linux", "platform-windows");
+  root.classList.add(
+    platform === "macos"
+      ? "platform-mac"
+      : platform === "linux"
+        ? "platform-linux"
+        : "platform-windows",
+  );
+}
+
+function computerLabel() {
+  return platform === "macos" ? "This Mac" : "This computer";
+}
+
 let settings = {
   downloadDir: "",
   maxConcurrentDownloads: 5,
@@ -583,7 +611,7 @@ async function loadRemote() {
   } else if (!wanted && open) {
     said.push("Closing the port. Turning this off unpairs every device.");
   } else if (open && !info.host) {
-    said.push("This Mac isn’t on a network Garia can find, so nothing can connect.");
+    said.push(`${computerLabel()} isn’t on a network Garia can find, so nothing can connect.`);
   } else if (paired && !info.defaultPort) {
     said.push(`The usual port was busy, so Garia is using ${info.port}. Pairing still works.`);
   }
@@ -1015,6 +1043,7 @@ if (typeof listen === "function") {
 }
 
 (async function boot() {
+  await initPlatform();
   let pane = "general";
   try { pane = localStorage.getItem(PANE_KEY) || "general"; } catch { /* ignore */ }
   showPane(pane);

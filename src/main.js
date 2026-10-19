@@ -5,6 +5,56 @@ import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overl
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
+// Host OS for copy and chrome. The browser mock stays on macOS so the
+// traffic-light padding and ⌘ hints still show what the Mac build looks like.
+let platform = "macos";
+
+function isMac() {
+  return platform === "macos";
+}
+
+function modGlyph() {
+  return isMac() ? "⌘" : "Ctrl+";
+}
+
+function revealLabel() {
+  return isMac() ? "Show in Finder" : "Show in folder";
+}
+
+function computerLabel() {
+  return isMac() ? "This Mac" : "This computer";
+}
+
+async function initPlatform() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke === "function") {
+    try {
+      platform = await invoke("platform");
+    } catch {
+      platform = "macos";
+    }
+  }
+  const root = document.documentElement;
+  root.classList.remove("platform-mac", "platform-linux", "platform-windows");
+  root.classList.add(
+    platform === "macos"
+      ? "platform-mac"
+      : platform === "linux"
+        ? "platform-linux"
+        : "platform-windows",
+  );
+  ACTION_TITLES.reveal = revealLabel();
+  ACTION_VERBS.reveal = isMac() ? "show in Finder" : "show in folder";
+  const detailReveal = document.getElementById("detail-reveal");
+  if (detailReveal) detailReveal.textContent = ACTION_TITLES.reveal;
+  const kbd = document.querySelector(".kbd-hint kbd");
+  if (kbd) kbd.textContent = `${modGlyph()}F`;
+  const emptySub = document.getElementById("empty-sub");
+  if (emptySub && emptySub.textContent.includes("⌘N")) {
+    emptySub.textContent = emptySub.textContent.replace("⌘N", `${modGlyph()}N`);
+  }
+}
+
 // aria2 usually gets port 6800, but the backend falls back to a free one when
 // something else already holds it — so the endpoint is asked for, not assumed.
 let endpoint = "127.0.0.1:6800";
@@ -1853,7 +1903,7 @@ function applyFilter(listEl) {
       sub = "Start aria2 and garia will reconnect on its own";
     } else {
       title = "No downloads yet";
-      sub = "Drag a URL or .torrent file anywhere, copy a file link, or hit ⌘N";
+      sub = `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modGlyph()}N`;
     }
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
@@ -3613,8 +3663,9 @@ async function pollAndSync() {
   return pollInFlight;
 }
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
+  await initPlatform();
 
   window.__TAURI__?.core
     ?.invoke("aria2_endpoint")
@@ -3960,7 +4011,7 @@ window.addEventListener("DOMContentLoaded", () => {
       items.push({ action: "retry", label: "Retry" });
     }
     if (dls.some((d) => rowPath(d))) {
-      items.push({ action: "reveal", label: "Show in Finder" });
+      items.push({ action: "reveal", label: revealLabel() });
     }
     if (dls.some((d) => sourceUrl(d))) {
       items.push({ action: "copy-url", label: dls.length > 1 ? "Copy URLs" : "Copy URL" });
@@ -5285,7 +5336,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const action = event.action === "shutdown" ? "shut down" : "sleep";
     const paint = () => {
       drainText.textContent =
-        `This Mac will ${action} in ${left} second${left === 1 ? "" : "s"}.`;
+        `${computerLabel()} will ${action} in ${left} second${left === 1 ? "" : "s"}.`;
     };
     paint();
     drainBanner.classList.remove("hidden");

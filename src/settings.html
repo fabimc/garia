@@ -6,9 +6,14 @@
         <title>Settings</title>
         <link rel="stylesheet" href="styles.css" />
         <script>
-            if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
-                document.documentElement.classList.add("in-app");
-            }
+            (function () {
+                var root = document.documentElement;
+                if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
+                    root.classList.add("in-app");
+                } else {
+                    root.classList.add("platform-mac");
+                }
+            })();
         </script>
     </head>
     <body>

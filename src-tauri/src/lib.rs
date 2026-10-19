@@ -1261,6 +1261,21 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
 }
 
+/// The UI asks once at startup so copy and chrome can follow the host OS
+/// instead of assuming macOS.
+#[tauri::command]
+fn platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "unknown"
+    }
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<SettingsState>) -> Settings {
     state
@@ -2243,9 +2258,14 @@ fn drain_tick(app: &tauri::AppHandle, working: bool, action: DoneAction) {
             old.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
+    let host = if cfg!(target_os = "macos") {
+        "This Mac"
+    } else {
+        "This computer"
+    };
     let body = match action {
-        DoneAction::Sleep => "This Mac will sleep in 30 seconds.",
-        DoneAction::Shutdown => "This Mac will shut down in 30 seconds.",
+        DoneAction::Sleep => format!("{host} will sleep in 30 seconds."),
+        DoneAction::Shutdown => format!("{host} will shut down in 30 seconds."),
         DoneAction::None => return,
     };
     let _ = app.emit("queue-drained", DrainEvent { action, seconds: DRAIN_GRACE_SECS });
@@ -3790,6 +3810,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
+            platform,
             trash_files,
             get_settings,
             save_settings,
