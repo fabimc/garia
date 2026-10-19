@@ -962,3 +962,261 @@ pub fn session_path(dir: &Path) -> PathBuf {
     path
 }
 
+/// Config + engine state for a non-Tauri shell (iced MVP, tests, …).
+pub struct Engine {
+    pub data_dir: PathBuf,
+    pub aria2: Aria2,
+    pub settings: crate::settings::SettingsState,
+}
+
+/// Create the app data dir, load settings, and spawn aria2. Missing aria2c is
+/// not fatal — the UI can still open and show "unreachable".
+pub fn bootstrap(data_dir: PathBuf) -> Engine {
+    if let Err(e) = fs::create_dir_all(&data_dir) {
+        eprintln!("[garia] Could not create {}: {e}", data_dir.display());
+    }
+
+    let pid_file = data_dir.join("aria2.pid");
+    reap_orphan(&pid_file);
+
+    let settings_file = data_dir.join("settings.json");
+    let mut settings = crate::settings::read_settings(&settings_file);
+    settings.proxy_password = crate::settings::read_proxy_passwd(
+        &crate::settings::proxy_passwd_path(&settings_file),
+    );
+
+    let netrc_file = data_dir.join("netrc");
+    let logins_file = data_dir.join("logins.json");
+    let saved = crate::logins::read(&logins_file);
+    if let Err(e) = crate::logins::write_netrc(&netrc_file, &saved) {
+        eprintln!("[garia] Could not write {}: {e}", netrc_file.display());
+    }
+
+    let remote_secret_file = data_dir.join("remote-secret");
+    let secret = if settings.remote_control {
+        crate::settings::remote_secret(&remote_secret_file)
+    } else {
+        let _ = fs::remove_file(&remote_secret_file);
+        crate::settings::random_secret()
+    };
+
+    let session = session_path(&data_dir);
+    let port = pick_port();
+    let child = spawn_aria2(port, &secret, &session, &netrc_file, &settings);
+    match &child {
+        Some(c) => {
+            if let Err(e) = fs::write(&pid_file, c.id().to_string()) {
+                eprintln!("[garia] Could not record the aria2c pid: {e}");
+            }
+        }
+        None => eprintln!(
+            "[garia] No aria2c found — the queue will show as unreachable until one is installed."
+        ),
+    }
+
+    Engine {
+        data_dir,
+        aria2: Aria2 {
+            child: Mutex::new(child),
+            secret: Mutex::new(secret),
+            port,
+            pid_file,
+            session,
+            netrc: netrc_file,
+            remote_secret: remote_secret_file,
+            calls: tokio::sync::Semaphore::new(RPC_CONCURRENCY),
+            restarting: RwLock::new(()),
+        },
+        settings: crate::settings::SettingsState {
+            file: settings_file,
+            current: Mutex::new(settings),
+        },
+    }
+}
+
+/// One row in the download queue as the iced MVP needs it.
+#[derive(Clone, Debug, Default)]
+pub struct QueueRow {
+    pub gid: String,
+    pub status: String,
+    pub name: String,
+    pub completed: u64,
+    pub total: u64,
+    pub download_speed: u64,
+}
+
+/// Snapshot used by the UI poll.
+#[derive(Clone, Debug, Default)]
+pub struct QueueSnapshot {
+    pub rows: Vec<QueueRow>,
+    pub active: u32,
+    pub waiting: u32,
+    pub stopped: u32,
+    pub error: Option<String>,
+}
+
+/// Poll active + waiting downloads. Errors become `error` rather than failing
+/// the call — the iced shell stays up when aria2 is missing.
+pub fn poll_queue(port: u16, secret: &str) -> QueueSnapshot {
+    let keys = serde_json::json!(["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "bittorrent"]);
+
+    let active = match aria2_request(port, secret, "aria2.tellActive", serde_json::json!([keys])) {
+        Ok(v) => v,
+        Err(e) => {
+            return QueueSnapshot {
+                error: Some(e),
+                ..Default::default()
+            };
+        }
+    };
+    let waiting = match aria2_request(
+        port,
+        secret,
+        "aria2.tellWaiting",
+        serde_json::json!([0, 500, keys]),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            return QueueSnapshot {
+                error: Some(e),
+                ..Default::default()
+            };
+        }
+    };
+
+    let mut rows = Vec::new();
+    let mut push = |value: &serde_json::Value| {
+        let Some(list) = value.get("result").and_then(|r| r.as_array()) else {
+            return;
+        };
+        for item in list {
+            rows.push(queue_row_from(item));
+        }
+    };
+    push(&active);
+    push(&waiting);
+
+    let (active_n, waiting_n, stopped_n) = match aria2_request(
+        port,
+        secret,
+        "aria2.getGlobalStat",
+        serde_json::json!([]),
+    ) {
+        Ok(stat) => {
+            let r = stat.get("result");
+            (
+                r.and_then(|s| s.get("numActive"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                r.and_then(|s| s.get("numWaiting"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                r.and_then(|s| s.get("numStopped"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+            )
+        }
+        Err(_) => (0, 0, 0),
+    };
+
+    QueueSnapshot {
+        rows,
+        active: active_n,
+        waiting: waiting_n,
+        stopped: stopped_n,
+        error: None,
+    }
+}
+
+fn queue_row_from(item: &serde_json::Value) -> QueueRow {
+    let gid = item
+        .get("gid")
+        .and_then(|g| g.as_str())
+        .unwrap_or("")
+        .to_string();
+    let status = item
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let completed = parse_u64(item.get("completedLength"));
+    let total = parse_u64(item.get("totalLength"));
+    let download_speed = parse_u64(item.get("downloadSpeed"));
+    let name = download_name(item);
+    QueueRow {
+        gid,
+        status,
+        name,
+        completed,
+        total,
+        download_speed,
+    }
+}
+
+fn parse_u64(v: Option<&serde_json::Value>) -> u64 {
+    v.and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .or_else(|| v.and_then(|v| v.as_u64()))
+        .unwrap_or(0)
+}
+
+fn download_name(item: &serde_json::Value) -> String {
+    if let Some(name) = item
+        .get("bittorrent")
+        .and_then(|b| b.get("info"))
+        .and_then(|i| i.get("name"))
+        .and_then(|n| n.as_str())
+    {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    item.get("files")
+        .and_then(|f| f.as_array())
+        .and_then(|files| files.first())
+        .and_then(|f| f.get("path"))
+        .and_then(|p| p.as_str())
+        .map(|p| {
+            Path::new(p)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(p)
+                .to_string()
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "(unnamed)".into())
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    #[test]
+    fn poll_queue_is_graceful_when_aria2_is_down() {
+        // Nothing listening — must not panic, just report an error.
+        let snap = poll_queue(9, "deadbeef");
+        assert!(snap.error.is_some());
+        assert!(snap.rows.is_empty());
+    }
+
+    #[test]
+    fn queue_row_reads_a_plain_file_name() {
+        let item = serde_json::json!({
+            "gid": "abc",
+            "status": "active",
+            "completedLength": "50",
+            "totalLength": "100",
+            "downloadSpeed": "1024",
+            "files": [{ "path": "/tmp/folder/film.mp4" }],
+        });
+        let row = queue_row_from(&item);
+        assert_eq!(row.name, "film.mp4");
+        assert_eq!(row.completed, 50);
+        assert_eq!(row.total, 100);
+        assert_eq!(row.download_speed, 1024);
+    }
+}
+

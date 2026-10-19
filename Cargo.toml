@@ -1,7 +1,18 @@
 [workspace]
-members = ["crates/garia-core", "src-tauri"]
+members = [
+    "crates/garia-core",
+    "crates/garia-ui",
+    "crates/garia",
+    "src-tauri",
+]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
