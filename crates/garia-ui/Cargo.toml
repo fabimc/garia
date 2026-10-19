@@ -1,0 +1,16 @@
+[package]
+name = "garia-ui"
+version.workspace = true
+description = "Garia iced UI (tiny-skia)"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+garia-core = { path = "../garia-core" }
+garia-platform = { path = "../garia-platform" }
+iced = { version = "0.13", default-features = false, features = [
+    "tiny-skia",
+    "tokio",
+] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time"] }

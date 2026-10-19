@@ -1,0 +1,20 @@
+[package]
+name = "garia"
+version.workspace = true
+description = "Garia — iced download manager (Mac + Linux)"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "garia"
+path = "src/main.rs"
+
+[dependencies]
+garia-core = { path = "../garia-core" }
+garia-platform = { path = "../garia-platform" }
+garia-ui = { path = "../garia-ui" }
+dirs = "5"
+iced = { version = "0.13", default-features = false, features = [
+    "tiny-skia",
+    "tokio",
+] }

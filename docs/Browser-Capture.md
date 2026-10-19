@@ -6,6 +6,6 @@ A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner r
 
 The extension lives in `extensions/garia`. Settings → Browser → Show extension folder opens it. Chrome, Edge, Brave, and Arc load that folder unpacked. Firefox loads the same `manifest.json` from `about:debugging` (Load Temporary Add-on) until addons.mozilla.org signs it. Safari cannot cancel its own downloads, so the same package captures file-link clicks, the context menu, and the on-page Download button; `scripts/make-safari-extension.sh` runs Apple's converter. Right-click the page to send every link, reviewed in the add dialog. `npm run ext:pack` writes the two store zips; [Publishing the browser extension](Publishing-the-Extension.md) is the Chrome Web Store and AMO checklist.
 
-The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
+The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in [`packaging/Info.plist`](../packaging/Info.plist) and [`packaging/garia.desktop`](../packaging/garia.desktop). The iced binary already accepts those via argv; the OS only routes them after a real Mac `.app` or Linux package installs those registration files.
 
 The extension [privacy policy](../extensions/PRIVACY.md) is what the stores need as a public URL.

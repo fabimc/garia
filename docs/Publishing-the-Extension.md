@@ -8,7 +8,7 @@ Sideload and capture behaviour is in [Browser capture](Browser-Capture.md). The 
 
 ## 0. Before you upload
 
-1. Build Garia (`npm run tauri build`) so `garia://` is registered. Reviewers who install the extension without the app will see “Opening Garia…” and nothing else — the listing has to say the desktop app is required.
+1. Build and run Garia (`cargo build --release -p garia`) so reviewers can open `garia://` links (OS scheme registration still needs packaging — see [`packaging/`](../packaging/)). Reviewers who install the extension without the app will see “Opening Garia…” and nothing else — the listing has to say the desktop app is required.
 2. Sideload the **folder** (not the zip) and click a real file, a video Download chip, a context-menu item, and “download all links”.
    - Chrome: `chrome://extensions` → Developer mode → Load unpacked → `extensions/garia`.
    - Firefox: `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → pick `extensions/garia/manifest.json`. Temporary add-ons die when Firefox quits; that is expected until AMO signs it.

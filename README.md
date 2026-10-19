@@ -1,22 +1,22 @@
 ## About
 
-Garia is a fast, easy, and free download manager for macOS and Linux. It is built on [aria2](https://aria2.github.io/) and wrapped in a [Tauri](https://tauri.app/) native app.
+Garia is a fast, easy, and free download manager for macOS and Linux. It is built on [aria2](https://aria2.github.io/) with a native [iced](https://iced.rs/) UI (tiny-skia renderer — no WebView).
 
-Garia manages aria2 automatically — it ships its own copy inside the app and starts it with the app. Closing the window leaves downloads running; Quit is what stops them. You never have to touch the command line to download a file.
+Garia manages aria2 automatically — it can ship its own copy beside the app binary and starts it with the app. Closing the window leaves downloads running; Quit is what stops them. You never have to touch the command line to download a file.
 
 ![Garia downloading files](docs/images/downloading.png)
 
 It comes as:
 
- * A native GUI application (macOS `.dmg`, Linux AppImage and `.deb`)
+ * A native GUI application (Mac + Linux)
  * A browser capture extension for Chrome, Firefox, Edge, Brave, Arc, and Safari
  * Bundled aria2, ffmpeg, and yt-dlp sidecars
 
-This is an **alpha**. Pre-built installers are on the [Releases](https://github.com/fabimc/garia/releases) page.
+This is an **alpha**. Pre-built archives are on the [Releases](https://github.com/fabimc/garia/releases) page. Full DMG / AppImage / `.deb` installers are a packaging follow-up — see [`packaging/`](packaging/).
 
 ### macOS
 
-Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published:
+Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published (cask currently expects a DMG — until that lands, use the macOS universal tarball from Releases):
 
 ```sh
 brew tap fabimc/garia
@@ -26,7 +26,7 @@ brew install --cask garia
 
 ### Linux
 
-Grab the `.AppImage` (run anywhere) or the `.deb` (Debian/Ubuntu — preferred if you want `garia://`, magnet, and `.torrent` associations) from [Releases](https://github.com/fabimc/garia/releases).
+Grab the Linux x86_64 tarball from [Releases](https://github.com/fabimc/garia/releases). Prefer installing [`packaging/garia.desktop`](packaging/garia.desktop) if you want `garia://`, magnet, and `.torrent` associations.
 
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
@@ -36,9 +36,9 @@ Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the 
 
 ## Building
 
-Garia builds from the command line with Tauri.
+Garia builds with Cargo. No Node/Tauri/WebKit required for the app binary.
 
-For a more detailed description, dependencies, sidecar notes, signing, and the release workflow, visit [Building Garia](docs/Building.md) in docs.
+For a more detailed description, dependencies, sidecar notes, and the release workflow, visit [Building Garia](docs/Building.md) in docs.
 
 ### Requirements (macOS)
 
@@ -47,45 +47,37 @@ For a more detailed description, dependencies, sidecar notes, signing, and the r
 | macOS | 11.0+ | — |
 | [Xcode Command Line Tools](https://developer.apple.com/xcode/) | — | `xcode-select --install` |
 | [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
-| [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
 
 ### Requirements (Linux)
 
 | Tool | Version | Install (Debian/Ubuntu) |
 |------|---------|-------------------------|
 | Rust | 1.70+ | [rustup](https://rustup.rs/) |
-| Node.js | 18+ | distro package or nvm |
-| WebKitGTK / build deps | — | `libwebkit2gtk-4.1-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config build-essential` |
+| GTK / tray build deps | — | `libgtk-3-dev libxdo-dev libayatana-appindicator3-dev libssl-dev pkg-config build-essential` |
 
-aria2 and ffmpeg are not on those lists. Garia builds both and bundles them — see [Sidecars](docs/Sidecars.md). Video pages also need [yt-dlp](https://github.com/yt-dlp/yt-dlp); a copy is fetched into the bundle, and a `yt-dlp` on `PATH` is preferred if you have one. Linux needs a `python3` 3.10+ for the bundled zipapp.
+aria2 and ffmpeg are not on those lists. Garia can build both and place them in `binaries/` — see [Sidecars](docs/Sidecars.md). Video pages also need [yt-dlp](https://github.com/yt-dlp/yt-dlp); `./scripts/sidecar.sh` fetches a copy into `resources/`, and a `yt-dlp` on `PATH` is preferred if you have one. Linux needs a `python3` 3.10+ for the bundled zipapp.
 
 ### Building Garia from Git (first time)
 
 ```sh
 git clone https://github.com/fabimc/garia.git
 cd garia
-npm install
-npm run tauri dev
+./scripts/sidecar.sh          # optional but recommended — aria2c, ffmpeg, yt-dlp
+cargo run -p garia --release
 ```
 
-The first run takes a few minutes while Cargo compiles the Tauri runtime and the sidecar scripts build aria2 and ffmpeg. Subsequent runs are fast — the scripts are no-ops once the binaries exist.
+The product binary is **`garia`**. Sidecar scripts are no-ops once the binaries exist.
 
-### Building a Garia release from the command line
+### Building a release binary
 
 ```sh
-npm run tauri build
+cargo build --release -p garia
+# → target/release/garia
 ```
 
-On macOS that produces an `.app` and a `.dmg`. On Linux it produces an AppImage and a `.deb`. Artifacts land under `src-tauri/target/release/bundle/`.
+A release tag builds Mac (universal) and Linux archives on CI (see `.github/workflows/release.yml`). Packaging those into signed DMG / AppImage / `.deb` is documented under [`packaging/`](packaging/).
 
-A universal Mac binary (Apple Silicon and Intel) is a second target:
-
-```sh
-rustup target add x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
-```
-
-The result lands under `src-tauri/target/universal-apple-darwin/release/bundle/` and runs natively on both chips. A release tag builds Mac and Linux on CI.
+**URL schemes / file types** (documented for packaging): `garia://`, `magnet:`, `.torrent` — runtime argv ingest already works; OS registration needs the files in `packaging/`.
 
 ## Contributing
 

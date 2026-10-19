@@ -1,0 +1,17 @@
+[package]
+name = "garia-core"
+version.workspace = true
+description = "Garia domain logic (aria2, settings, catch, ftp, video)"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+ureq = { version = "2", features = ["json"] }
+getrandom = "0.2"
+tokio = { version = "1", features = ["sync"] }
+trash = "5"
+qrcode = { version = "0.14.1", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

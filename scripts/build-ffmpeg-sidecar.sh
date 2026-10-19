@@ -22,7 +22,7 @@ URL="https://ffmpeg.org/releases/${TARBALL}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TRIPLE="${1:-$(rustc -vV | awk '/^host:/{print $2}')}"
-DEST="${ROOT}/src-tauri/binaries/ffmpeg-${TRIPLE}"
+DEST="${ROOT}/binaries/ffmpeg-${TRIPLE}"
 
 if [ -x "${DEST}" ]; then
   echo "ffmpeg sidecar already present: ${DEST#"${ROOT}/"}"
@@ -147,6 +147,6 @@ else
   fi
 fi
 
-mkdir -p "${ROOT}/src-tauri/binaries"
+mkdir -p "${ROOT}/binaries"
 cp ffmpeg "${DEST}"
 echo "Built ${DEST#"${ROOT}/"} ($(du -h "${DEST}" | cut -f1))"
