@@ -92,6 +92,9 @@ let settings = {
   scheduleEnd: 8 * 60,
   queueStopped: false,
   doneAction: "none",
+  // Browser mock: already seen, so the welcome sheet stays out of the way.
+  // A real first launch gets false from get_settings.
+  setupSeen: true,
 };
 
 async function loadSettings() {
@@ -103,6 +106,18 @@ async function loadSettings() {
   } catch (err) {
     console.error(err);
   }
+}
+
+async function saveSettingsPatch(patch) {
+  const next = { ...settings, ...patch };
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker === "function") {
+    settings = await invoker("save_settings", { settings: next });
+  } else {
+    settings = next;
+  }
+  renderTraffic();
+  return settings;
 }
 
 // ── Traffic modes ────────────────────────────────────────────────────────
@@ -554,14 +569,14 @@ async function loadVideoTools() {
   renderVideoTools();
 }
 
-function renderVideoTools() {
-  const el = document.getElementById("settings-video");
-  if (!el) return;
+function videoToolsSummary() {
   if (!videoTools.version) {
-    el.textContent =
-      "No yt-dlp found, so video pages download as pages. Install one with " +
-      "`brew install yt-dlp`, or a python3 3.10 or newer for the copy garia ships.";
-    return;
+    return {
+      text:
+        "No yt-dlp found, so video pages can't be read. Install with " +
+        "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.",
+      missing: true,
+    };
   }
   const where = videoTools.source === "bundled" ? "the bundled copy" : "your own";
   // Garia ships its own ffmpeg, so the interesting case is no longer "have
@@ -572,7 +587,14 @@ function renderVideoTools() {
     : videoTools.ffmpegSource === "system"
       ? "Merging uses your own ffmpeg; the copy garia ships didn't run."
       : "Merging uses the ffmpeg garia ships, so the split video-and-audio qualities are all on offer.";
-  el.textContent = `yt-dlp ${videoTools.version} (${where}). ${merge}`;
+  return { text: `yt-dlp ${videoTools.version} (${where}). ${merge}`, missing: false };
+}
+
+function renderVideoTools() {
+  const el = document.getElementById("settings-video");
+  if (!el) return;
+  const { text } = videoToolsSummary();
+  el.textContent = text;
 }
 
 // Extensions that mean the URL already *is* the file. Probing one of these
@@ -4669,6 +4691,7 @@ window.addEventListener("DOMContentLoaded", () => {
       renderCategoryNav();
       applyFilter(listEl);
       if (!settings.notifyOnComplete) clearBadge();
+      if (!setupOverlay.classList.contains("hidden")) paintSetup();
       loadSchedule().then(() => {
         renderSchedule();
         renderQueueToggle();
@@ -4892,6 +4915,82 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("help-done").addEventListener("click", closeHelp);
   helpOverlay.addEventListener("click", (e) => {
     if (e.target === helpOverlay) closeHelp();
+  });
+
+  const setupOverlay = document.getElementById("setup-overlay");
+  const setupDir = document.getElementById("setup-dir");
+  const setupVideo = document.getElementById("setup-video");
+  const setupExtError = document.getElementById("setup-extension-error");
+
+  function paintSetup() {
+    setupDir.textContent = settings.downloadDir || "—";
+    const { text, missing } = videoToolsSummary();
+    setupVideo.textContent = text;
+    setupVideo.classList.toggle("is-missing", missing);
+  }
+
+  function openSetup() {
+    setupExtError.classList.add("hidden");
+    setupExtError.textContent = "";
+    paintSetup();
+    openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
+  }
+
+  async function dismissSetup() {
+    closeOverlay(setupOverlay);
+    if (settings.setupSeen) return;
+    try {
+      await saveSettingsPatch({ setupSeen: true });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  document.getElementById("setup-close").addEventListener("click", () => dismissSetup());
+  document.getElementById("setup-done").addEventListener("click", () => dismissSetup());
+  setupOverlay.addEventListener("click", (e) => {
+    if (e.target === setupOverlay) dismissSetup();
+  });
+  document.getElementById("setup-browse").addEventListener("click", async () => {
+    const pick = window.__TAURI__?.dialog?.open;
+    if (typeof pick !== "function") return;
+    try {
+      const chosen = await pick({
+        directory: true,
+        multiple: false,
+        title: "Choose a download folder",
+        defaultPath: settings.downloadDir || undefined,
+      });
+      if (typeof chosen === "string" && chosen) {
+        await saveSettingsPatch({ downloadDir: chosen });
+        paintSetup();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+  document.getElementById("setup-extension").addEventListener("click", async () => {
+    setupExtError.classList.add("hidden");
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (typeof invoke !== "function") {
+      setupExtError.textContent =
+        "The extension folder is next to the app — open this from a built Garia.";
+      setupExtError.classList.remove("hidden");
+      return;
+    }
+    try {
+      await invoke("browser_extension_dir");
+    } catch (err) {
+      setupExtError.textContent = String(err?.message || err);
+      setupExtError.classList.remove("hidden");
+    }
+  });
+  document.getElementById("setup-bookmarklet").addEventListener("click", (e) => {
+    e.preventDefault();
+  });
+  document.getElementById("help-setup").addEventListener("click", () => {
+    closeHelp();
+    openSetup();
   });
 
   const updateOverlay = document.getElementById("update-overlay");
@@ -5329,11 +5428,13 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!url) return;
     ingestUrl(url);
   };
-  loadSettings().then(() => renderCategoryNav());
   loadLogins();
-  loadVideoTools();
   listenNotificationClicks();
   pollAndSync();
+  Promise.all([loadSettings(), loadVideoTools()]).then(() => {
+    renderCategoryNav();
+    if (!settings.setupSeen) openSetup();
+  });
   // Every second while the list can be seen. A window closed to the dock
   // is still the one noticing downloads finish, so it keeps polling — at a
   // pace that makes a notification a few seconds late rather than keeping

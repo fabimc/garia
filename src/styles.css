@@ -1561,6 +1561,71 @@ html.in-app .modal.modal-lg {
     color: var(--accent);
 }
 
+.text-btn {
+    appearance: none;
+    border: 0;
+    background: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+}
+.text-btn:hover {
+    color: var(--brand);
+}
+
+.setup-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.95rem;
+}
+.setup-lead {
+    margin: 0;
+    font-size: 0.84rem;
+    color: var(--muted);
+}
+.setup-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+}
+.setup-row:first-of-type {
+    padding-top: 0;
+    border-top: 0;
+}
+.setup-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+.setup-value {
+    margin: 0;
+    font-size: 0.84rem;
+    color: var(--text);
+    word-break: break-word;
+}
+.setup-value.is-path {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+.setup-value.is-missing {
+    color: var(--danger);
+}
+.setup-body .bookmarklet {
+    margin-top: 0.2rem;
+}
+.setup-body .error {
+    margin-top: 0.2rem;
+}
+
 /* Cask-like status rows for bundled/runtime tooling in Settings → About. */
 .sidecar-list {
     list-style: none;
