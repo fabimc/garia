@@ -41,3 +41,6 @@ extensions/safari-app/
 # Updater private key — losing this means already-installed apps cannot update
 /packaging/updater/garia.key
 *.key
+
+# AppImage tooling cache
+.cache/

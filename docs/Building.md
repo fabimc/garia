@@ -69,24 +69,34 @@ cargo build --release -p garia
 
 Place `aria2c`, `ffmpeg`, and `yt-dlp` next to the binary (or keep system copies on `PATH`). The release workflow stages a tarball that way.
 
-### macOS universal
+### macOS universal + DMG
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ./scripts/sidecar.sh universal-apple-darwin
 cargo build --release -p garia --target aarch64-apple-darwin
 cargo build --release -p garia --target x86_64-apple-darwin
+mkdir -p target/universal
 lipo -create \
   target/aarch64-apple-darwin/release/garia \
   target/x86_64-apple-darwin/release/garia \
-  -output garia-universal
+  -output target/universal/garia
+./scripts/pack-macos.sh
+# → dist/Garia_<ver>_universal.dmg , dist/Garia.app , dist/Garia_universal.app.tar.gz
 ```
 
-A signed `.app` / `.dmg` with schemes from `packaging/Info.plist` is a packaging follow-up (see [`packaging/README.md`](../packaging/README.md)).
+`pack-macos.sh` embeds `packaging/Info.plist` (schemes + `.torrent`), sidecars next to the binary inside `Contents/MacOS/`, and signs/notarizes when `APPLE_*` env vars are set. Details: [`packaging/README.md`](../packaging/README.md).
 
 ### Linux packages
 
-AppImage / `.deb` are not produced by the current CI. Ship the release tarball for now; use `packaging/garia.desktop` when you wire a `.deb` so `garia://`, magnet, and `.torrent` associations install with the package.
+```sh
+./scripts/sidecar.sh
+cargo build --release -p garia
+./scripts/pack-linux-deb.sh       # → dist/garia_<ver>_amd64.deb
+./scripts/pack-linux-appimage.sh  # → dist/Garia-<ver>-x86_64.AppImage
+```
+
+Both installers ship `packaging/garia.desktop` associations (`garia://`, magnet, `.torrent`). The `.deb` places binaries under `/usr/lib/garia/` with a `/usr/bin/garia` symlink so sidecar discovery still works.
 
 ## Updater
 
@@ -96,12 +106,12 @@ The iced shell checks GitHub `latest.json` (version + notes + URL). **Signed dow
 
 1. Bump **`[workspace.package] version`** in the root `Cargo.toml`. All crates (`garia`, `garia-ui`, `garia-core`, `garia-platform`) use `version.workspace = true`, so About / Check for Updates (`APP_VERSION` from `garia-ui`) stay in sync with the binary. Also bump `package.json` (and the extension manifests) if those should match.
 2. Tag `v0.2.0` (or whatever the version is) and push the tag.
-3. The Release workflow builds Linux x86_64 and macOS universal tarballs in parallel, then opens **one** draft GitHub release with both assets.
+3. The Release workflow builds Linux (tarball + `.deb` + AppImage) and macOS (tarball + universal DMG + `.app` archive) in parallel, then opens **one** draft GitHub release with all assets.
 4. Garia → Check for Updates reads `latest.json` when you publish one in that format.
 
-Publishing the draft is also what the Homebrew tap can download once a DMG asset exists again. The [homebrew-garia](https://github.com/fabimc/homebrew-garia) cask historically tracked `Garia_<version>_universal.dmg` — update the tap when packaging returns.
+Publishing the draft is what the Homebrew tap downloads. The [homebrew-garia](https://github.com/fabimc/homebrew-garia) cask expects `Garia_<version>_universal.dmg`.
 
-Optional GitHub Actions secrets (Mac signing / notarization — unused until `.app` packaging returns):
+Optional GitHub Actions secrets (Mac signing / notarization — release job skips quietly when unset):
 
 | Secret | What |
 |--------|------|
@@ -124,7 +134,7 @@ garia/
 ├── packaging/            # Info.plist, .desktop, entitlements, updater pubkey
 ├── docs/                 # This documentation
 ├── extensions/garia/     # Browser capture
-├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp
+├── scripts/              # sidecars + pack-macos / pack-linux-deb / pack-linux-appimage
 ├── binaries/             # Built aria2c / ffmpeg (gitignored)
 └── resources/            # Fetched yt-dlp zipapp (gitignored)
 ```

@@ -12,11 +12,11 @@ It comes as:
  * A browser capture extension for Chrome, Firefox, Edge, Brave, Arc, and Safari
  * Bundled aria2, ffmpeg, and yt-dlp sidecars
 
-This is an **alpha**. Pre-built archives are on the [Releases](https://github.com/fabimc/garia/releases) page. Full DMG / AppImage / `.deb` installers are a packaging follow-up — see [`packaging/`](packaging/).
+This is an **alpha**. Pre-built installers are on the [Releases](https://github.com/fabimc/garia/releases) page (universal DMG, AppImage, `.deb`, plus flat tarballs). How to build them locally: [`packaging/`](packaging/).
 
 ### macOS
 
-Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published (cask currently expects a DMG — until that lands, use the macOS universal tarball from Releases):
+Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published (cask expects `Garia_<version>_universal.dmg`):
 
 ```sh
 brew tap fabimc/garia
@@ -24,9 +24,11 @@ brew trust fabimc/garia
 brew install --cask garia
 ```
 
+Or download the DMG from Releases. If Gatekeeper blocks an unsigned build: `xattr -dr com.apple.quarantine /Applications/Garia.app`.
+
 ### Linux
 
-Grab the Linux x86_64 tarball from [Releases](https://github.com/fabimc/garia/releases). Prefer installing [`packaging/garia.desktop`](packaging/garia.desktop) if you want `garia://`, magnet, and `.torrent` associations.
+Prefer the `.deb` or AppImage from [Releases](https://github.com/fabimc/garia/releases). The `.deb` installs desktop associations for `garia://`, magnet, and `.torrent`. Flat tarballs are also attached if you want to place the binary yourself.
 
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
@@ -75,9 +77,9 @@ cargo build --release -p garia
 # → target/release/garia
 ```
 
-A release tag builds Mac (universal) and Linux archives on CI (see `.github/workflows/release.yml`). Packaging those into signed DMG / AppImage / `.deb` is documented under [`packaging/`](packaging/).
+A release tag builds Mac (universal DMG + `.app` tarball) and Linux (AppImage + `.deb` + tarball) on CI — one draft release with all assets (see `.github/workflows/release.yml`). Local pack scripts: [`packaging/`](packaging/).
 
-**URL schemes / file types** (documented for packaging): `garia://`, `magnet:`, `.torrent` — runtime argv ingest already works; OS registration needs the files in `packaging/`.
+**URL schemes / file types:** `garia://`, `magnet:`, `.torrent` — registered by the Mac `.app` / Linux desktop entry when you use the installers.
 
 ## Contributing
 

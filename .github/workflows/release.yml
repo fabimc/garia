@@ -29,9 +29,11 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libfuse2 \
             pkg-config \
             zlib1g-dev \
-            python3
+            python3 \
+            dpkg-dev
 
       - name: Build Linux sidecars
         run: ./scripts/sidecar.sh
@@ -39,7 +41,7 @@ jobs:
       - name: Build garia (release)
         run: cargo build --release -p garia
 
-      - name: Stage artifact
+      - name: Stage tarball
         run: |
           set -euo pipefail
           VER="${GITHUB_REF_NAME#v}"
@@ -59,12 +61,24 @@ jobs:
             sha256sum garia aria2c ffmpeg yt-dlp > "../garia-${VER}-linux-x86_64.SHA256SUMS"
           )
 
+      - name: Build .deb
+        run: ./scripts/pack-linux-deb.sh --version "${GITHUB_REF_NAME#v}" --out dist
+
+      - name: Build AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: ./scripts/pack-linux-appimage.sh --version "${GITHUB_REF_NAME#v}" --out dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release
           path: |
             dist/garia-*-linux-x86_64.tar.gz
             dist/garia-*-linux-x86_64.SHA256SUMS
+            dist/garia_*_amd64.deb
+            dist/garia_*_amd64.deb.SHA256SUMS
+            dist/Garia-*-x86_64.AppImage
+            dist/Garia-*-x86_64.AppImage.SHA256SUMS
           if-no-files-found: error
 
   build-macos:
@@ -90,7 +104,7 @@ jobs:
             target/x86_64-apple-darwin/release/garia \
             -output target/universal/garia
 
-      - name: Stage artifact
+      - name: Stage tarball
         run: |
           set -euo pipefail
           VER="${GITHUB_REF_NAME#v}"
@@ -110,15 +124,52 @@ jobs:
             shasum -a 256 garia aria2c ffmpeg yt-dlp > "../garia-${VER}-macos-universal.SHA256SUMS"
           )
 
+      # Empty Apple secrets are still "set"; only publish ones with a value so
+      # codesign / notarytool are skipped cleanly when unsigned.
+      - name: Configure Apple signing when secrets exist
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          publish() {
+            if [ -n "$2" ]; then
+              {
+                echo "$1<<EOF"
+                echo "$2"
+                echo "EOF"
+              } >> "$GITHUB_ENV"
+            fi
+          }
+          publish APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+          publish APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+          publish APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
+          publish APPLE_ID "$APPLE_ID"
+          publish APPLE_PASSWORD "$APPLE_PASSWORD"
+          publish APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate secret; DMG will be unsigned."
+          fi
+
+      - name: Build .app + DMG (universal)
+        run: ./scripts/pack-macos.sh --version "${GITHUB_REF_NAME#v}" --binary target/universal/garia --arch-label universal --out dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-release
           path: |
             dist/garia-*-macos-universal.tar.gz
             dist/garia-*-macos-universal.SHA256SUMS
+            dist/Garia_*_universal.dmg
+            dist/Garia_universal.app.tar.gz
+            dist/Garia_*_universal.SHA256SUMS
           if-no-files-found: error
 
-  # One draft release with both platform tarballs (avoids parallel softprops races).
+  # One draft release with all platform artifacts (avoids parallel softprops races).
   publish:
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
@@ -137,7 +188,14 @@ jobs:
           files: |
             dist/garia-*-linux-x86_64.tar.gz
             dist/garia-*-linux-x86_64.SHA256SUMS
+            dist/garia_*_amd64.deb
+            dist/garia_*_amd64.deb.SHA256SUMS
+            dist/Garia-*-x86_64.AppImage
+            dist/Garia-*-x86_64.AppImage.SHA256SUMS
             dist/garia-*-macos-universal.tar.gz
             dist/garia-*-macos-universal.SHA256SUMS
+            dist/Garia_*_universal.dmg
+            dist/Garia_universal.app.tar.gz
+            dist/Garia_*_universal.SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
