@@ -1030,7 +1030,6 @@ const ROW_ICONS = {
   play: FILL_OPEN + '<path d="M8 4.8v14.4L19.2 12z"/></svg>',
   clock: SVG_OPEN + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
   error: FILL_OPEN + '<path d="M12 2 22 20H2L12 2zm0 6.4c-.5 0-.85.4-.8.9l.45 5.1h.7l.45-5.1c.05-.5-.3-.9-.8-.9zm0 8.1a.95.95 0 1 0 0 1.9.95.95 0 0 0 0-1.9z"/></svg>',
-  seed: FILL_OPEN + '<path d="M12 3.2 19.2 12h-4.1v8.8H8.9V12H4.8L12 3.2z"/></svg>',
   folder: FILL_OPEN + '<path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.3l1.5 1.7h8.8A2.2 2.2 0 0 1 21 8.9v8.9A2.2 2.2 0 0 1 18.8 20H5.2A2.2 2.2 0 0 1 3 17.8V7.2z"/></svg>',
   video: FILL_OPEN + '<path fill-rule="evenodd" d="M4 6.2A2.2 2.2 0 0 1 6.2 4h11.6A2.2 2.2 0 0 1 20 6.2v11.6A2.2 2.2 0 0 1 17.8 20H6.2A2.2 2.2 0 0 1 4 17.8V6.2zm5.3 3v5.6L16 12l-6.7-2.8z"/></svg>',
   audio: FILL_OPEN + '<path d="M9 3.8v10.4a3.2 3.2 0 1 1-1.8-2.9V7.6L18.4 5v8.1a3.2 3.2 0 1 1-1.8-2.9V3.8L9 3.8z"/></svg>',
@@ -1061,15 +1060,22 @@ function rowIcon(dl) {
   const cls = statusClass(dl.status);
   if (cls === "active") return { svg: ROW_ICONS.pause, kind: "active" };
   if (cls === "paused") return { svg: ROW_ICONS.play, kind: "paused" };
-  if (cls === "waiting") return { svg: ROW_ICONS.clock, kind: "waiting" };
+  // A queued row says it is waiting until the pointer is on it, then what a
+  // click does.
+  if (cls === "waiting") {
+    return {
+      svg: `<span class="dl-icon-rest">${ROW_ICONS.clock}</span><span class="dl-icon-hover">${ROW_ICONS.pause}</span>`,
+      kind: "waiting",
+    };
+  }
   if (cls === "error") return { svg: ROW_ICONS.error, kind: "error" };
-  if (cls === "seeding") return { svg: ROW_ICONS.seed, kind: "seeding" };
+  if (cls === "seeding") return { svg: ROW_ICONS.folder, kind: "seeding" };
   const kind = fileKind(dl);
   return { svg: ROW_ICONS[kind] || ROW_ICONS.file, kind };
 }
 
 function iconAction(dl) {
-  if (dl.status === "active") return "stop";
+  if (dl.status === "active" || dl.status === "waiting") return "stop";
   if (dl.status === "paused") return "resume";
   if (dl.status === "error" && dl.job?.webpageUrl) return "reprobe";
   if (dl.status === "error" && retryUris(dl).length) return "retry";
@@ -1231,14 +1237,12 @@ function errorLabel(dl) {
 }
 
 // Each row's primary verb lives on the icon (pause, resume, reveal). The
-// trailing buttons are extras: stop-seeding, a queued pause, and delete.
+// trailing buttons are extras: stop-seeding, reveal, and delete.
 function actionsFor(dl) {
   const out = [];
   const primary = iconAction(dl);
   const path = dl.job && !dl.onDisk ? "" : dl.files?.[0]?.path || "";
-  if (dl.status === "waiting") {
-    out.push({ action: "stop", kind: "icon" });
-  } else if (dl.status === "seeding") {
+  if (dl.status === "seeding") {
     out.push({ action: "unseed", kind: "icon" });
   }
   if (path && primary !== "reveal") {
@@ -4362,8 +4366,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.button !== 0 || !listEl.classList.contains("queue-reorderable")) return;
     const row = e.target.closest(".dl-item");
     if (!row || row.dataset.status !== "waiting") return;
-    // The row's buttons are buttons, not a handle.
-    if (e.target.closest("[data-action]")) return;
+    // The trailing buttons are buttons, not a handle. The icon is both: a
+    // click pauses, and a press that moves drags like the rest of the row.
+    if (e.target.closest(".dl-actions")) return;
     const rows = queuedRows();
     if (rows.length < 2 || !rows.includes(row)) return;
 
