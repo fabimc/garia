@@ -3279,6 +3279,10 @@ async function notifyComplete(dl) {
   }
 }
 
+// Desktop WebKit delivers clicks on the Notification object. The plugin's
+// onAction path is what mobile uses; both are wired when a handler is given.
+let onCatchNotificationClick = null;
+
 function listenNotificationClicks() {
   const n = notifications();
   if (!n || typeof n.api.onAction !== "function") return;
@@ -3286,7 +3290,10 @@ function listenNotificationClicks() {
     const path = payload?.extra?.path;
     if (path && window.__TAURI__?.opener?.revealItemInDir) {
       window.__TAURI__.opener.revealItemInDir(path).catch(() => {});
+      return;
     }
+    const catchUrl = payload?.extra?.catchUrl;
+    if (catchUrl) onCatchNotificationClick?.(catchUrl);
   }).catch((err) => console.error(err));
 }
 
@@ -5017,9 +5024,14 @@ window.addEventListener("DOMContentLoaded", () => {
   let offeredUrl = "";
   let capturePending = null;
   const recentlyCaught = new Set();
+  let catchTimer = 0;
+  // A clipboard offer that sits forever becomes wallpaper. Thirty seconds is
+  // long enough to notice the banner after switching back to Garia.
+  const CATCH_MS = 30_000;
 
   function hideCatch() {
     offeredUrl = "";
+    clearTimeout(catchTimer);
     catchBanner.classList.add("hidden");
   }
 
@@ -5106,9 +5118,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!n) return;
     try {
       if (!(await n.ready)) return;
+      // new Notification keeps a click handler on desktop; the plugin's
+      // sendNotification does not. Fall back to the plugin so mobile still
+      // gets a notification, with catchUrl for onAction.
+      if (typeof Notification === "function") {
+        const note = new Notification("Download this file?", { body: catchLabel(url) });
+        note.onclick = () => {
+          try { window.focus(); } catch { /* webview */ }
+          onCatchNotificationClick?.(url);
+        };
+        return;
+      }
       n.api.sendNotification({
         title: "Download this file?",
         body: catchLabel(url),
+        extra: { catchUrl: url },
       });
     } catch (err) {
       console.error(err);
@@ -5154,6 +5178,8 @@ window.addEventListener("DOMContentLoaded", () => {
     offeredUrl = url;
     catchText.textContent = `Download ${catchLabel(url)}?`;
     catchBanner.classList.remove("hidden");
+    clearTimeout(catchTimer);
+    catchTimer = setTimeout(hideCatch, CATCH_MS);
     if (!document.hasFocus()) notifyCatch(url);
   }
 
@@ -5207,7 +5233,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") document.getElementById("capture-ok").click();
   });
 
-  if (!window.__TAURI__) window.__gariaHandleCatch = handleCatch;
+  // The static mock on :5100 needs the same hook even with the Tauri stand-in.
+  if (!window.__TAURI__ || location.port === "5100") window.__gariaHandleCatch = handleCatch;
 
   const listen = window.__TAURI__?.event?.listen;
   const drainBanner = document.getElementById("drain-banner");
@@ -5268,6 +5295,10 @@ window.addEventListener("DOMContentLoaded", () => {
     }).catch(() => {});
   }
 
+  onCatchNotificationClick = (url) => {
+    if (!url) return;
+    ingestUrl(url);
+  };
   loadSettings().then(() => renderCategoryNav());
   loadLogins();
   loadVideoTools();
