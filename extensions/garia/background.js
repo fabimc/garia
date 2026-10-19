@@ -108,14 +108,14 @@ api.runtime.onMessage.addListener((message) => {
   });
 });
 
-function openHandoff(params) {
+function openHandoff(params, { active = false, closeMs = 1500 } = {}) {
   const handoff = api.runtime.getURL(`handoff.html?${params.toString()}`);
-  const opened = api.tabs.create({ url: handoff, active: false });
+  const opened = api.tabs.create({ url: handoff, active });
   Promise.resolve(opened).then((tab) => {
     if (!tab?.id) return;
     setTimeout(() => {
       api.tabs.remove(tab.id).catch(() => {});
-    }, 1500);
+    }, closeMs);
   }).catch(() => {});
 }
 
@@ -127,7 +127,7 @@ function sendToGaria(url, extras = {}) {
   if (extras.name) params.set("name", extras.name);
   if (extras.referrer) params.set("referrer", extras.referrer);
   if (extras.confirm) params.set("confirm", "1");
-  openHandoff(params);
+  openHandoff(params, { active: Boolean(extras.active) });
 }
 
 function sendBatchToGaria(urls, referrer) {
@@ -198,13 +198,16 @@ function shouldTakeDownload(item) {
 async function takeOverDownload(item) {
   const url = item.finalUrl || item.url;
   if (!url) return;
+  // Stop the browser's copy, but leave the row — if Garia isn't installed the
+  // cancelled download is still there to retry. The handoff tab opens in front
+  // so "If nothing happens…" is hard to miss.
   try { await api.downloads.cancel(item.id); } catch { /* already gone */ }
-  try { await api.downloads.erase({ id: item.id }); } catch { /* already gone */ }
   sendToGaria(url, {
     from: "extension",
     name: gariaBasename(item.filename) || gariaBasenameFromUrl(url),
     referrer: item.referrer || "",
     confirm: true,
+    active: true,
   });
 }
 

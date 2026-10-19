@@ -311,14 +311,14 @@ action.addEventListener("click", (event) => {
   const url = pageKey();
   if (!url || typeof api?.runtime?.sendMessage !== "function") return;
   api.runtime.sendMessage({ type: "send-page", url });
-  label.textContent = "Sent";
-  sentUntil = Date.now() + 1100;
+  // Opening, not Sent: the handoff tab can fail with no reply back here.
+  label.textContent = "Opening Garia…";
+  sentUntil = Date.now() + 1600;
   place();
   setTimeout(() => {
-    dismiss(url);
     label.textContent = "Download";
     place();
-  }, 1100);
+  }, 1600);
 });
 
 hide.addEventListener("click", (event) => {
