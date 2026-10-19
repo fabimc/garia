@@ -30,6 +30,7 @@ export function initAddDialog(api) {
     chooseFolderInto,
     holdAdded,
     modalStartAt,
+    startMissed,
     resetStartField,
     jobs,
     saveJobs,
@@ -99,6 +100,21 @@ export function initAddDialog(api) {
   const ftpUp      = document.getElementById("ftp-up");
   const modalLogin = document.getElementById("modal-login");
   const addWhen    = document.getElementById("add-when");
+  const addStartAt   = document.getElementById("add-start-at");
+  const addStartHint = document.getElementById("add-start-hint");
+
+  function renderStartHint() {
+    const missed = startMissed("add-start-on", "add-start-at");
+    addStartHint.classList.toggle("hidden", !missed);
+    return missed;
+  }
+
+  // Checked again on submit: the sheet can sit open past the time it was given.
+  function startTimeMissed() {
+    if (!renderStartHint()) return false;
+    addStartAt.focus();
+    return true;
+  }
 
   // Add to queue and a start time are both aria2's pause-on-add.
   function holdOnAdd(at) {
@@ -265,6 +281,7 @@ export function initAddDialog(api) {
     batchEntries.textContent = "";
     addWhen.querySelector('input[value="now"]').checked = true;
     resetStartField("add-start-on", "add-start-at");
+    renderStartHint();
     lastBatchKey = "";
     renderModalLogin();
     setModalMode("url");
@@ -294,6 +311,8 @@ export function initAddDialog(api) {
     if (e.key === "Enter") submitUrl();
   });
   document.getElementById("modal-dir-browse").addEventListener("click", () => chooseFolderInto(modalDir));
+  addStartAt.addEventListener("input", renderStartHint);
+  document.getElementById("add-start-on").addEventListener("change", renderStartHint);
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
@@ -306,6 +325,10 @@ export function initAddDialog(api) {
   torrentInput.addEventListener("change", async () => {
     const file = torrentInput.files[0];
     if (!file) return;
+    if (startTimeMissed()) {
+      torrentInput.value = "";   // so choosing the same file again fires
+      return;
+    }
     await submitTorrent(file);
   });
 
@@ -408,8 +431,11 @@ export function initAddDialog(api) {
       await addBatch(urls);
       return;
     }
-    const url = urls[0] || modalUrlInput.value.trim();
-    if (!url) return;
+    const url = urls[0];
+    if (!url) {
+      showModalError("Paste a link, magnet, or FTP address");
+      return;
+    }
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
 
@@ -939,18 +965,22 @@ export function initAddDialog(api) {
   }
 
   modalOk.addEventListener("click", () => {
+    if (startTimeMissed()) return;
     if (modalMode === "video") submitVideo();
     else if (modalMode === "playlist") submitPlaylist();
     else if (modalMode === "ftp") submitFtp();
     else submitUrl();
   });
-  modalPlain.addEventListener("click", () => addPlainUrl(modalUrlInput.value.trim()));
+  modalPlain.addEventListener("click", () => {
+    if (startTimeMissed()) return;
+    addPlainUrl(modalUrlInput.value.trim());
+  });
   modalUrlInput.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.shiftKey) return;
     const urls = parseDownloadUrls(modalUrlInput.value);
     if (e.metaKey || e.ctrlKey || urls.length <= 1) {
       e.preventDefault();
-      submitUrl();
+      if (!startTimeMissed()) submitUrl();
     }
   });
 
