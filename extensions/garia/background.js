@@ -1,12 +1,28 @@
 // Service workers do not import the content-script files. Chromium loads
-// this file alone; Firefox and Safari load file-types.js first via
+// this file alone; Firefox and Safari load helpers first via
 // `background.scripts`. The importScripts call covers Chromium.
-if (typeof importScripts === "function" && typeof gariaIsFileUrl !== "function") {
-  importScripts("file-types.js");
+if (typeof importScripts === "function") {
+  if (typeof gariaIsFileUrl !== "function") importScripts("file-types.js");
+  if (typeof gariaLoadPrefs !== "function") importScripts("prefs.js");
 }
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 const recent = new Map();
+let downloadTakeover = true;
+
+function refreshPrefs() {
+  if (typeof gariaLoadPrefs !== "function") return;
+  gariaLoadPrefs().then(({ prefs }) => {
+    downloadTakeover = prefs.downloadTakeover !== false;
+  }).catch(() => {});
+}
+
+refreshPrefs();
+if (api.storage?.onChanged) {
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.prefs) refreshPrefs();
+  });
+}
 
 function alreadySent(url) {
   const now = Date.now();
@@ -218,6 +234,7 @@ async function takeOverDownload(item) {
 
 if (api.downloads?.onCreated) {
   api.downloads.onCreated.addListener((item) => {
+    if (!downloadTakeover) return;
     if (!shouldTakeDownload(item)) return;
     takeOverDownload(item);
   });

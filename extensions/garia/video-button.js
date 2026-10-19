@@ -8,8 +8,8 @@
 if (window === window.top) {
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
-const dismissed = [];
-const DISMISS_CAP = 40;
+let videoButtonOn = true;
+let dismissedHosts = [];
 const FEED = /^\/(feed|home|explore|timeline|search|results|trending|subscriptions|directory|popular|discover)(\/|$)/i;
 const GENERIC_WATCH = /^\/(watch|video|videos|embed|player|clip|clips|episode|episodes)(\/|$)/i;
 const PLAYER_SEL = [
@@ -248,20 +248,39 @@ function ensureHost() {
 }
 
 function isDismissed(href) {
-  return dismissed.includes(href);
+  const hostName = typeof gariaHostOf === "function" ? gariaHostOf(href) : "";
+  return hostName && dismissedHosts.includes(hostName);
 }
 
 function dismiss(href) {
-  const at = dismissed.indexOf(href);
-  if (at >= 0) dismissed.splice(at, 1);
-  dismissed.push(href);
-  if (dismissed.length > DISMISS_CAP) dismissed.shift();
+  const hostName = typeof gariaHostOf === "function" ? gariaHostOf(href) : "";
+  if (!hostName) return;
+  const next = dismissedHosts.filter((h) => h !== hostName);
+  next.push(hostName);
+  dismissedHosts = next.slice(-(typeof GARIA_DISMISS_CAP === "number" ? GARIA_DISMISS_CAP : 100));
+  if (typeof gariaSaveDismissedHosts === "function") {
+    gariaSaveDismissedHosts(dismissedHosts).catch(() => {});
+  }
+}
+
+function refreshPrefs() {
+  if (typeof gariaLoadPrefs !== "function") return;
+  gariaLoadPrefs().then(({ prefs, dismissedHosts: hosts }) => {
+    videoButtonOn = prefs.videoButton !== false;
+    dismissedHosts = Array.isArray(hosts) ? hosts : [];
+    place();
+  }).catch(() => {});
 }
 
 function place() {
   ensureHost();
   const href = pageKey();
   const showingSent = Date.now() < sentUntil;
+  if (!videoButtonOn) {
+    host.style.display = "none";
+    syncObserver(false);
+    return;
+  }
   if (!showingSent && isDismissed(href)) {
     host.style.display = "none";
     syncObserver(false);
@@ -378,6 +397,14 @@ function syncObserver(on) {
   }
 }
 
+if (api?.storage?.onChanged) {
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes.prefs || changes.dismissedHosts) refreshPrefs();
+  });
+}
+
+refreshPrefs();
 place();
 
 }

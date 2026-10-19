@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Garia",
   "short_name": "Garia",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Send file downloads and video pages to the Garia desktop app.",
   "homepage_url": "https://github.com/fabimc/garia",
   "author": "fabimc",
@@ -23,20 +23,24 @@
   },
   "background": {
     "service_worker": "background.js",
-    "scripts": ["file-types.js", "background.js"]
+    "scripts": ["file-types.js", "prefs.js", "background.js"]
   },
-  "permissions": ["clipboardWrite", "contextMenus", "downloads"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["clipboardWrite", "contextMenus", "downloads", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["file-types.js", "content.js"],
+      "js": ["file-types.js", "prefs.js", "content.js"],
       "run_at": "document_start",
       "all_frames": true
     },
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["file-types.js", "video-button.js"],
+      "js": ["file-types.js", "prefs.js", "video-button.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

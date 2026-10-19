@@ -1,8 +1,29 @@
 // Safari has no chrome.downloads, so a click on a file link is the
 // intercept. Chromium has both: preventDefault here so the browser never
 // starts a download the background would then have to cancel. Hold Option
-// (or Alt) to leave the file with the browser.
+// (or Alt) to leave the file with the browser. Options → Click capture
+// turns the whole intercept off.
+
+const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
+
+let clickCapture = true;
+
+function refreshPrefs() {
+  if (typeof gariaLoadPrefs !== "function") return;
+  gariaLoadPrefs().then(({ prefs }) => {
+    clickCapture = prefs.clickCapture !== false;
+  }).catch(() => {});
+}
+
+refreshPrefs();
+if (api?.storage?.onChanged) {
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.prefs) refreshPrefs();
+  });
+}
+
 document.addEventListener("click", (event) => {
+  if (!clickCapture) return;
   if (event.defaultPrevented || event.button !== 0) return;
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const a = event.target.closest?.("a[href]");
@@ -15,7 +36,6 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
 
-  const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
   const name = a.getAttribute("download") || gariaBasenameFromUrl(href);
   api.runtime.sendMessage({
     type: "capture",
@@ -24,8 +44,6 @@ document.addEventListener("click", (event) => {
     referrer: location.href,
   });
 }, true);
-
-const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 
 function collectPageLinks() {
   const page = location.href.split("#")[0];
