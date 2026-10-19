@@ -2075,6 +2075,8 @@ function heldNote(gid) {
   return "held";
 }
 
+const QUEUE_STOP_NOTE = "Running and queued downloads pause, and nothing new starts. Seeding continues.";
+
 // A window that is holding downloads back has to say so somewhere always
 // visible. Without it the app is simply a list of downloads that aren't going.
 function renderSchedule() {
@@ -2085,7 +2087,7 @@ function renderSchedule() {
     if (stopped) {
       queueEl.dataset.state = "shut";
       queueEl.textContent = "· queue stopped";
-      queueEl.title = "Nothing new starts. Start Queue lets downloads run again.";
+      queueEl.title = `${QUEUE_STOP_NOTE} Start Queue lets them run again.`;
     }
   }
 
@@ -2111,9 +2113,7 @@ function renderQueueToggle() {
   if (!btn) return;
   const stopped = schedule.queueStopped === true || settings.queueStopped === true;
   btn.textContent = stopped ? "Start Queue" : "Stop Queue";
-  btn.title = stopped
-    ? "Let downloads run again"
-    : "Hold every download that is going";
+  btn.title = stopped ? "Let downloads run again" : QUEUE_STOP_NOTE;
   btn.classList.toggle("is-stopped", stopped);
 }
 
