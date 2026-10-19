@@ -2023,6 +2023,9 @@ html.in-app .modal.modal-lg {
     padding: 0.4rem 0.65rem;
     border-bottom: 1px solid var(--border);
 }
+.batch-entry.is-link {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
 .batch-entry:last-child {
     border-bottom: none;
 }
@@ -2036,6 +2039,14 @@ html.in-app .modal.modal-lg {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.82rem;
+}
+.batch-entry-host {
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    color: var(--muted);
 }
 .batch-entry-cat {
     flex-shrink: 0;

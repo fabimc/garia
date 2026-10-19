@@ -67,12 +67,16 @@ api.contextMenus.onClicked.addListener((info, tab) => {
     return;
   }
   if (info.menuItemId === "garia-selection") {
-    const url = urlFromSelection(info.selectionText || "");
-    if (url) {
+    const urls = urlsFromSelection(info.selectionText || "");
+    const referrer = info.pageUrl || tab?.url || "";
+    if (urls.length > 1) {
+      sendBatchToGaria(urls, referrer);
+    } else if (urls.length === 1) {
+      const url = urls[0];
       sendToGaria(url, {
         from: "extension",
         name: gariaIsFileUrl(url) ? gariaBasenameFromUrl(url) : "",
-        referrer: info.pageUrl || tab?.url || "",
+        referrer,
         confirm: gariaIsFileUrl(url),
       });
     }
@@ -170,12 +174,13 @@ function collectFromTab(tab) {
   }).catch(() => {});
 }
 
-function urlFromSelection(text) {
+function urlsFromSelection(text) {
+  const urls = [];
   for (const raw of String(text).split(/\s+/)) {
-    const token = raw.replace(/^[<"'“‘]+|[>"'”’,]+$/g, "");
-    if (token.startsWith("magnet:") || gariaIsHttpUrl(token)) return token;
+    const token = raw.replace(/^[<"'“‘]+|[>"'”’,.;!]+$/g, "");
+    if (token.startsWith("magnet:") || gariaIsHttpUrl(token)) urls.push(token);
   }
-  return "";
+  return urls;
 }
 
 function shouldTakeDownload(item) {

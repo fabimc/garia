@@ -184,6 +184,16 @@ export function initAddDialog(api) {
     modalOk.disabled = on === 0;
   }
 
+  // A batch adds each ticked URL as-is, so a page would land as its HTML.
+  // Only links that already name a file start ticked.
+  function namesAFile(url) {
+    return isFtpUrl(url) ? looksLikeFtpFile(url) : !looksLikeAPage(url);
+  }
+
+  function urlHost(url) {
+    try { return new URL(url).hostname; } catch { return ""; }
+  }
+
   function renderBatch() {
     const urls = parseDownloadUrls(modalUrlInput.value);
     const show = modalMode === "url" && urls.length > 1;
@@ -206,20 +216,23 @@ export function initAddDialog(api) {
     batchEntries.textContent = "";
     for (const url of urls) {
       const label = document.createElement("label");
-      label.className = "batch-entry";
+      label.className = "batch-entry is-link";
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.url = url;
       const queued = alreadyHaveUrl(url);
-      box.checked = kept.has(url) ? kept.get(url) : !queued;
+      box.checked = kept.has(url) ? kept.get(url) : !queued && namesAFile(url);
       const name = document.createElement("span");
       name.className = "batch-entry-name";
       name.textContent = catchLabel(url);
       name.title = url;
+      const host = document.createElement("span");
+      host.className = "batch-entry-host";
+      host.textContent = urlHost(url);
       const cat = document.createElement("span");
       cat.className = "batch-entry-cat";
       cat.textContent = queued ? "In the list" : (matchCategory(url)?.name || "");
-      label.append(box, name, cat);
+      label.append(box, name, host, cat);
       batchEntries.append(label);
     }
     paintBatchCounts();
@@ -404,10 +417,10 @@ export function initAddDialog(api) {
   }
 
   async function addBatch(candidates) {
-    const checked = [...batchEntries.querySelectorAll("input[type=checkbox]")]
-      .filter((box) => box.checked)
-      .map((box) => box.dataset.url);
-    const urls = checked.length ? checked : candidates;
+    const boxes = [...batchEntries.querySelectorAll("input[type=checkbox]")];
+    const urls = boxes.length
+      ? boxes.filter((box) => box.checked).map((box) => box.dataset.url)
+      : candidates;
     if (!urls.length) return;
     const at = modalStartAt();
     const queue = holdOnAdd(at);
