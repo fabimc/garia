@@ -1,4 +1,4 @@
-//! iced shell for Garia — Phase 3 (queue + platform parity).
+//! iced shell for Garia.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -89,7 +89,11 @@ pub enum Message {
 }
 
 impl App {
-    pub fn new(engine: Engine, platform: Platform) -> (Self, Task<Message>) {
+    pub fn new(
+        engine: Engine,
+        platform: Platform,
+        zipapp: Option<PathBuf>,
+    ) -> (Self, Task<Message>) {
         let settings = engine
             .settings
             .current
@@ -122,7 +126,7 @@ impl App {
             video_url: String::new(),
             video_status: String::new(),
             video: Arc::new(Video {
-                zipapp: None,
+                zipapp,
                 resolved: std::sync::Mutex::new(None),
                 tools: std::sync::Mutex::new(None),
             }),

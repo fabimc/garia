@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Garia
+Comment=Fast download manager
+Exec=garia %u
+Icon=garia
+Terminal=false
+Categories=Network;FileTransfer;
+MimeType=application/x-bittorrent;x-scheme-handler/garia;x-scheme-handler/magnet;
+StartupWMClass=garia

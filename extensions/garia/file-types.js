@@ -1,4 +1,4 @@
-// Keep in step with FILE_EXTS in src-tauri/src/catch.rs and DIRECT_EXTS
+// Keep in step with FILE_EXTS in crates/garia-core/src/catch.rs and DIRECT_EXTS
 // in src/main.js. A type that is a file there has to be a file here, or
 // the extension lets the browser keep a download Garia would have taken.
 const FILE_EXTS = new Set([

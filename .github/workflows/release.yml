@@ -9,81 +9,12 @@ permissions:
   contents: write
 
 jobs:
-  publish-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - run: npm ci
-
-      - name: Build universal sidecars
-        run: npm run sidecar -- universal-apple-darwin
-
-      # Empty Apple secrets are still "set", and Tauri then tries to import a
-      # blank certificate. Publish each one only when it has a value. Without
-      # an updater key, skip update signatures so the DMG still builds.
-      - name: Configure signing when secrets exist
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          publish() {
-            if [ -n "$2" ]; then
-              {
-                echo "$1<<EOF"
-                echo "$2"
-                echo "EOF"
-              } >> "$GITHUB_ENV"
-            fi
-          }
-          publish TAURI_SIGNING_PRIVATE_KEY "$TAURI_SIGNING_PRIVATE_KEY"
-          publish TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-          publish APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
-          publish APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
-          publish APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
-          publish APPLE_ID "$APPLE_ID"
-          publish APPLE_PASSWORD "$APPLE_PASSWORD"
-          publish APPLE_TEAM_ID "$APPLE_TEAM_ID"
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            python3 -c 'import json; from pathlib import Path; p = Path("src-tauri/tauri.conf.json"); data = json.loads(p.read_text()); data["bundle"]["createUpdaterArtifacts"] = False; p.write_text(json.dumps(data, indent=2) + "\n")'
-            echo "No updater signing key; building the DMG without update signatures."
-          fi
-
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --target universal-apple-darwin
-          tagName: v__VERSION__
-          releaseName: "Garia v__VERSION__"
-          releaseDraft: true
-          prerelease: false
-
   publish-linux:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install Linux dependencies
         run: |
@@ -95,48 +26,102 @@ jobs:
             file \
             libxdo-dev \
             libssl-dev \
-            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf \
             pkg-config \
-            zlib1g-dev
-
-      - run: npm ci
+            zlib1g-dev \
+            python3
 
       - name: Build Linux sidecars
-        run: npm run sidecar
+        run: ./scripts/sidecar.sh
 
-      - name: Configure updater signing when the key exists
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Build garia (release)
+        run: cargo build --release -p garia
+
+      - name: Stage artifact
         run: |
           set -euo pipefail
-          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            {
-              echo "TAURI_SIGNING_PRIVATE_KEY<<EOF"
-              echo "$TAURI_SIGNING_PRIVATE_KEY"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-            if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-              {
-                echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<EOF"
-                echo "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-                echo "EOF"
-              } >> "$GITHUB_ENV"
-            fi
-          else
-            python3 -c 'import json; from pathlib import Path; p = Path("src-tauri/tauri.conf.json"); data = json.loads(p.read_text()); data["bundle"]["createUpdaterArtifacts"] = False; p.write_text(json.dumps(data, indent=2) + "\n")'
-            echo "No updater signing key; building Linux packages without update signatures."
-          fi
+          VER="${GITHUB_REF_NAME#v}"
+          STAGE="dist/garia-${VER}-linux-x86_64"
+          mkdir -p "$STAGE"
+          cp target/release/garia "$STAGE/"
+          TRIPLE="$(rustc -vV | awk '/^host:/{print $2}')"
+          cp "binaries/aria2c-${TRIPLE}" "$STAGE/aria2c"
+          cp "binaries/ffmpeg-${TRIPLE}" "$STAGE/ffmpeg"
+          cp resources/yt-dlp "$STAGE/yt-dlp"
+          chmod +x "$STAGE"/*
+          cp packaging/garia.desktop "$STAGE/"
+          cp packaging/README.md "$STAGE/PACKAGING.md"
+          tar -C dist -czf "dist/garia-${VER}-linux-x86_64.tar.gz" "garia-${VER}-linux-x86_64"
+          (
+            cd "$STAGE"
+            sha256sum garia aria2c ffmpeg yt-dlp > "../garia-${VER}-linux-x86_64.SHA256SUMS"
+          )
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Upload Linux assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Garia ${{ github.ref_name }}
+          draft: true
+          files: |
+            dist/garia-*-linux-x86_64.tar.gz
+            dist/garia-*-linux-x86_64.SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v__VERSION__
-          releaseName: "Garia v__VERSION__"
-          releaseDraft: true
-          prerelease: false
 
+  publish-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build universal sidecars
+        run: ./scripts/sidecar.sh universal-apple-darwin
+
+      - name: Build garia (aarch64 + x86_64)
+        run: |
+          set -euo pipefail
+          cargo build --release -p garia --target aarch64-apple-darwin
+          cargo build --release -p garia --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create \
+            target/aarch64-apple-darwin/release/garia \
+            target/x86_64-apple-darwin/release/garia \
+            -output target/universal/garia
+
+      - name: Stage artifact
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          STAGE="dist/garia-${VER}-macos-universal"
+          mkdir -p "$STAGE"
+          cp target/universal/garia "$STAGE/"
+          cp binaries/aria2c-universal-apple-darwin "$STAGE/aria2c"
+          cp binaries/ffmpeg-universal-apple-darwin "$STAGE/ffmpeg"
+          cp resources/yt-dlp "$STAGE/yt-dlp"
+          chmod +x "$STAGE"/*
+          cp packaging/Info.plist "$STAGE/"
+          cp packaging/entitlements.plist "$STAGE/"
+          cp packaging/README.md "$STAGE/PACKAGING.md"
+          tar -C dist -czf "dist/garia-${VER}-macos-universal.tar.gz" "garia-${VER}-macos-universal"
+          (
+            cd "$STAGE"
+            shasum -a 256 garia aria2c ffmpeg yt-dlp > "../garia-${VER}-macos-universal.SHA256SUMS"
+          )
+
+      - name: Upload macOS assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Garia ${{ github.ref_name }}
+          draft: true
+          files: |
+            dist/garia-*-macos-universal.tar.gz
+            dist/garia-*-macos-universal.SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

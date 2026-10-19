@@ -4,7 +4,6 @@ members = [
     "crates/garia-platform",
     "crates/garia-ui",
     "crates/garia",
-    "src-tauri",
 ]
 resolver = "2"
 

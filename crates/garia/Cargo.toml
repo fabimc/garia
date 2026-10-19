@@ -1,12 +1,12 @@
 [package]
-name = "garia-app"
+name = "garia"
 version = "0.2.0"
-description = "Garia iced binary (coexists with the Tauri package)"
+description = "Garia — iced download manager (Mac + Linux)"
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "garia-app"
+name = "garia"
 path = "src/main.rs"
 
 [dependencies]

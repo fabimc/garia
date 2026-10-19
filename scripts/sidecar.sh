@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
 # The three sidecars, one command. Dev only needs this machine; a release
-# that claims both Mac chips needs both binaries lipo'd into one file,
-# because Tauri looks for `*-universal-apple-darwin` and will not lipo
-# external bins itself.
+# that claims both Mac chips needs both binaries lipo'd into one file
+# (`*-universal-apple-darwin`) so a universal app bundle can ship one sidecar.
 #
 # Usage: scripts/sidecar.sh [target-triple|universal-apple-darwin]
 #        no args → this machine; re-running is a no-op
+#
+# Outputs:
+#   binaries/aria2c-<triple>, binaries/ffmpeg-<triple>
+#   resources/yt-dlp
 
 set -euo pipefail
 
@@ -20,9 +23,9 @@ build_one() {
 
 lipo_one() {
   local name="$1"
-  local dest="${ROOT}/src-tauri/binaries/${name}-universal-apple-darwin"
-  local arm="${ROOT}/src-tauri/binaries/${name}-aarch64-apple-darwin"
-  local intel="${ROOT}/src-tauri/binaries/${name}-x86_64-apple-darwin"
+  local dest="${ROOT}/binaries/${name}-universal-apple-darwin"
+  local arm="${ROOT}/binaries/${name}-aarch64-apple-darwin"
+  local intel="${ROOT}/binaries/${name}-x86_64-apple-darwin"
   if [ -x "${dest}" ]; then
     echo "${name} universal sidecar already present: ${dest#"${ROOT}/"}"
     return

@@ -23,7 +23,7 @@ SHA256="1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6"
 URL="https://github.com/yt-dlp/yt-dlp/releases/download/${VERSION}/yt-dlp"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="${ROOT}/src-tauri/resources/yt-dlp"
+DEST="${ROOT}/resources/yt-dlp"
 
 if [ -f "${DEST}" ]; then
   echo "yt-dlp already present: ${DEST#"${ROOT}/"}"
@@ -42,6 +42,6 @@ curl -fsSL -o "${WORK}/yt-dlp" "${URL}"
 # Pure Python, so one copy serves every architecture. Garia never execs it
 # directly — a GUI app doesn't inherit the PATH the shebang would need — so it
 # is handed to a python3 the backend found for itself.
-mkdir -p "${ROOT}/src-tauri/resources"
+mkdir -p "${ROOT}/resources"
 cp "${WORK}/yt-dlp" "${DEST}"
 echo "Fetched ${DEST#"${ROOT}/"} ($(du -h "${DEST}" | cut -f1))"
