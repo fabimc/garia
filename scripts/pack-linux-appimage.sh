@@ -123,18 +123,9 @@ stage_appdir() {
   cp "${ROOT}/assets/icons/32x32.png" "${APPDIR}/usr/share/icons/hicolor/32x32/apps/garia.png"
   cp "${ROOT}/assets/icons/icon.png" "${APPDIR}/garia.png"
 
-  cat > "${APPDIR}/usr/share/applications/garia.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Garia
-Comment=Fast download manager
-Exec=garia %u
-Icon=garia
-Terminal=false
-Categories=Network;FileTransfer;
-MimeType=application/x-bittorrent;x-scheme-handler/garia;x-scheme-handler/magnet;
-StartupWMClass=garia
-EOF
+  # Same source as pack-linux-deb.sh so MIME/schemes stay in sync.
+  sed 's|^Exec=.*|Exec=garia %u|' "${ROOT}/packaging/garia.desktop" \
+    > "${APPDIR}/usr/share/applications/garia.desktop"
   cp "${APPDIR}/usr/share/applications/garia.desktop" "${APPDIR}/garia.desktop"
 }
 
