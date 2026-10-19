@@ -3970,10 +3970,10 @@ window.addEventListener("DOMContentLoaded", () => {
   function menuSpecFor(dls) {
     const items = [];
     if (dls.some((d) => d.status === "active" || d.status === "waiting")) {
-      items.push({ action: "stop", label: "Pause" });
+      items.push({ action: "stop", label: "Pause", shortcut: "Space" });
     }
     if (dls.some((d) => d.status === "paused")) {
-      items.push({ action: "resume", label: "Resume" });
+      items.push({ action: "resume", label: "Resume", shortcut: "Space" });
     }
     if (dls.some((d) => d.status === "seeding")) {
       items.push({ action: "unseed", label: "Stop Seeding" });
@@ -3985,11 +3985,15 @@ window.addEventListener("DOMContentLoaded", () => {
       items.push({ action: "reveal", label: "Show in Finder" });
     }
     if (dls.some((d) => sourceUrl(d))) {
-      items.push({ action: "copy-url", label: dls.length > 1 ? "Copy URLs" : "Copy URL" });
+      items.push({
+        action: "copy-url",
+        label: dls.length > 1 ? "Copy URLs" : "Copy URL",
+        shortcut: "⌘C",
+      });
     }
-    if (dls.length === 1) items.push({ action: "details", label: "Details" });
+    if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
     items.push({ separator: true });
-    items.push({ action: "remove", label: "Delete…", danger: true });
+    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: "⌘⌫" });
     return items;
   }
 
@@ -4010,7 +4014,15 @@ window.addEventListener("DOMContentLoaded", () => {
       btn.className = spec.danger ? "row-menu-item is-danger" : "row-menu-item";
       btn.setAttribute("role", "menuitem");
       btn.dataset.action = spec.action;
-      btn.textContent = spec.label;
+      const label = document.createElement("span");
+      label.textContent = spec.label;
+      btn.appendChild(label);
+      if (spec.shortcut) {
+        const kbd = document.createElement("span");
+        kbd.className = "row-menu-shortcut";
+        kbd.textContent = spec.shortcut;
+        btn.appendChild(kbd);
+      }
       rowMenu.appendChild(btn);
     }
     rowMenu.classList.remove("hidden");
@@ -4915,6 +4927,12 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("help-done").addEventListener("click", closeHelp);
   helpOverlay.addEventListener("click", (e) => {
     if (e.target === helpOverlay) closeHelp();
+  });
+  helpOverlay.addEventListener("click", (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link || !window.__TAURI__?.opener?.openUrl) return;
+    e.preventDefault();
+    window.__TAURI__.opener.openUrl(link.href).catch((err) => console.error(err));
   });
 
   const setupOverlay = document.getElementById("setup-overlay");

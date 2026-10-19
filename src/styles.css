@@ -1126,7 +1126,10 @@ html.in-app .statusbar {
     gap: 0.08rem;
 }
 .row-menu-item {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.25rem;
     width: 100%;
     padding: 0.38rem 0.65rem;
     border: none;
@@ -1149,6 +1152,16 @@ html.in-app .statusbar {
 .row-menu-item.is-danger:hover,
 .row-menu-item.is-danger:focus {
     background: var(--danger-soft);
+}
+.row-menu-shortcut {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+.row-menu-item.is-danger .row-menu-shortcut {
+    color: inherit;
+    opacity: 0.7;
 }
 .row-menu-sep {
     height: 1px;
@@ -1557,7 +1570,8 @@ html.in-app .modal.modal-lg {
     color: var(--muted);
     font-size: 0.82rem;
 }
-.licenses-list a {
+.licenses-list a,
+.help-list a {
     color: var(--accent);
 }
 
