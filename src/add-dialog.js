@@ -98,6 +98,12 @@ export function initAddDialog(api) {
   const ftpWhere   = document.getElementById("ftp-where");
   const ftpUp      = document.getElementById("ftp-up");
   const modalLogin = document.getElementById("modal-login");
+  const addWhen    = document.getElementById("add-when");
+
+  // Add to queue and a start time are both aria2's pause-on-add.
+  function holdOnAdd(at) {
+    return Boolean(at) || addWhen.querySelector('input[value="queue"]').checked;
+  }
 
   function setModalMode(mode) {
     modalMode = mode;
@@ -118,6 +124,7 @@ export function initAddDialog(api) {
       modalOk.textContent = mode === "video" ? "Download" : "OK";
       modalOk.disabled = false;
     }
+    addWhen.classList.toggle("hidden", mode === "busy");
     const addStart = document.getElementById("add-start");
     if (addStart) addStart.classList.toggle("hidden", mode === "busy");
     modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
@@ -256,8 +263,7 @@ export function initAddDialog(api) {
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
     batchEntries.textContent = "";
-    const now = batchPanel.querySelector('input[name="batch-when"][value="now"]');
-    if (now) now.checked = true;
+    addWhen.querySelector('input[value="now"]').checked = true;
     resetStartField("add-start-on", "add-start-at");
     lastBatchKey = "";
     renderModalLogin();
@@ -309,7 +315,7 @@ export function initAddDialog(api) {
       const buf = await file.arrayBuffer();
       const b64 = bytesToBase64(buf);
       const at = modalStartAt();
-      const gid = await rpc("aria2.addTorrent", [b64, [], addOptions(undefined, { queue: Boolean(at) })]);
+      const gid = await rpc("aria2.addTorrent", [b64, [], addOptions(undefined, { queue: holdOnAdd(at) })]);
       await holdAdded(gid, at);
       closeModal();
       await pollAndSync();
@@ -356,7 +362,7 @@ export function initAddDialog(api) {
       const gid = await rpc("aria2.addUri", [[url], {
         ...options,
         ...checksumOption(parsed),
-        ...(at ? { pause: "true" } : {}),
+        ...(holdOnAdd(at) ? { pause: "true" } : {}),
       }]);
       await holdAdded(gid, at);
       // aria2 would answer the same thing a tick later; knowing it now is what
@@ -381,8 +387,7 @@ export function initAddDialog(api) {
     const urls = checked.length ? checked : candidates;
     if (!urls.length) return;
     const at = modalStartAt();
-    const queue = Boolean(at)
-      || batchPanel.querySelector('input[name="batch-when"][value="queue"]')?.checked;
+    const queue = holdOnAdd(at);
     modalError.classList.add("hidden");
     try {
       for (const url of urls) {
@@ -769,7 +774,7 @@ export function initAddDialog(api) {
       .filter(Boolean);
     if (!urls.length) return;
     const at = modalStartAt();
-    const queue = Boolean(at);
+    const queue = holdOnAdd(at);
     modalError.classList.add("hidden");
     try {
       for (const url of urls) {
@@ -869,7 +874,7 @@ export function initAddDialog(api) {
     const referer = info.webpageUrl ? { referer: info.webpageUrl } : {};
 
     const at = modalStartAt();
-    const hold = at ? { pause: "true" } : {};
+    const hold = holdOnAdd(at) ? { pause: "true" } : {};
 
     if (choice.formats.length === 1) {
       const f = choice.formats[0];

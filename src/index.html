@@ -624,29 +624,6 @@
                             role="group"
                             aria-label="URLs to download"
                         ></div>
-                        <div
-                            class="field-radios"
-                            role="radiogroup"
-                            aria-label="When to start"
-                        >
-                            <label class="field-check">
-                                <input
-                                    type="radio"
-                                    name="batch-when"
-                                    value="now"
-                                    checked
-                                />
-                                <span>Start now</span>
-                            </label>
-                            <label class="field-check">
-                                <input
-                                    type="radio"
-                                    name="batch-when"
-                                    value="queue"
-                                />
-                                <span>Add to queue</span>
-                            </label>
-                        </div>
                     </div>
 
                     <!-- Optional, and hidden for a torrent or a magnet, which
@@ -691,6 +668,31 @@
                                 Choose…
                             </button>
                         </div>
+                    </div>
+
+                    <div
+                        id="add-when"
+                        class="field-radios"
+                        role="radiogroup"
+                        aria-label="When to start"
+                    >
+                        <label class="field-check">
+                            <input
+                                type="radio"
+                                name="add-when"
+                                value="now"
+                                checked
+                            />
+                            <span>Start now</span>
+                        </label>
+                        <label class="field-check">
+                            <input
+                                type="radio"
+                                name="add-when"
+                                value="queue"
+                            />
+                            <span>Add to queue</span>
+                        </label>
                     </div>
 
                     <div id="add-start" class="add-start">
