@@ -243,6 +243,11 @@ struct Settings {
     /// a settings file, because one must not have been written there.
     #[serde(default, skip_deserializing, skip_serializing_if = "is_false")]
     has_proxy_password: bool,
+    /// Whether the first-run sheet has been dismissed. A new install starts
+    /// false. A settings file written before this field existed is treated
+    /// as already seen, so an upgrade does not reopen the sheet.
+    #[serde(default = "default_true")]
+    setup_seen: bool,
 }
 
 impl Default for Settings {
@@ -279,6 +284,7 @@ impl Default for Settings {
             proxy_no_proxy: String::new(),
             proxy_password: String::new(),
             has_proxy_password: false,
+            setup_seen: false,
         }
     }
 }
@@ -4402,6 +4408,18 @@ mod tests {
         // The modes still mean something the moment one is picked.
         assert_eq!(s.medium_limit, DEFAULT_MEDIUM_LIMIT);
         assert_eq!(s.light_limit, DEFAULT_LIGHT_LIMIT);
+    }
+
+    /// An upgrade must not reopen the welcome sheet. Missing means seen.
+    #[test]
+    fn an_old_file_has_already_seen_setup() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert!(s.setup_seen);
+    }
+
+    #[test]
+    fn a_fresh_install_has_not_seen_setup() {
+        assert!(!Settings::default().setup_seen);
     }
 
     /// The overall cap is derived, never taken: the frontend sends the whole

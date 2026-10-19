@@ -1,5 +1,6 @@
 # Features
 
+- A welcome sheet on the first launch for the download folder, yt-dlp, and the browser extension — reopen from Help
 - Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from Finder
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
 - A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running

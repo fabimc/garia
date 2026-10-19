@@ -31,6 +31,7 @@ let settings = {
   scheduleEnd: 8 * 60,
   queueStopped: false,
   doneAction: "none",
+  setupSeen: true,
 };
 
 let logins = [];

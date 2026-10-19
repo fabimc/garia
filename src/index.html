@@ -1134,9 +1134,86 @@
                         Licenses for the bundled tools are under Help →
                         Licenses.
                     </p>
+                    <p>
+                        <button type="button" class="text-btn" id="help-setup">
+                            Set up Garia again
+                        </button>
+                    </p>
                 </div>
                 <div class="modal-footer">
                     <button class="btn-primary" id="help-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── First-run setup ──────────────────────────────────────────── -->
+        <div
+            id="setup-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="setup-title"
+        >
+            <div class="modal modal-sm">
+                <div class="modal-header">
+                    <h2 id="setup-title">Welcome to Garia</h2>
+                    <button
+                        class="modal-close"
+                        id="setup-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body setup-body">
+                    <p class="setup-lead">
+                        Three things to check before the first download.
+                    </p>
+                    <div class="setup-row">
+                        <div class="setup-row-head">
+                            <div class="modal-label">Download folder</div>
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                id="setup-browse"
+                            >
+                                Change…
+                            </button>
+                        </div>
+                        <p id="setup-dir" class="setup-value is-path">—</p>
+                        <p class="field-hint">New files are saved here.</p>
+                    </div>
+                    <div class="setup-row">
+                        <div class="modal-label">Video pages</div>
+                        <p id="setup-video" class="setup-value">Checking…</p>
+                    </div>
+                    <div class="setup-row">
+                        <div class="setup-row-head">
+                            <div class="modal-label">Browser</div>
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                id="setup-extension"
+                            >
+                                Show extension folder
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            Load the folder as an unpacked extension in Chrome,
+                            Edge, Brave, Arc, or Firefox. Or drag the bookmarklet
+                            to your bookmarks bar.
+                        </p>
+                        <a
+                            id="setup-bookmarklet"
+                            class="bookmarklet"
+                            href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
+                            >Send this page to Garia</a
+                        >
+                        <p id="setup-extension-error" class="error hidden"></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-primary" id="setup-done">Continue</button>
                 </div>
             </div>
         </div>
