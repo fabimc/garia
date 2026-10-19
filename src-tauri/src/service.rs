@@ -14,7 +14,8 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
 use objc2::MainThreadMarker;
 use tauri::Manager;
 
-use crate::catch;
+use garia_core::catch;
+
 use crate::dispatch_catch;
 
 static APP: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);

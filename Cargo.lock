@@ -1313,14 +1313,12 @@ name = "garia"
 version = "0.2.0"
 dependencies = [
  "arboard",
- "chrono",
  "dirs 5.0.1",
  "drag",
- "getrandom 0.2.17",
+ "garia-core",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "qrcode",
  "serde",
  "serde_json",
  "tauri",
@@ -1332,6 +1330,19 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tokio",
+]
+
+[[package]]
+name = "garia-core"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "getrandom 0.2.17",
+ "qrcode",
+ "serde",
+ "serde_json",
  "tokio",
  "trash",
  "ureq",
