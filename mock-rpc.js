@@ -308,6 +308,14 @@ function snapshot() {
     // No source URI — a torrent can't be retried by re-adding a URL
     item("cccc6666", "error", "/Users/me/Downloads/some-collection.torrent", 0, 0, 0,
       { errorCode: "26", uris: [] }),
+    // Both halves of a merged video, finished. The pairing is the app's, not
+    // aria2's, so they make one Merging row only once localStorage has it and
+    // the page reloads:
+    //   localStorage.setItem("garia:merge-jobs", JSON.stringify([["ffff3333",
+    //     { audioGid: "ffff4444", state: "downloading", dir: "/Users/me/Downloads/Video", out: "Keynote.webm" }]]))
+    // A browser has no ffmpeg to finish the job, so the row stays Merging.
+    item("ffff3333", "complete", "/Users/me/Downloads/Video/Keynote.f315.webm", 900 * MB, 900 * MB, 0),
+    item("ffff4444", "complete", "/Users/me/Downloads/Video/Keynote.f251.webm", 30 * MB, 30 * MB, 0),
   ];
   // aria2 reports a paused download in tellWaiting, not tellActive, whatever
   // it was doing a moment before — so anything the UI has paused moves across

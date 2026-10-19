@@ -1009,6 +1009,10 @@ function statusClass(status) {
   return ["complete", "error", "active", "paused", "seeding"].includes(status) ? status : "waiting";
 }
 
+function sidebarViewOf(status) {
+  return status === "merging" ? "active" : status;
+}
+
 // Row order: what's moving first, what's finished last.
 const STATUS_RANK = { active: 0, merging: 0.5, seeding: 0.75, waiting: 1, paused: 2, error: 3, complete: 4, removed: 5 };
 
@@ -1656,7 +1660,7 @@ function sectionEl(status) {
       </div>
     `;
     el.querySelector(".dl-section-label").textContent = SECTION_LABELS[status] || status;
-    el.querySelector(".dl-section-link").dataset.filter = status;
+    el.querySelector(".dl-section-link").dataset.filter = sidebarViewOf(status);
     sectionEls.set(status, el);
   }
   return el;
@@ -1780,7 +1784,7 @@ function applyFilter(listEl) {
       inSection = 0;
       continue;
     }
-    const rowStatus = el.dataset.status === "merging" ? "active" : el.dataset.status;
+    const rowStatus = sidebarViewOf(el.dataset.status);
     const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
     const statusMatch = catId
       ? el.dataset.category === catId
@@ -3458,7 +3462,7 @@ async function poll(listEl) {
         countCompletion();
       }
 
-      const counted = dl.status === "merging" ? "active" : dl.status;
+      const counted = sidebarViewOf(dl.status);
       if (tally[counted] !== undefined) tally[counted]++;
       const catId = categoryIdFor(dl);
       if (catId && tally[catId] !== undefined) tally[catId]++;
