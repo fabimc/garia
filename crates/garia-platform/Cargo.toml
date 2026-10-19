@@ -1,6 +1,6 @@
 [package]
 name = "garia-platform"
-version = "0.2.0"
+version.workspace = true
 description = "Mac/Linux OS integration for the iced Garia shell"
 edition.workspace = true
 license.workspace = true

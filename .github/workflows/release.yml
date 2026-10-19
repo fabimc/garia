@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  publish-linux:
+  build-linux:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -59,19 +59,15 @@ jobs:
             sha256sum garia aria2c ffmpeg yt-dlp > "../garia-${VER}-linux-x86_64.SHA256SUMS"
           )
 
-      - name: Upload Linux assets
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Garia ${{ github.ref_name }}
-          draft: true
-          files: |
+          name: linux-release
+          path: |
             dist/garia-*-linux-x86_64.tar.gz
             dist/garia-*-linux-x86_64.SHA256SUMS
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
 
-  publish-macos:
+  build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,13 +110,33 @@ jobs:
             shasum -a 256 garia aria2c ffmpeg yt-dlp > "../garia-${VER}-macos-universal.SHA256SUMS"
           )
 
-      - name: Upload macOS assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            dist/garia-*-macos-universal.tar.gz
+            dist/garia-*-macos-universal.SHA256SUMS
+          if-no-files-found: error
+
+  # One draft release with both platform tarballs (avoids parallel softprops races).
+  publish:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload combined draft release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Garia ${{ github.ref_name }}
           draft: true
           files: |
+            dist/garia-*-linux-x86_64.tar.gz
+            dist/garia-*-linux-x86_64.SHA256SUMS
             dist/garia-*-macos-universal.tar.gz
             dist/garia-*-macos-universal.SHA256SUMS
         env:

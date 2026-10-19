@@ -15,6 +15,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Fill, Length, Subscription, Task, Theme};
 
+/// Comes from `[workspace.package] version` via `garia-ui`'s `version.workspace = true`.
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone)]

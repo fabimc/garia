@@ -1,6 +1,6 @@
 [package]
 name = "garia-core"
-version = "0.2.0"
+version.workspace = true
 description = "Garia domain logic (aria2, settings, catch, ftp, video)"
 edition.workspace = true
 license.workspace = true

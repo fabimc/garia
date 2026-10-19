@@ -94,9 +94,9 @@ The iced shell checks GitHub `latest.json` (version + notes + URL). **Signed dow
 
 ## Releasing
 
-1. Bump `version` in `crates/garia/Cargo.toml` (and `package.json` if you use it for extension versioning).
+1. Bump **`[workspace.package] version`** in the root `Cargo.toml`. All crates (`garia`, `garia-ui`, `garia-core`, `garia-platform`) use `version.workspace = true`, so About / Check for Updates (`APP_VERSION` from `garia-ui`) stay in sync with the binary. Also bump `package.json` (and the extension manifests) if those should match.
 2. Tag `v0.2.0` (or whatever the version is) and push the tag.
-3. The Release workflow builds Linux x86_64 and macOS universal tarballs (binary + sidecars) and drafts a GitHub release.
+3. The Release workflow builds Linux x86_64 and macOS universal tarballs in parallel, then opens **one** draft GitHub release with both assets.
 4. Garia → Check for Updates reads `latest.json` when you publish one in that format.
 
 Publishing the draft is also what the Homebrew tap can download once a DMG asset exists again. The [homebrew-garia](https://github.com/fabimc/homebrew-garia) cask historically tracked `Garia_<version>_universal.dmg` — update the tap when packaging returns.
