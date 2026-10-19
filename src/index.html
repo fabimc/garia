@@ -649,6 +649,30 @@
                         <p id="modal-checksum-hint" class="field-hint"></p>
                     </div>
 
+                    <!-- One file only. A page's folder depends on the
+                         quality picked, and a batch routes each URL on its
+                         own. -->
+                    <div id="modal-dir-row" class="field hidden">
+                        <label class="modal-label" for="modal-dir">Save to</label>
+                        <div class="modal-input-row">
+                            <input
+                                id="modal-dir"
+                                class="field-input is-path"
+                                type="text"
+                                placeholder="Download folder"
+                                autocomplete="off"
+                                spellcheck="false"
+                            />
+                            <button
+                                type="button"
+                                class="btn-secondary"
+                                id="modal-dir-browse"
+                            >
+                                Choose…
+                            </button>
+                        </div>
+                    </div>
+
                     <div id="add-start" class="add-start">
                         <label class="field-check">
                             <input type="checkbox" id="add-start-on" />
