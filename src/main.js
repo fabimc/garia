@@ -1190,18 +1190,22 @@ function catchKey(url) {
   }
 }
 
-function alreadyHaveUrl(url) {
+function downloadForUrl(url) {
   const key = catchKey(url);
-  if (!key) return false;
+  if (!key) return null;
   for (const dl of snapshot.values()) {
-    if (catchKey(sourceUrl(dl)) === key) return true;
-    if (catchKey(dl.job?.webpageUrl) === key) return true;
-    if (dl.infoHash && key === `btih:${String(dl.infoHash).toLowerCase()}`) return true;
+    if (catchKey(sourceUrl(dl)) === key) return dl;
+    if (catchKey(dl.job?.webpageUrl) === key) return dl;
+    if (dl.infoHash && key === `btih:${String(dl.infoHash).toLowerCase()}`) return dl;
     for (const uri of retryUris(dl)) {
-      if (catchKey(uri) === key) return true;
+      if (catchKey(uri) === key) return dl;
     }
   }
-  return false;
+  return null;
+}
+
+function alreadyHaveUrl(url) {
+  return downloadForUrl(url) !== null;
 }
 
 // aria2 numbers the common failures and only sometimes writes a message, so
@@ -3764,6 +3768,29 @@ window.addEventListener("DOMContentLoaded", () => {
     return [...selected].map((gid) => snapshot.get(gid)).filter(Boolean);
   }
 
+  // A link that's already here gets its row picked out, even if the view or
+  // the search was hiding it.
+  function showAlreadyInList(urls) {
+    const label = catchLabel(urls[0]);
+    if (urls.length > 1) showNotice("Those links are already in the list", { error: false });
+    else if (label === "this magnet link") showNotice("That magnet link is already in the list", { error: false });
+    else showNotice(`“${label}” is already in the list`, { error: false });
+
+    const rows = urls.map((u) => rowEl(downloadForUrl(u)?.gid)).filter(Boolean);
+    if (!rows.length) return;
+    if (rows.some((r) => r.classList.contains("hidden"))) {
+      nameSearch.value = "";
+      nameSearch.dispatchEvent(new Event("input"));
+      setFilter("all");
+    }
+    selected.clear();
+    for (const r of rows) selected.add(r.dataset.gid);
+    selectAnchor = rows[0].dataset.gid;
+    paintSelection();
+    rows[0].scrollIntoView({ block: "nearest" });
+    rows[0].focus({ preventScroll: true });
+  }
+
   async function runRowAction(gid, action, extra = {}) {
     if (action === "remove") { openConfirm([gid]); return; }
     if (action === "reprobe") {
@@ -4994,10 +5021,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // video page gets the quality picker, an FTP folder gets listed — and a
     // failure lands in the dialog, where it can be read and tried again.
     if (alreadyHaveUrl(urls[0])) {
-      const label = catchLabel(urls[0]);
-      showNotice(label === "this magnet link"
-        ? "That magnet link is already in the list"
-        : `“${label}” is already in the list`, { error: false });
+      showAlreadyInList(urls);
       return;
     }
     await ingestUrl(urls[0]);
@@ -5123,13 +5147,19 @@ window.addEventListener("DOMContentLoaded", () => {
   function handleCatch(event = {}) {
     const incoming = catchUrls(event);
     const { source, name, referrer } = event;
-    const list = incoming.filter((u) => !alreadyHaveUrl(u));
-    const url = list[0];
-    if (!url) return;
-    const key = `${source}:${list.join("\n")}`;
+    if (!incoming.length) return;
+    const key = `${source}:${incoming.join("\n")}`;
     if (recentlyCaught.has(key)) return;
     recentlyCaught.add(key);
     setTimeout(() => recentlyCaught.delete(key), 2500);
+
+    const list = incoming.filter((u) => !alreadyHaveUrl(u));
+    const url = list[0];
+    if (!url) {
+      // A copy is only an offer, so one that's already here stays quiet.
+      if (source !== "clipboard") showAlreadyInList(incoming);
+      return;
+    }
 
     if (list.length > 1) {
       openModal(list, { referrer });
