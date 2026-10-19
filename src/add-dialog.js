@@ -308,7 +308,7 @@ export function initAddDialog(api) {
   // Emptied, the field goes back to following the URL.
   modalDir.addEventListener("input", () => { dirEdited = modalDir.value.trim() !== ""; });
   modalDir.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitUrl();
+    if (e.key === "Enter" && !startTimeMissed()) submitUrl();
   });
   document.getElementById("modal-dir-browse").addEventListener("click", () => chooseFolderInto(modalDir));
   addStartAt.addEventListener("input", renderStartHint);
