@@ -2869,6 +2869,9 @@ html.prefs.in-app .modal {
     flex: 1;
     min-width: 12rem;
 }
+.add-start .field-hint {
+    flex-basis: 100%;
+}
 
 .detail-start {
     gap: 0.5rem;

@@ -569,7 +569,7 @@
                         <textarea
                             id="modal-url-input"
                             rows="2"
-                            placeholder=""
+                            placeholder="A link, magnet, or FTP address&#10;Several? One per line, then ⌘↩"
                             autocomplete="off"
                             spellcheck="false"
                         ></textarea>
@@ -706,7 +706,12 @@
                             type="datetime-local"
                             disabled
                             aria-label="The moment these downloads may start"
+                            aria-describedby="add-start-hint"
                         />
+                        <p id="add-start-hint" class="field-hint is-bad hidden">
+                            That time has passed. Pick a later one, or untick
+                            Start at a time.
+                        </p>
                     </div>
 
                     <!-- Shown while yt-dlp is reading the page. It can take a

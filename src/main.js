@@ -2893,6 +2893,13 @@ function startAtFrom(input) {
   return at;
 }
 
+// Ticked, but with no time ahead to wait for. startAtFrom reads that as no
+// start time at all, so the download would start now.
+function startMissed(boxId, inputId) {
+  const box = document.getElementById(boxId);
+  return Boolean(box?.checked) && startAtFrom(document.getElementById(inputId)) === null;
+}
+
 function modalStartAt() {
   const box = document.getElementById("add-start-on");
   if (!box?.checked) return null;
@@ -3681,7 +3688,7 @@ window.addEventListener("DOMContentLoaded", () => {
     parseChecksum, checksumOption, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
-    resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
+    startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
