@@ -300,7 +300,7 @@ function renderVideoTools() {
   const ffmpeg = sidecarBy("ffmpeg");
   if (!ytdlp?.installed) {
     el.textContent =
-      "No yt-dlp found, so video pages download as web pages. Install with " +
+      "No yt-dlp found, so video pages can't be read. Install with " +
       "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.";
     return;
   }

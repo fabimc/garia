@@ -339,8 +339,6 @@ export function initAddDialog(api) {
     }
   }
 
-  // A URL that isn't obviously a file gets shown to yt-dlp first. When there's
-  // no yt-dlp, or the URL is plainly a file, nothing changes from before.
   async function addBatch(candidates) {
     const checked = [...batchEntries.querySelectorAll("input[type=checkbox]")]
       .filter((box) => box.checked)
@@ -383,8 +381,12 @@ export function initAddDialog(api) {
     // A hash is a claim that this URL is a file, which is the question the
     // probe exists to answer. Nobody publishes a SHA-256 for a video page.
     const hashed = takesChecksum(url) && Boolean(parseChecksum(modalChecksum.value));
-    if (hashed || !getVideoTools().version || !looksLikeAPage(url)) {
+    if (hashed || !looksLikeAPage(url)) {
       await addPlainUrl(url);
+      return;
+    }
+    if (!getVideoTools().version) {
+      offerAsIs("no-ytdlp");
       return;
     }
 
@@ -397,16 +399,7 @@ export function initAddDialog(api) {
       probe = await window.__TAURI__.core.invoke("video_probe", { url });
     } catch (err) {
       if (token !== probeToken) return;
-      const message = String(err?.message || err);
-      setModalMode("url");
-      // yt-dlp's own diagnosis — it knows the difference between a login wall,
-      // a private video, and a page with nothing on it.
-      modalError.textContent = message === "no-ytdlp"
-        ? "No yt-dlp to read that page with — see Settings"
-        : message;
-      modalError.classList.remove("hidden");
-      // The page may still be a perfectly good file. Offer, don't assume.
-      modalPlain.classList.remove("hidden");
+      offerAsIs(String(err?.message || err));
       return;
     }
     if (token !== probeToken) return;
@@ -419,10 +412,7 @@ export function initAddDialog(api) {
         probe = await window.__TAURI__.core.invoke("video_probe", { url: only.url });
       } catch (err) {
         if (token !== probeToken) return;
-        setModalMode("url");
-        modalError.textContent = String(err?.message || err);
-        modalError.classList.remove("hidden");
-        modalPlain.classList.remove("hidden");
+        offerAsIs(String(err?.message || err));
         return;
       }
       if (token !== probeToken) return;
@@ -430,6 +420,18 @@ export function initAddDialog(api) {
 
     if (probe.kind === "playlist") showPlaylist(probe);
     else showPicker(probe, url);
+  }
+
+  function offerAsIs(message) {
+    setModalMode("url");
+    // yt-dlp's own diagnosis — it knows the difference between a login wall,
+    // a private video, and a page with nothing on it.
+    modalError.textContent = message === "no-ytdlp"
+      ? "No yt-dlp to read that page with — see Settings"
+      : message;
+    modalError.classList.remove("hidden");
+    // The page may still be a perfectly good file. Offer, don't assume.
+    modalPlain.classList.remove("hidden");
   }
 
   // ── The quality picker ──────────────────────────────────────────────────
