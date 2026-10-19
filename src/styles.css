@@ -469,6 +469,19 @@ html.in-app .statusbar {
     -webkit-appearance: none;
 }
 
+.search-clear {
+    display: flex;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+.search-clear:hover {
+    color: var(--text);
+}
+
 .content-body {
     flex: 1;
     overflow-y: auto;

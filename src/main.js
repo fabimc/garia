@@ -3603,6 +3603,7 @@ window.addEventListener("DOMContentLoaded", () => {
   listHost = listEl;
   const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
+  const nameSearchClear = document.getElementById("name-filter-clear");
 
   const categoryNav = document.getElementById("category-nav");
   const CAT_ICON = SVG_OPEN
@@ -3661,7 +3662,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   nameSearch.addEventListener("input", () => {
     nameFilter = nameSearch.value.trim();
+    nameSearchClear.classList.toggle("hidden", !nameSearch.value);
     applyFilter(listEl);
+  });
+  nameSearchClear.addEventListener("click", () => {
+    nameSearch.value = "";
+    nameSearch.dispatchEvent(new Event("input"));
+    nameSearch.focus();
   });
 
   const addDialog = initAddDialog({
