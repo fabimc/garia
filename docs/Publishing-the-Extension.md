@@ -98,6 +98,7 @@ Chrome asks why each permission exists. Unused ones were already dropped.
 | `downloads` | Cancel a download Chrome was about to save and send that URL to Garia instead. The extension does not write files. |
 | `contextMenus` | “Download with Garia”, “Send this page”, and “Download all links on this page”. |
 | `clipboardWrite` | A long “download all” list will not fit in the `garia://` link, so the extra URLs are copied for the desktop app to read. |
+| `storage` | Remember the options-page switches and the sites where the user hid the video chip. Nothing leaves this computer. |
 
 ### Review
 

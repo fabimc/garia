@@ -8,7 +8,7 @@ The Garia extension does not talk to a Garia server. There is no account, no ana
 - On a video page, a Download chip. That sends the **page** address, not the media stream.
 - “Download all links on this page” reads the `href` of every link in the tab you asked it to.
 
-Nothing of that is stored by the extension. A long “download all” list that will not fit in the link is copied to the clipboard so Garia can read it, then the handoff tab closes.
+The extension keeps two things in the browser’s local storage on this computer: the on/off choices from its options page (click capture, download takeover, video button), and the hostnames where you hid the video chip with ×. Nothing else is stored. A long “download all” list that will not fit in the link is copied to the clipboard so Garia can read it, then the handoff tab closes.
 
 ## What leaves the browser
 
@@ -18,7 +18,7 @@ Hold Option (or Alt) while clicking a file link to leave that download with the 
 
 ## Permissions
 
-The extension asks to run on `http` and `https` pages so a file click and the video chip work wherever you are. It asks for the downloads API so Chrome and Firefox can cancel a file they were about to save and give it to Garia instead. Safari has no such API; there the click on the link is the intercept.
+The extension asks to run on `http` and `https` pages so a file click and the video chip work wherever you are. It asks for the downloads API so Chrome and Firefox can cancel a file they were about to save and give it to Garia instead. Safari has no such API; there the click on the link is the intercept. It asks for storage so the options page and the hidden-site list survive a browser restart.
 
 ## Contact
 

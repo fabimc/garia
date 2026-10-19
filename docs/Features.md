@@ -21,7 +21,7 @@
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
 - A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
-- Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia
+- Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia. The extension options page turns click capture, download takeover, and the video button on or off.
 - Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives
 - Add several URLs at once — paste, drop, or send every link on a page from the extension, then uncheck the ones you do not want
 - A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header

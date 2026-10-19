@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Garia options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Garia</h1>
+      <p class="lede">
+        Turn capture features on or off. The toolbar button and the
+        right-click menus stay available either way.
+      </p>
+
+      <label class="row">
+        <input type="checkbox" id="clickCapture" />
+        <span>
+          <strong>Click capture</strong>
+          <span class="hint">
+            Send a file link to Garia when you click it. Hold Option
+            (or Alt) to leave that one with the browser.
+          </span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="downloadTakeover" />
+        <span>
+          <strong>Download takeover</strong>
+          <span class="hint">
+            When Chrome or Firefox starts a file download, cancel it and
+            send the URL to Garia instead. Safari has no downloads API,
+            so this does nothing there.
+          </span>
+        </span>
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="videoButton" />
+        <span>
+          <strong>Video page button</strong>
+          <span class="hint">
+            Show a Download chip on watch pages. × hides it for that
+            site until you clear the list below.
+          </span>
+        </span>
+      </label>
+
+      <section class="sites" id="sites-section" hidden>
+        <h2>Hidden sites</h2>
+        <p class="hint">
+          Sites where you hid the video button with ×.
+        </p>
+        <ul id="sites-list"></ul>
+        <button type="button" id="clear-sites" class="secondary">
+          Show the button on all sites again
+        </button>
+      </section>
+    </main>
+    <script src="prefs.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

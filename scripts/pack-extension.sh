@@ -16,8 +16,9 @@ mkdir -p "$out" "$stage"
 
 # Store zips must not carry Safari's converter manifest or editor junk.
 cp "$src/manifest.json" "$stage/"
-cp "$src/background.js" "$src/content.js" "$src/file-types.js" "$src/video-button.js" "$stage/"
+cp "$src/background.js" "$src/content.js" "$src/file-types.js" "$src/prefs.js" "$src/video-button.js" "$stage/"
 cp "$src/handoff.html" "$src/handoff.js" "$stage/"
+cp "$src/options.html" "$src/options.js" "$src/options.css" "$stage/"
 mkdir -p "$stage/icons"
 cp "$src/icons/16.png" "$src/icons/32.png" "$src/icons/48.png" "$src/icons/128.png" "$stage/icons/"
 
