@@ -27,6 +27,7 @@ export function initAddDialog(api) {
     pickByRule,
     safeName,
     targetDir,
+    chooseFolderInto,
     holdAdded,
     modalStartAt,
     resetStartField,
@@ -49,6 +50,9 @@ export function initAddDialog(api) {
   const modalChecksumRow  = document.getElementById("modal-checksum-row");
   const modalChecksum     = document.getElementById("modal-checksum");
   const modalChecksumHint = document.getElementById("modal-checksum-hint");
+  const modalDirRow       = document.getElementById("modal-dir-row");
+  const modalDir          = document.getElementById("modal-dir");
+  let dirEdited = false;   // a folder the user typed or chose outlives a retyped URL
 
   const modalBusy     = document.getElementById("modal-busy");
   const modalBusyText  = document.getElementById("modal-busy-text");
@@ -213,6 +217,29 @@ export function initAddDialog(api) {
 
     if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
     renderBatch();
+    renderDir();
+  }
+
+  // The URL the Save to field is for: the one submitUrl would hand straight
+  // to aria2, or none.
+  function plainFileUrl() {
+    if (modalMode !== "url") return "";
+    const urls = parseDownloadUrls(modalUrlInput.value);
+    if (urls.length !== 1) return "";
+    const url = urls[0];
+    if (isFtpUrl(url) && !looksLikeFtpFile(url)) return "";
+    const hashed = takesChecksum(url) && Boolean(parseChecksum(modalChecksum.value));
+    return hashed || !looksLikeAPage(url) ? url : "";
+  }
+
+  function renderDir() {
+    const url = plainFileUrl();
+    modalDirRow.classList.toggle("hidden", !url);
+    if (url && !dirEdited) modalDir.value = targetDir(url);
+  }
+
+  function chosenDir(url) {
+    return url === plainFileUrl() ? modalDir.value.trim() : "";
   }
 
   function openModal(url = "", extras = {}) {
@@ -223,6 +250,8 @@ export function initAddDialog(api) {
     batchReferrer = extras.referrer || "";
     modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
     modalChecksum.value = "";
+    modalDir.value      = "";
+    dirEdited           = false;
     torrentInput.value  = "";
     modalError.classList.add("hidden");
     modalPlain.classList.add("hidden");
@@ -253,6 +282,12 @@ export function initAddDialog(api) {
     renderBatch();
   });
   modalChecksum.addEventListener("input", renderChecksum);
+  // Emptied, the field goes back to following the URL.
+  modalDir.addEventListener("input", () => { dirEdited = modalDir.value.trim() !== ""; });
+  modalDir.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitUrl();
+  });
+  document.getElementById("modal-dir-browse").addEventListener("click", () => chooseFolderInto(modalDir));
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
@@ -306,7 +341,7 @@ export function initAddDialog(api) {
 
   // Hands the URL to aria2 exactly as typed. This is what the dialog has
   // always done, and it stays the fallback for everything yt-dlp declines.
-  async function addPlainUrl(url, options = addOptions(url)) {
+  async function addPlainUrl(url, options = addOptions(url, { dir: chosenDir(url) })) {
     modalError.classList.add("hidden");
     // The hash belongs to the URL as typed, so it rides the same call — and
     // only this one, because a video is two files and a playlist is forty.

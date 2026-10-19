@@ -292,6 +292,25 @@ function targetDir(url) {
   return cat ? categoryPath(cat) : base;
 }
 
+async function chooseFolderInto(input) {
+  const pick = window.__TAURI__?.dialog?.open;
+  if (typeof pick !== "function") return;
+  try {
+    const chosen = await pick({
+      directory: true,
+      multiple: false,
+      title: "Choose a folder",
+      defaultPath: input.value.trim() || undefined,
+    });
+    if (typeof chosen === "string" && chosen) {
+      input.value = chosen;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 function parseDownloadUrls(text) {
   const seen = new Set();
   const out = [];
@@ -3650,7 +3669,7 @@ window.addEventListener("DOMContentLoaded", () => {
     loginHeaders, loginFor, catchLabel, matchCategory, takesChecksum,
     parseChecksum, checksumOption, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
-    QUALITY_RULES, pickByRule, safeName, targetDir, holdAdded, modalStartAt,
+    QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
     resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
@@ -5145,21 +5164,7 @@ window.addEventListener("DOMContentLoaded", () => {
   captureOverlay.addEventListener("click", (e) => {
     if (e.target === captureOverlay) closeCapture();
   });
-  document.getElementById("capture-browse").addEventListener("click", async () => {
-    const pick = window.__TAURI__?.dialog?.open;
-    if (typeof pick !== "function") return;
-    try {
-      const chosen = await pick({
-        directory: true,
-        multiple: false,
-        title: "Choose a folder",
-        defaultPath: captureDir.value.trim() || undefined,
-      });
-      if (typeof chosen === "string" && chosen) captureDir.value = chosen;
-    } catch (err) {
-      console.error(err);
-    }
-  });
+  document.getElementById("capture-browse").addEventListener("click", () => chooseFolderInto(captureDir));
   captureCategory.addEventListener("change", () => {
     const cat = activeCategories().find((c) => c.id === captureCategory.value);
     captureDir.value = cat
