@@ -1,7 +1,7 @@
 [package]
 name = "garia-app"
 version = "0.2.0"
-description = "Garia iced binary (Phase 2 MVP; coexists with the Tauri package)"
+description = "Garia iced binary (coexists with the Tauri package)"
 edition.workspace = true
 license.workspace = true
 
@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 garia-core = { path = "../garia-core" }
+garia-platform = { path = "../garia-platform" }
 garia-ui = { path = "../garia-ui" }
 dirs = "5"
 iced = { version = "0.13", default-features = false, features = [
