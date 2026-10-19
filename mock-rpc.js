@@ -308,6 +308,12 @@ function snapshot() {
     // No source URI — a torrent can't be retried by re-adding a URL
     item("cccc6666", "error", "/Users/me/Downloads/some-collection.torrent", 0, 0, 0,
       { errorCode: "26", uris: [] }),
+    // Error 24 is aria2's code for an HTTP 401. A 403 arrives as error 22,
+    // with the status only in the message.
+    item("cccc8888", "error", "/Users/me/Downloads/members-only-course.zip", 640 * MB, 0, 0,
+      { errorCode: "24", errorMessage: "Authorization failed." }),
+    item("cccc9999", "error", "/Users/me/Downloads/hotlinked-wallpaper.jpg", 0, 0, 0,
+      { errorCode: "22", errorMessage: "The response status is not successful. status=403" }),
     // Both halves of a merged video, finished. The pairing is the app's, not
     // aria2's, so they make one Merging row only once localStorage has it and
     // the page reloads:
