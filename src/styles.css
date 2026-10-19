@@ -177,11 +177,15 @@ html.in-app .statusbar {
 }
 
 .sidebar-header {
-    /* clearance for the macOS traffic lights floating over the sidebar */
-    padding: 46px 0.3rem 0;
+    padding: 0.75rem 0.3rem 0;
     display: flex;
     align-items: center;
     gap: 0.55rem;
+}
+
+/* Clearance for the macOS traffic lights floating over the sidebar. */
+html.platform-mac .sidebar-header {
+    padding-top: 46px;
 }
 
 .logo-mark {
@@ -238,7 +242,7 @@ html.in-app .statusbar {
     display: flex;
 }
 /* …and the traffic lights land on the header once the sidebar is gone */
-.app-shell.sidebar-collapsed .content-header {
+html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding-left: 80px;
 }
 
@@ -2306,8 +2310,11 @@ html.prefs.in-app body {
 }
 
 html.in-app .prefs-nav {
-    padding-top: 46px;
     background: transparent;
+}
+
+html.platform-mac.in-app .prefs-nav {
+    padding-top: 46px;
 }
 
 .prefs-nav button {
