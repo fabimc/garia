@@ -1220,6 +1220,16 @@ function errorReason(dl) {
   return "Download failed";
 }
 
+// The few words a row's status cell has room for. errorReason is the tooltip.
+function errorLabel(dl) {
+  if (Number(dl.errorCode) === 24) return "Needs a login";
+  // aria2 gives a 403, like most HTTP statuses, no code of its own. The
+  // number is only at the end of its message.
+  const status = /status=(\d+)$/.exec(dl.errorMessage || "")?.[1];
+  if (status) return `Server answered ${status}`;
+  return errorReason(dl);
+}
+
 // Each row's primary verb lives on the icon (pause, resume, reveal). The
 // trailing buttons are extras: stop-seeding, a queued pause, and delete.
 function actionsFor(dl) {
@@ -1584,7 +1594,7 @@ function updateItemEl(li, dl) {
   let statusText = "";
   if (held) statusText = "Scheduled";
   else if (dl.status === "complete") statusText = "Complete";
-  else if (dl.status === "error") statusText = "Error";
+  else if (dl.status === "error") statusText = errorLabel(dl);
   else if (dl.status === "seeding") statusText = "Seeding";
   else if (dl.status === "waiting" && !showBar) statusText = "Queued";
   else if (merging) statusText = `Merging ${pct}%`;
