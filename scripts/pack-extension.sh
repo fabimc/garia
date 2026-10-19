@@ -29,4 +29,4 @@ cp "$src/icons/16.png" "$src/icons/32.png" "$src/icons/48.png" "$src/icons/128.p
 
 echo "Chrome Web Store zip:  $out/garia-chrome.zip"
 echo "Firefox Add-ons zip:   $out/garia-firefox.zip"
-echo "Sideload either browser from $src — Settings → Capture opens that folder."
+echo "Sideload either browser from $src — Settings → Browser opens that folder."

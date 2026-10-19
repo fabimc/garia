@@ -167,7 +167,7 @@ Same version bump, new zip, **Upload a new version** on the AMO developer page. 
 
 ## 3. After both are live
 
-1. Replace the sideload instructions in Settings → Capture and in [Browser capture](Browser-Capture.md) with the two store links.
+1. Replace the sideload instructions in Settings → Browser and in [Browser capture](Browser-Capture.md) with the two store links.
 2. Edge and Brave can install the Chrome Web Store listing, or you can submit the same zip to [Partner Center](https://partner.microsoft.com/dashboard/microsoftedge/overview) later. That is a third review, not a third codebase.
 3. Safari is still the converter script, then Developer ID / App Store Connect if you want it signed. That is a Mac app, not an AMO/CWS listing.
 
