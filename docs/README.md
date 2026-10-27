@@ -44,6 +44,7 @@ Want to learn more?
  * [FTP](FTP.md)
  * [Checksum verification](Checksums.md)
  * [Remote control](Remote-Control.md)
+ * [uTorrent parity review](uTorrent-Parity.md)
  * [Browser capture](Browser-Capture.md)
  * [Publishing the browser extension](Publishing-the-Extension.md)
  * [Extension privacy](../extensions/PRIVACY.md)
