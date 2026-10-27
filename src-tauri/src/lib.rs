@@ -4008,6 +4008,7 @@ pub fn run() {
                     }
                     "new-download" | "open-torrent" | "find"
                     | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
+                    | "retry-failed" | "clear-completed"
                     | "open-folder"
                     | "check-updates" | "licenses" | "help"
                     | "show-sidebar" => {
