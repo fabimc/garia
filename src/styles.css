@@ -904,6 +904,16 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-status-text.is-seeding {
     color: var(--brand);
 }
+.dl-status-text.is-stalled {
+    color: var(--warning);
+}
+.dl-verified.is-checking {
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+.dl-verified.is-checking::before {
+    content: "•";
+}
 
 /* Indeterminate state: active download with unknown total size */
 /* A 40% sliver crossing the track. Translations are of its own width, so
@@ -2800,6 +2810,45 @@ html.prefs.in-app .modal {
 .detail-pick input:disabled {
     cursor: default;
     opacity: 0.45;
+}
+.detail-priority select {
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 0.1rem 0.25rem;
+}
+.detail-seed,
+.detail-limit-custom,
+.detail-folder {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.6rem;
+}
+.detail-seed {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+.detail-seed-row,
+.detail-limit-custom {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.detail-seed-row .field-input,
+.detail-limit-custom .field-input {
+    width: 5.5rem;
+}
+.detail-folder .detail-note,
+.detail-seed .detail-note {
+    flex: 1 1 12rem;
 }
 
 /* Only there once the ticks say something aria2 doesn't. */

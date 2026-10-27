@@ -25,6 +25,13 @@ async function initPlatform() {
         ? "platform-linux"
         : "platform-windows",
   );
+  const machine = computerLabel().replace(/^This /, "this ");
+  const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
+  const shutdown = document.querySelector('input[name="done-action"][value="shutdown"]');
+  const sleepLabel = sleep?.closest("label")?.querySelector("span");
+  const shutdownLabel = shutdown?.closest("label")?.querySelector("span");
+  if (sleepLabel) sleepLabel.textContent = `Sleep ${machine}`;
+  if (shutdownLabel) shutdownLabel.textContent = `Shut down ${machine}`;
 }
 
 function computerLabel() {

@@ -20,9 +20,11 @@ Garia already matches a substantial portion of the core download-manager experie
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
 - Notification, dock, and tray-style status indicators
 
-## Remaining gaps to close
+## Parity work now in the app
 
-The remaining work is primarily about deeper torrent management, richer queue controls, and UX polish rather than basic downloads themselves.
+Torrent detail and seeding, queue and row actions, per-download caps, the Torrents filter, and the same Download-menu verbs on macOS and Linux are in the app. The bullets are the spec that shipped.
+
+That work was deeper torrent management, richer queue controls, and UX polish rather than basic downloads themselves.
 
 ### 1. Torrent-management feature depth
 
@@ -76,6 +78,6 @@ Priority: medium
 
 ## Outcome
 
-The current version of Garia already covers the core functional expectations of uTorrent for everyday downloads and torrent use. The remaining gap is not a single missing feature, but a set of deeper torrent-management and workflow optimizations that make the product feel equally complete for power users.
+The current version of Garia covers the core functional expectations of uTorrent for everyday downloads and torrent use, including the torrent, queue, and per-download controls listed above. aria2 still does not report which tracker answered or a per-file piece priority, so tracker status follows whether any peer is connected, and file priority downloads High, then Normal, then Low.
 
 This document is meant to guide future work and should be revisited as features are implemented and the product grows.

@@ -1,6 +1,22 @@
 import { initAddDialog } from "./add-dialog.js";
 import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
+import {
+  desiredIndices,
+  indicesDiffer,
+  isStalled,
+  isTorrentDownload,
+  leechersOf,
+  parseKilobytes,
+  placeInQueue,
+  prioritiesNeedAdvance,
+  sameOrder,
+  seedUntilLabel,
+  selectedIndicesOf,
+  torrentHealth,
+  trackerRows,
+  trackerStatus,
+} from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
@@ -431,6 +447,84 @@ function seedOptions() {
   const minutes = Number(settings.seedTimeMinutes) || 0;
   if (minutes > 0) options["seed-time"] = String(minutes);
   return options;
+}
+
+// Per-file priority is not an aria2 option. It is remembered here, keyed by
+// info hash so a relaunch — which gives the torrent a new gid — still knows
+// which files were High. The poll turns that into select-file.
+const PRIORITY_KEY = "garia:file-priority";
+const filePriorities = new Map();
+
+function loadFilePriorities() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRIORITY_KEY) || "{}");
+    for (const [key, value] of Object.entries(raw)) {
+      if (value && typeof value === "object") filePriorities.set(key, value);
+    }
+  } catch { /* a bad record is the same as no priorities */ }
+}
+
+function saveFilePriorities() {
+  const raw = {};
+  for (const [key, value] of filePriorities) raw[key] = value;
+  try { localStorage.setItem(PRIORITY_KEY, JSON.stringify(raw)); } catch { /* private mode */ }
+}
+
+loadFilePriorities();
+
+function priorityKeyOf(dl) {
+  if (dl?.infoHash) return `bt:${String(dl.infoHash).toLowerCase()}`;
+  return dl?.gid ? `gid:${dl.gid}` : "";
+}
+
+function rememberPriorities(dl, map) {
+  const key = priorityKeyOf(dl);
+  if (!key) return;
+  filePriorities.set(key, { ...map });
+  saveFilePriorities();
+}
+
+function priorityFor(dl, index, selected) {
+  const saved = filePriorities.get(priorityKeyOf(dl));
+  const fromDisk = saved?.[index] || saved?.[String(index)];
+  if (fromDisk) return fromDisk;
+  return selected === "false" ? "off" : "normal";
+}
+
+function priorityFiles(dl, overrides) {
+  return (dl?.files || []).map((file) => ({
+    index: Number(file.index),
+    length: Number(file.length) || 0,
+    completedLength: Number(file.completedLength) || 0,
+    selected: file.selected,
+    priority: overrides?.get(Number(file.index))
+      || overrides?.get(String(file.index))
+      || priorityFor(dl, file.index, file.selected),
+  }));
+}
+
+let priorityAdvance = null;
+
+async function advanceFilePriorities(downloads) {
+  if (priorityAdvance) return priorityAdvance;
+  priorityAdvance = (async () => {
+    for (const dl of downloads) {
+      if (!isTorrentDownload(dl) || fileSelection.has(dl.gid)) continue;
+      if (!["active", "waiting", "paused"].includes(dl.status)) continue;
+      const files = priorityFiles(dl);
+      if (!prioritiesNeedAdvance(files)) continue;
+      const wanted = desiredIndices(files);
+      if (!wanted.length) continue;
+      if (!indicesDiffer(selectedIndicesOf(files), wanted)) continue;
+      try {
+        await whilePaused(dl.gid, dl.status === "active", () =>
+          rpc("aria2.changeOption", [dl.gid, { "select-file": wanted.join(",") }]));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  })().finally(() => { priorityAdvance = null; });
+  return priorityAdvance;
 }
 
 // ── Checksums ────────────────────────────────────────────────────────────
@@ -1088,6 +1182,11 @@ function fileName(download) {
   return uri.split("/").pop() || uri || download.gid;
 }
 
+function isTorrent(dl) {
+  if (isTorrentDownload(dl)) return true;
+  return sourceUrl(dl).startsWith("magnet:");
+}
+
 function statusLabel(status) {
   const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Complete", error: "Error", removed: "Removed" };
   return map[status] || status;
@@ -1612,13 +1711,15 @@ function updateItemEl(li, dl) {
   const name = fileName(dl);
 
   const category = categoryIdFor(dl);
+  const torrent = isTorrent(dl) ? "true" : "false";
   if (li.dataset.status !== dl.status || li.dataset.name !== name ||
-      li.dataset.category !== category) {
+      li.dataset.category !== category || li.dataset.torrent !== torrent) {
     filterDirty = true;
   }
   li.dataset.status = dl.status;
   li.dataset.name = name;
   li.dataset.category = category;
+  li.dataset.torrent = torrent;
   li.classList.toggle(
     "is-file-draggable",
     (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
@@ -1667,10 +1768,16 @@ function updateItemEl(li, dl) {
   // the chip is not a claim garia is making — it is the one aria2 already made
   // by letting the download finish at all.
   const verifiedEl = li.querySelector(".dl-verified");
-  const checked = dl.status === "complete" ? splitChecksum(rowChecksum(dl.gid)) : null;
-  verifiedEl.classList.toggle("hidden", !checked);
+  const checked = splitChecksum(rowChecksum(dl.gid));
+  const verifying = Boolean(checked) && dl.status !== "complete" && dl.status !== "removed";
+  const verified = Boolean(checked) && dl.status === "complete";
+  verifiedEl.classList.toggle("hidden", !verified && !verifying);
+  verifiedEl.classList.toggle("is-checking", verifying);
+  verifiedEl.textContent = verifying ? "Checking" : "Verified";
   if (checked) {
-    verifiedEl.title = `${checked.label} matched: ${checked.digest}`;
+    verifiedEl.title = verified
+      ? `${checked.label} matched: ${checked.digest}`
+      : `Checking ${checked.label} as the bytes arrive: ${checked.digest}`;
   }
 
   const sizeEl = li.querySelector(".dl-size");
@@ -1694,7 +1801,11 @@ function updateItemEl(li, dl) {
   if (held) statusText = "Scheduled";
   else if (dl.status === "complete") statusText = "Complete";
   else if (dl.status === "error") statusText = errorLabel(dl);
-  else if (dl.status === "seeding") statusText = "Seeding";
+  else if (dl.status === "seeding") {
+    const totalUp = Number(dl.totalLength) || 0;
+    const shared = Number(dl.uploadLength) || 0;
+    statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
+  } else if (isStalled(dl)) statusText = "Stalled";
   else if (dl.status === "waiting" && !showBar) statusText = "Queued";
   else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
@@ -1707,11 +1818,18 @@ function updateItemEl(li, dl) {
   statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
   statusEl.classList.toggle("is-error", dl.status === "error");
   statusEl.classList.toggle("is-seeding", dl.status === "seeding");
+  statusEl.classList.toggle("is-stalled", statusText === "Stalled");
   const reason = dl.status === "error" ? errorReason(dl) : "";
   const seedTip = dl.status === "seeding"
-    ? seedingMeta(dl).join(" · ")
+    ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
-  statusEl.title = held || reason || seedTip;
+  const stallTip = statusText === "Stalled"
+    ? "No peers are connected, so nothing is arriving."
+    : "";
+  const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
+    ? `${formatBytes(dl.completedLength)} were already on disk when this session started.`
+    : "";
+  statusEl.title = [held, reason, seedTip, stallTip, resumeTip].filter(Boolean).join(" ");
 
   fillCols(li, dl);
 
@@ -1818,6 +1936,7 @@ function withSeeding(dl) {
 
 const VIEW_TITLES = {
   all: "All Downloads",
+  torrents: "Torrents",
   active: "Downloading",
   seeding: "Seeding",
   waiting: "Queued",
@@ -1848,6 +1967,11 @@ function rowEl(gid) {
 // again at launch.
 let firstPoll = true;
 
+// Gids that already had bytes on disk the first time this session saw them.
+// That is the resume-after-restart case: aria2's session file brought the
+// download back, and the row should say so instead of looking newly started.
+const resumedGids = new Set();
+
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
@@ -1868,7 +1992,7 @@ function applyFilter(listEl) {
   const needle = nameFilter.toLowerCase();
   // Headers only earn their keep in the combined view; a single-status filter
   // would just repeat its own name.
-  const showSections = activeFilter === "all";
+  const showSections = activeFilter === "all" || activeFilter === "torrents";
   let visible = 0;
   let header = null;
   let inSection = 0;
@@ -1897,7 +2021,9 @@ function applyFilter(listEl) {
     const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
     const statusMatch = catId
       ? el.dataset.category === catId
-      : activeFilter === "all" || rowStatus === activeFilter;
+      : activeFilter === "torrents"
+        ? el.dataset.torrent === "true"
+        : activeFilter === "all" || rowStatus === activeFilter;
     const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     el.classList.toggle("hidden", !match);
@@ -1916,10 +2042,14 @@ function applyFilter(listEl) {
     if (items.length > 0) {
       title = activeFilter.startsWith("cat:")
         ? "Nothing in this category"
-        : "Nothing matches this view";
+        : activeFilter === "torrents"
+          ? "No torrents"
+          : "Nothing matches this view";
       sub = activeFilter.startsWith("cat:")
         ? "Downloads that land in this folder show up here"
-        : "Try a different filter or clear the search field";
+        : activeFilter === "torrents"
+          ? "Magnets and .torrent files show up here"
+          : "Try a different filter or clear the search field";
     } else if (connState === "error") {
       title = "Can't reach aria2";
       sub = "Start aria2 and garia will reconnect on its own";
@@ -2169,7 +2299,7 @@ function heldNote(gid) {
   if (!isHeld(gid)) return "";
   const at = startAt(gid);
   if (at) return `starts ${clockOf(at)}`;
-  if (schedule.queueStopped) return "queue stopped";
+  if (schedule.queueStopped) return "Queue stopped";
   if (schedule.enabled && !schedule.open) return `starts ${clockLabel(schedule.start)}`;
   return "held";
 }
@@ -2185,8 +2315,8 @@ function renderSchedule() {
     queueEl.classList.toggle("hidden", !stopped);
     if (stopped) {
       queueEl.dataset.state = "shut";
-      queueEl.textContent = "· queue stopped";
-      queueEl.title = `${QUEUE_STOP_NOTE} Start Queue lets them run again.`;
+      queueEl.textContent = "· Queue stopped";
+      queueEl.title = `${QUEUE_STOP_NOTE} Start Queue lets them run again. The queue stays stopped after a relaunch until you start it.`;
     }
   }
 
@@ -2293,6 +2423,25 @@ async function moveInQueue(gid, { before = "", after = "" }) {
   return true;
 }
 
+// The whole queue, in the order it should end up. Used by Move to Top and
+// Move to End, which are a selection rather than one row dropped on another.
+// Same back-to-front walk as moveInQueue: aria2 renumbers on every call, so
+// each gid is placed in front of the neighbour it should keep.
+async function applyQueueOrder(target) {
+  const queue = [...queueOrder];
+  for (const gid of [...target].reverse()) {
+    const follower = target[target.indexOf(gid) + 1];
+    const at = queue.indexOf(gid);
+    if (at < 0) continue;
+    queue.splice(at, 1);
+    const found = follower === undefined ? -1 : queue.indexOf(follower);
+    const to = found < 0 ? queue.length : found;
+    queue.splice(to, 0, gid);
+    if (at !== to) await rpc("aria2.changePosition", [gid, to, "POS_SET"]);
+  }
+  queueOrder = queue;
+}
+
 // ── Detail view ──────────────────────────────────────────────────────────
 // A row is five numbers wide on purpose. Everything else aria2 already knows
 // about a download — the URL the bytes come from, the path they land on, how
@@ -2318,7 +2467,9 @@ const PEER_LIMIT = 40;
 const FACT_LABELS = {
   status: "Status",
   connections: "Connections",
-  seeders: "Seeders",
+  seeders: "Seeds",
+  leechers: "Leechers",
+  health: "Health",
   downloaded: "Downloaded",
   speed: "Speed",
   eta: "Time left",
@@ -2329,8 +2480,8 @@ const FACT_LABELS = {
 };
 
 const FACTS_HTTP = ["status", "connections", "downloaded", "speed", "eta", "pieces"];
-const FACTS_BT = ["status", "connections", "seeders", "downloaded", "speed",
-                  "uploaded", "upspeed", "ratio"];
+const FACTS_BT = ["status", "health", "connections", "seeders", "leechers",
+                  "downloaded", "speed", "uploaded", "upspeed", "ratio"];
 
 // The gid whose details are on screen, or null. Also the guard that stops a
 // reply arriving after the dialog closed from painting into a dead panel.
@@ -2341,6 +2492,7 @@ let detailBusy = false;
 // gid. The panel redraws every second off the poll; without this a tick made
 // between two of them would be wiped by the next one.
 const fileSelection = new Map();
+const filePriorityDraft = new Map();
 
 // A torrent's files can be re-picked while it runs, waits or is paused —
 // aria2 will not take the option on a download it is actively working, so
@@ -2367,15 +2519,18 @@ function updateSelectBar(sec) {
   // a running download has to be stopped before it will take the change.
   const running = bar.dataset.running === "true";
   const boxes = [...sec.querySelectorAll("input[data-file-index]")];
-  const changed = boxes.some((box) => box.checked !== (box.dataset.was !== "false"));
+  const priorityChanged = [...sec.querySelectorAll("select[data-file-priority]")]
+    .some((sel) => sel.value !== sel.dataset.was);
+  const changed = priorityChanged || boxes.some((box) => box.checked !== (box.dataset.was !== "false"));
   const taking = boxes.filter((box) => box.checked).length;
 
   bar.classList.toggle("hidden", !changed || boxes.length === 0);
+  const priorityNote = " High downloads before Normal, then Low. Off stays out. aria2 has no per-file piece priority, so that order is which files are selected.";
   bar.querySelector(".detail-select-note").textContent = taking === 0
     ? "Leave at least one file — a torrent with nothing selected downloads all of it."
     : running
-      ? `Take ${taking} of ${boxes.length}. aria2 only changes this on a stopped download, so garia pauses it and starts it again.`
-      : `Take ${taking} of ${boxes.length}.`;
+      ? `Take ${taking} of ${boxes.length}. aria2 only changes this on a stopped download, so garia pauses it and starts it again.${priorityNote}`
+      : `Take ${taking} of ${boxes.length}.${priorityNote}`;
   bar.querySelector(".detail-select-apply").disabled = taking === 0;
 }
 
@@ -2505,9 +2660,15 @@ function factValues(st) {
   const pieces = Number(st.numPieces) || 0;
   const remaining = st.status === "active" && total > 0 ? total - done : 0;
   return {
-    status: statusLabel(st.status),
+    status: st.seeder === "true" && st.status === "active"
+      ? "Seeding"
+      : isStalled(st)
+        ? "Stalled"
+        : statusLabel(st.status),
     connections: String(Number(st.connections) || 0),
     seeders: String(Number(st.numSeeders) || 0),
+    leechers: "—",
+    health: "—",
     downloaded: total > 0 ? `${formatBytes(done)} / ${formatBytes(total)}` : formatBytes(done),
     speed: formatSpeed(speed) || "—",
     eta: (remaining ? formatSpan(remaining / speed) : "") || "—",
@@ -2682,7 +2843,7 @@ function buildPart(part) {
   if (!bt && part.solo) sec.appendChild(buildCheckBlock(part.gid));
 
   const filesTable = buildTable("files", "Files",
-    bt ? ["Take", "File", "Size", "Done"] : ["File", "Size", "Done"]);
+    bt ? ["Take", "File", "Size", "Done", "Priority"] : ["File", "Size", "Done"]);
   // The tick column pushes the name along one, and the name is the only column
   // in these tables that isn't a measurement.
   if (bt) filesTable.dataset.pick = "true";
@@ -2695,9 +2856,20 @@ function buildPart(part) {
     apply.dataset.gid = part.gid;
     bar.appendChild(apply);
     sec.appendChild(bar);
+    sec.appendChild(buildSeedBlock(part.gid));
+    sec.appendChild(buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]));
   }
+  const folder = el("div", "detail-folder hidden");
+  const change = el("button", "btn-secondary detail-folder-change", "Change folder");
+  change.type = "button";
+  change.dataset.gid = part.gid;
+  folder.appendChild(change);
+  folder.appendChild(el("p", "detail-note detail-folder-note",
+    "Every file in this download goes to the same folder. aria2 only moves a download it is not working on, so a running one is paused and started again."));
+  sec.appendChild(folder);
   sec.appendChild(buildTable("servers", "Live connections", ["Server", "Speed"]));
   if (bt) sec.appendChild(buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]));
+  sec.appendChild(el("p", "detail-note detail-resume hidden"));
 
   sec.appendChild(el("p", "detail-error hidden"));
   return sec;
@@ -2820,7 +2992,48 @@ function buildLimitBlock() {
   }
   sec.appendChild(seg);
 
+  const custom = el("div", "detail-limit-custom");
+  const input = el("input", "field-input detail-limit-input");
+  input.type = "number";
+  input.min = "0";
+  input.step = "1";
+  input.placeholder = "KB/s";
+  input.setAttribute("aria-label", "Cap this download, in kilobytes per second");
+  custom.appendChild(input);
+  const set = el("button", "btn-secondary detail-limit-set", "Set cap");
+  set.type = "button";
+  custom.appendChild(set);
+  sec.appendChild(custom);
+
   sec.appendChild(el("p", "detail-note"));
+  return sec;
+}
+
+function buildSeedBlock(gid) {
+  const sec = el("div", "detail-seed");
+  sec.appendChild(el("h4", null, "Seed until"));
+  const row = el("div", "detail-seed-row");
+  const ratio = el("input", "field-input detail-seed-ratio");
+  ratio.type = "number";
+  ratio.min = "0";
+  ratio.max = "100";
+  ratio.step = "0.1";
+  ratio.setAttribute("aria-label", "Seed until this share ratio");
+  row.appendChild(ratio);
+  row.appendChild(el("span", "field-suffix", "×"));
+  const minutes = el("input", "field-input detail-seed-minutes");
+  minutes.type = "number";
+  minutes.min = "0";
+  minutes.step = "10";
+  minutes.setAttribute("aria-label", "Seed until this many minutes");
+  row.appendChild(minutes);
+  row.appendChild(el("span", "field-suffix", "min"));
+  const save = el("button", "btn-secondary detail-seed-save", "Save");
+  save.type = "button";
+  save.dataset.gid = gid;
+  row.appendChild(save);
+  sec.appendChild(row);
+  sec.appendChild(el("p", "detail-note detail-seed-note"));
   return sec;
 }
 
@@ -2830,12 +3043,17 @@ function updateLimitBlock(sec, data) {
   for (const btn of sec.querySelectorAll("[data-limit-mode]")) {
     btn.setAttribute("aria-pressed", String(btn.dataset.limitMode === mode));
   }
+  const input = sec.querySelector(".detail-limit-input");
+  if (input && document.activeElement !== input && sec.dataset.cap !== String(bytes)) {
+    sec.dataset.cap = String(bytes);
+    input.value = bytes > 0 ? String(Math.round(bytes / 1024)) : "";
+  }
 
   const said = [];
   if (bytes > 0) {
     said.push(`Held to ${formatSpeed(bytes)}.`);
     // A cap set back when Light meant something else is still that many bytes.
-    if (!mode) said.push("Neither mode stands for that speed now — picking one replaces it.");
+    if (!mode) said.push("That is a cap for this download alone — neither traffic mode stands for it.");
     // The cap is an aria2 option on a download, and a merged row is two of them.
     if (data.parts.length > 1) said.push("Each half of the merge carries it, so the pair can take twice that.");
   } else if (currentMode() === "full") {
@@ -2843,6 +3061,7 @@ function updateLimitBlock(sec, data) {
   } else {
     said.push(`Takes what the line gives it, under the overall ${MODE_LABELS[currentMode()]} cap.`);
   }
+  said.push("The number is for this download, not each socket, and aria2 keeps it in the session.");
   sec.querySelector(".detail-note").textContent = said.join(" ");
 }
 
@@ -3140,7 +3359,10 @@ function updatePart(sec, part) {
       }
       // What aria2 says, so the bar can tell a change from a redraw.
       box.dataset.was = f.selected === "false" ? "false" : "true";
-      box.checked = pending ? pending.has(Number(f.index)) : f.selected !== "false";
+      const savedPriority = priorityFor(snapshot.get(part.gid) || st, f.index, f.selected);
+      box.checked = pending
+        ? pending.has(Number(f.index))
+        : savedPriority !== "off";
       box.disabled = !canPickFiles(st);
     }
     cells(tr, [
@@ -3150,10 +3372,96 @@ function updatePart(sec, part) {
         : size > 0 ? `${Math.round((got / size) * 100)}%` : "—",
     ], bt ? 1 : 0);
     tr.children[bt ? 1 : 0].title = f.path || "";
+    if (bt) {
+      let pri = tr.querySelector("select[data-file-priority]");
+      if (!pri) {
+        const td = el("td", "detail-priority");
+        pri = document.createElement("select");
+        pri.dataset.filePriority = String(f.index);
+        pri.setAttribute("aria-label", `Priority for ${(f.path || "").split("/").pop() || "this file"}`);
+        for (const [value, label] of [["high", "High"], ["normal", "Normal"], ["low", "Low"], ["off", "Off"]]) {
+          const opt = document.createElement("option");
+          opt.value = value;
+          opt.textContent = label;
+          pri.appendChild(opt);
+        }
+        td.appendChild(pri);
+        tr.appendChild(td);
+      }
+      const row = snapshot.get(part.gid);
+      const was = priorityFor(row || st, f.index, f.selected);
+      pri.dataset.was = was;
+      pri.dataset.length = String(size);
+      pri.dataset.completed = String(got);
+      const drafted = filePriorityDraft.get(part.gid)?.get(Number(f.index));
+      if (drafted) pri.value = drafted;
+      else if (document.activeElement !== pri) pri.value = was;
+      pri.disabled = !canPickFiles(st);
+    }
   });
   const bar = sec.querySelector(".detail-select");
   if (bar) bar.dataset.running = String(st.status === "active");
   updateSelectBar(sec);
+
+  if (bt) {
+    sec.dataset.infoHash = st.infoHash || "";
+    const seeds = Number(st.numSeeders) || 0;
+    const connected = Number(st.connections) || 0;
+    const leechers = leechersOf({ connections: connected, seeders: seeds, peers: part.peers });
+    const health = torrentHealth({ seeders: seeds, leechers, peers: connected });
+    const healthFact = sec.querySelector('[data-fact="health"] dd');
+    const leechFact = sec.querySelector('[data-fact="leechers"] dd');
+    if (healthFact && healthFact.textContent !== health.label) {
+      healthFact.textContent = health.label;
+      healthFact.title = health.title;
+    }
+    if (leechFact) {
+      const text = String(leechers);
+      if (leechFact.textContent !== text) {
+        leechFact.textContent = text;
+        leechFact.title = "Connected peers that are not seeds. aria2 does not report the rest of the swarm.";
+      }
+    }
+    const trackers = trackerRows(st.bittorrent?.announceList);
+    const trackerState = trackerStatus(connected);
+    syncTable(sec, "trackers", trackers, (row) => row.url, (tr, row) => {
+      cells(tr, [hostOf(row.url) || row.url, String(row.tier), trackerState]);
+      tr.children[0].title = row.url;
+    });
+    const seed = sec.querySelector(".detail-seed");
+    if (seed && document.activeElement !== seed.querySelector(".detail-seed-ratio")
+        && document.activeElement !== seed.querySelector(".detail-seed-minutes")) {
+      seed.querySelector(".detail-seed-ratio").value = String(Number(settings.seedRatio) || 0);
+      seed.querySelector(".detail-seed-minutes").value = String(Number(settings.seedTimeMinutes) || 0);
+    }
+    const seedNote = sec.querySelector(".detail-seed-note");
+    if (seedNote) {
+      seedNote.textContent = `${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. `
+        + "Saved with the other settings and applied to torrents added after this. "
+        + "This one keeps the rule it started with — aria2 will not replace it on a torrent that is already running. "
+        + "0 means don’t stop for that reason. Whichever comes first.";
+    }
+  }
+
+  const folder = sec.querySelector(".detail-folder");
+  if (folder) {
+    const movable = ["active", "waiting", "paused"].includes(st.status) && Boolean(st.dir);
+    folder.classList.toggle("hidden", !movable);
+    const change = folder.querySelector(".detail-folder-change");
+    if (change) change.dataset.dir = st.dir || "";
+  }
+
+  const resume = sec.querySelector(".detail-resume");
+  if (resume) {
+    const bytes = Number(st.completedLength) || 0;
+    const show = resumedGids.has(part.gid) && bytes > 0
+      && !["complete", "seeding", "removed"].includes(st.status);
+    resume.classList.toggle("hidden", !show);
+    if (show) {
+      const text = `Resumed after a restart — ${formatBytes(bytes)} were already on disk.`;
+      if (resume.textContent !== text) resume.textContent = text;
+    }
+  }
 
   syncTable(sec, "servers", flattenServers(part.servers), (s) => s.key, (tr, s) => {
     cells(tr, [hostOf(s.uri), formatSpeed(s.speed) || "—"]);
@@ -3175,7 +3483,13 @@ function updatePart(sec, part) {
   }, peers.length > PEER_LIMIT ? `${PEER_LIMIT} of ${peers.length}` : undefined);
 
   const errEl = sec.querySelector(".detail-error");
-  const reason = st.status === "error" ? errorReason(st) : "";
+  let reason = st.status === "error" ? errorReason(st) : "";
+  if (reason && Number(st.completedLength) > 0) {
+    reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
+  }
+  if (st.status === "active" && isStalled(st)) {
+    reason = "Stalled — no peers are connected, so nothing is arriving.";
+  }
   errEl.classList.toggle("hidden", !reason);
   if (reason && errEl.textContent !== reason) errEl.textContent = reason;
 }
@@ -3273,12 +3587,27 @@ async function whilePaused(gid, wasActive, change) {
 }
 
 async function applyFileSelection(gid, sec) {
-  const wanted = selectedIndices(sec);
+  const picks = [...sec.querySelectorAll("select[data-file-priority]")];
+  const files = picks.map((sel) => ({
+    index: Number(sel.dataset.filePriority),
+    priority: sel.value,
+    length: Number(sel.dataset.length) || 0,
+    completedLength: Number(sel.dataset.completed) || 0,
+  }));
+  const wanted = files.length ? desiredIndices(files) : selectedIndices(sec);
   if (!wanted.length) return;
   const running = sec.querySelector(".detail-select")?.dataset.running === "true";
   await whilePaused(gid, running, () =>
     rpc("aria2.changeOption", [gid, { "select-file": wanted.join(",") }]));
+  const map = {};
+  for (const sel of picks) map[sel.dataset.filePriority] = sel.value;
+  const row = snapshot.get(gid);
+  rememberPriorities({
+    gid,
+    infoHash: sec.dataset.infoHash || row?.infoHash || "",
+  }, map);
   fileSelection.delete(gid);
+  filePriorityDraft.delete(gid);
 }
 
 function openDetail(gid) {
@@ -3290,6 +3619,7 @@ function openDetail(gid) {
   body.dataset.shape = "";
   body.textContent = "";
   fileSelection.clear();
+  filePriorityDraft.clear();
   const row = snapshot.get(gid);
   document.getElementById("detail-title").textContent = row ? fileName(row) : gid;
   document.getElementById("detail-reveal").classList.add("hidden");
@@ -3300,6 +3630,7 @@ function openDetail(gid) {
 function closeDetail() {
   // An unapplied pick is a thought, not a setting: it goes when the panel does.
   fileSelection.clear();
+  filePriorityDraft.clear();
   detailCache.delete(detailGid);
   detailGid = null;
   closeOverlay(document.getElementById("detail-overlay"));
@@ -3565,7 +3896,7 @@ async function poll(listEl) {
 
     const all = collapseJobs(raw).filter((dl) => !removing.has(dl.gid));
     runPendingMerges(all);
-    const tally = { all: all.length, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
+    const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
     const seen = new Set();
 
@@ -3585,8 +3916,16 @@ async function poll(listEl) {
         countCompletion();
       }
 
+      if (firstPoll) {
+        const already = Number(dl.completedLength) || 0;
+        if (already > 0 && ["active", "waiting", "paused", "error"].includes(dl.status)) {
+          resumedGids.add(dl.gid);
+        }
+      }
+
       const counted = sidebarViewOf(dl.status);
       if (tally[counted] !== undefined) tally[counted]++;
+      if (isTorrent(dl)) tally.torrents++;
       const catId = categoryIdFor(dl);
       if (catId && tally[catId] !== undefined) tally[catId]++;
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
@@ -3653,6 +3992,7 @@ async function poll(listEl) {
 
     renderCounts(tally);
     syncStatusItem(tally.active);
+    void advanceFilePriorities(all);
     // Only a poll that actually reached aria2 counts as having seen the list;
     // a failed first attempt must not silence the real one.
     firstPoll = false;
@@ -3902,6 +4242,24 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (urls.length) await copyText(urls.join("\n"));
       return;
     }
+    if (action === "copy-path") {
+      const paths = selectedDownloads().flatMap((dl) => {
+        const files = (dl.files || []).map((f) => f.path).filter(Boolean);
+        if (files.length) return files;
+        const path = rowPath(dl);
+        return path ? [path] : [];
+      });
+      if (paths.length) await copyText([...new Set(paths)].join("\n"));
+      return;
+    }
+    if (action === "remove-keep") {
+      await removeDownloads(gids, false);
+      return;
+    }
+    if (action === "move-top" || action === "move-end") {
+      await moveSelection(action === "move-end" ? "end" : "top");
+      return;
+    }
     if (action === "details") {
       const gid = selectAnchor || gids[0];
       if (gid) openDetail(gid);
@@ -4039,12 +4397,22 @@ window.addEventListener("DOMContentLoaded", async () => {
       items.push({
         action: "copy-url",
         label: dls.length > 1 ? "Copy URLs" : "Copy URL",
-        shortcut: "⌘C",
+        shortcut: `${modGlyph()}C`,
       });
+    }
+    const paths = dls.some((d) => rowPath(d) || (d.files || []).some((f) => f.path));
+    if (paths) items.push({ action: "copy-path", label: dls.length > 1 ? "Copy File Paths" : "Copy File Path" });
+    const queued = [...selected].flatMap((gid) => gidsFor(gid)).filter((gid) => queueOrder.includes(gid));
+    if (queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "top"))) {
+      items.push({ action: "move-top", label: "Move to Top" });
+    }
+    if (queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "end"))) {
+      items.push({ action: "move-end", label: "Move to End" });
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
     items.push({ separator: true });
-    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: "⌘⌫" });
+    items.push({ action: "remove-keep", label: "Remove, Keep Files" });
+    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
     return items;
   }
 
@@ -4258,18 +4626,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   const confirmCancel  = document.getElementById("confirm-cancel");
   const confirmTrashLabel = confirmFileRow.querySelector("span");
   let confirmGids = [];
+  let confirmKeepOnly = false;
 
-  function openConfirm(gids) {
+  function openConfirm(gids, options = {}) {
     const list = (Array.isArray(gids) ? gids : [gids]).filter((g) => snapshot.has(g));
     if (!list.length) return;
     confirmGids = list;
+    confirmKeepOnly = options.keepFiles === true;
     const many = list.length > 1;
-    confirmTitle.textContent = many ? "Delete downloads" : "Delete download";
-    confirmName.textContent = many
+    confirmTitle.textContent = options.title || (many ? "Delete downloads" : "Delete download");
+    confirmName.textContent = options.name || (many
       ? `${list.length} downloads`
-      : fileName(snapshot.get(list[0]));
-    const onDisk = list.some((g) => rowWroteBytes(snapshot.get(g)));
+      : fileName(snapshot.get(list[0])));
+    const onDisk = !confirmKeepOnly && list.some((g) => rowWroteBytes(snapshot.get(g)));
     confirmFileRow.classList.toggle("hidden", !onDisk);
+    document.getElementById("confirm-delete").textContent = confirmKeepOnly ? "Remove" : "Delete";
     confirmTrashLabel.textContent = many
       ? "Move the downloaded files to the Trash"
       : "Move the downloaded file to the Trash";
@@ -4288,13 +4659,26 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("confirm-delete").addEventListener("click", async () => {
     const gids = confirmGids;
-    const alsoTrash = confirmTrash.checked && !confirmFileRow.classList.contains("hidden");
+    const alsoTrash = !confirmKeepOnly && confirmTrash.checked && !confirmFileRow.classList.contains("hidden");
     closeConfirm();
     await removeDownloads(gids, alsoTrash);
   });
 
   // ── Detail panel ─────────────────────────────────────────────────────────
   const detailOverlay = document.getElementById("detail-overlay");
+
+  detailOverlay.addEventListener("change", (e) => {
+    const sel = e.target.closest("select[data-file-priority]");
+    if (!sel) return;
+    const sec = sel.closest(".detail-part");
+    const box = sec.querySelector(`input[data-file-index="${sel.dataset.filePriority}"]`);
+    if (box) box.checked = sel.value !== "off";
+    const draft = filePriorityDraft.get(sec.dataset.gid) || new Map();
+    draft.set(Number(sel.dataset.filePriority), sel.value);
+    filePriorityDraft.set(sec.dataset.gid, draft);
+    fileSelection.set(sec.dataset.gid, new Set(selectedIndices(sec)));
+    updateSelectBar(sec);
+  });
 
   detailOverlay.addEventListener("click", async (e) => {
     // The row's own cap. Sent before the panel is redrawn, and the buttons go
@@ -4317,11 +4701,82 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    const limitSet = e.target.closest(".detail-limit-set");
+    if (limitSet && detailGid) {
+      const input = limitSet.closest(".detail-limit").querySelector(".detail-limit-input");
+      const bytes = parseKilobytes(input?.value);
+      if (bytes === null) {
+        failed("Couldn't change this download's speed", "Enter a number of kilobytes per second.");
+        return;
+      }
+      limitSet.disabled = true;
+      try {
+        await setRowLimit(detailGid, bytes);
+      } catch (err) {
+        failed("Couldn't change this download's speed", err);
+      }
+      limitSet.disabled = false;
+      refreshDetail();
+      await pollAndSync();
+      return;
+    }
+
+    const seedSave = e.target.closest(".detail-seed-save");
+    if (seedSave) {
+      const block = seedSave.closest(".detail-seed");
+      const ratio = Math.min(100, Math.max(0, parseFloat(block.querySelector(".detail-seed-ratio").value) || 0));
+      const minutes = Math.max(0, parseInt(block.querySelector(".detail-seed-minutes").value, 10) || 0);
+      seedSave.disabled = true;
+      try {
+        await saveSettingsPatch({ seedRatio: ratio, seedTimeMinutes: minutes });
+      } catch (err) {
+        failed("Couldn't save the seeding rule", err);
+      }
+      seedSave.disabled = false;
+      refreshDetail();
+      return;
+    }
+
+    const folderBtn = e.target.closest(".detail-folder-change");
+    if (folderBtn) {
+      const pick = window.__TAURI__?.dialog?.open;
+      if (typeof pick !== "function") return;
+      folderBtn.disabled = true;
+      try {
+        const chosen = await pick({
+          directory: true,
+          multiple: false,
+          title: "Choose a folder",
+          defaultPath: folderBtn.dataset.dir || undefined,
+        });
+        if (typeof chosen === "string" && chosen) {
+          const gid = folderBtn.dataset.gid;
+          const running = folderBtn.closest(".detail-part")?.querySelector(".detail-select")?.dataset.running === "true"
+            || snapshot.get(gid)?.status === "active";
+          await whilePaused(gid, running, () => rpc("aria2.changeOption", [gid, { dir: chosen }]));
+        }
+      } catch (err) {
+        failed("Couldn't change the folder", err);
+      }
+      folderBtn.disabled = false;
+      refreshDetail();
+      await pollAndSync();
+      return;
+    }
+
     // A tick on a file inside a torrent. Remembered against the gid so the
     // next poll redraws what the user chose rather than what aria2 still says.
     const box = e.target.closest("input[data-file-index]");
     if (box) {
       const sec = box.closest(".detail-part");
+      const sel = sec.querySelector(`select[data-file-priority="${box.dataset.fileIndex}"]`);
+      if (sel) {
+        if (!box.checked) sel.value = "off";
+        else if (sel.value === "off") sel.value = "normal";
+        const draft = filePriorityDraft.get(sec.dataset.gid) || new Map();
+        draft.set(Number(box.dataset.fileIndex), sel.value);
+        filePriorityDraft.set(sec.dataset.gid, draft);
+      }
       fileSelection.set(sec.dataset.gid, new Set(selectedIndices(sec)));
       updateSelectBar(sec);
       return;
@@ -4929,6 +5384,51 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  async function moveSelection(where) {
+    const moving = [];
+    for (const gid of selected) {
+      for (const g of gidsFor(gid)) {
+        if (queueOrder.includes(g) && !moving.includes(g)) moving.push(g);
+      }
+    }
+    const next = placeInQueue(queueOrder, moving, where);
+    if (sameOrder(queueOrder, next)) return;
+    reorderHold = true;
+    try {
+      await applyQueueOrder(next);
+    } catch (err) {
+      failed("Couldn't move it in the queue", err);
+    }
+    reorderHold = false;
+    await pollAndSync();
+  }
+
+  async function retryFailed() {
+    const rows = [...snapshot.values()].filter((dl) => dl.status === "error");
+    let changed = false;
+    for (const dl of rows) {
+      if (dl.job?.webpageUrl) {
+        await runRowAction(dl.gid, "reprobe", { url: dl.job.webpageUrl });
+      } else if (retryUris(dl).length) {
+        await runRowAction(dl.gid, "retry", { poll: false });
+        changed = true;
+      }
+    }
+    if (changed) await pollAndSync();
+  }
+
+  async function clearCompleted() {
+    const gids = [...snapshot.values()].filter((dl) => dl.status === "complete").map((dl) => dl.gid);
+    if (!gids.length) return;
+    openConfirm(gids, {
+      keepFiles: true,
+      title: "Clear completed",
+      name: gids.length === 1
+        ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
+        : `${gids.length} finished downloads leave the list. The files stay on disk.`,
+    });
+  }
+
   const listenMenu = window.__TAURI__?.event?.listen;
   if (typeof listenMenu === "function") {
     listenMenu("menu", (event) => {
@@ -4941,6 +5441,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (id === "resume-all") resumeAll();
       if (id === "stop-queue") setQueueStopped(true).then(() => pollAndSync());
       if (id === "start-queue") setQueueStopped(false).then(() => pollAndSync());
+      if (id === "retry-failed") retryFailed();
+      if (id === "clear-completed") clearCompleted();
       if (id === "open-folder") {
         const dir = settings.downloadDir;
         if (dir && window.__TAURI__?.opener?.openPath) {
@@ -5374,7 +5876,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (settings.catchClipboard === false) return;
     offeredUrl = url;
-    catchText.textContent = `Download ${catchLabel(url)}?`;
+    const folder = targetDir(url);
+    catchText.textContent = folder
+      ? `Download ${catchLabel(url)} into ${folder}?`
+      : `Download ${catchLabel(url)}?`;
     catchBanner.classList.remove("hidden");
     clearTimeout(catchTimer);
     catchTimer = setTimeout(hideCatch, CATCH_MS);
@@ -5399,7 +5904,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     noticeTimer = setTimeout(hideNotice, NOTICE_MS);
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !overlayOpen()) hideCatch();
+    if (overlayOpen()) return;
+    if (e.key === "Escape") hideCatch();
+    if (e.key === "Enter" && !catchBanner.classList.contains("hidden") && !fieldHasFocus()) {
+      e.preventDefault();
+      document.getElementById("catch-add").click();
+    }
   });
 
   document.getElementById("capture-close").addEventListener("click", closeCapture);
