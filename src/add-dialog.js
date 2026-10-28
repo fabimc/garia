@@ -8,6 +8,7 @@ import {
   intakeReviewHint,
   newPackageId,
   packageDisplayName,
+  rememberedQualityRule,
   reviewIntake,
 } from "./parity.js";
 
@@ -50,6 +51,9 @@ export function initAddDialog(api) {
     alreadyHaveUrl = () => false,
     failed = (what, err) => console.error(what, err),
     rememberPackage = () => {},
+    siteRuleFor = () => null,
+    loadQualityRule = () => "best",
+    saveQualityRule = (rule) => rule,
   } = api;
 
   let lastBatchKey = "";
@@ -178,13 +182,28 @@ export function initAddDialog(api) {
   // a 401 three seconds later is a worse way to find out, and a site with a
   // login saved is exactly the one where a typo in the host goes unnoticed.
   function renderModalLogin() {
-    const login = loginFor(modalUrlInput.value.trim());
-    modalLogin.classList.toggle("hidden", !login);
+    const url = modalUrlInput.value.trim();
+    const login = loginFor(url);
+    const rule = siteRuleFor(url);
     if (login) {
+      modalLogin.classList.remove("hidden");
       modalLogin.textContent = login.username
         ? `Signing in to ${login.host} as ${login.username}`
         : `Sending your saved headers for ${login.host}`;
+      return;
     }
+    if (rule) {
+      modalLogin.classList.remove("hidden");
+      const bits = [];
+      if (rule.referrer) bits.push("referrer");
+      if (rule.alwaysQueue) bits.push("queued");
+      if (rule.defaultDir) bits.push("folder");
+      modalLogin.textContent = bits.length
+        ? `Site rule for ${rule.host}: ${bits.join(", ")}`
+        : `Site rule for ${rule.host}`;
+      return;
+    }
+    modalLogin.classList.add("hidden");
   }
 
   // Three things to say and one field to say them in: nothing yet, the digest
@@ -211,6 +230,14 @@ export function initAddDialog(api) {
     try { return new URL(url).hostname; } catch { return ""; }
   }
 
+  function basenameGuess(url) {
+    if (/^magnet:/i.test(url)) return "";
+    const path = String(url || "").split(/[?#]/, 1)[0];
+    let name = path.split("/").pop() || "";
+    try { name = decodeURIComponent(name); } catch { /* keep */ }
+    return name === "." || name === ".." ? "" : name;
+  }
+
   function defaultBatchPackageName(urls) {
     const hosts = new Map();
     for (const url of urls || []) {
@@ -222,6 +249,11 @@ export function initAddDialog(api) {
     let topN = 0;
     for (const [host, n] of hosts) {
       if (n > topN) { top = host; topN = n; }
+    }
+    const rule = siteRuleFor(urls?.[0] || "");
+    if (rule?.packagePrefix) {
+      const n = (urls || []).length;
+      return n > 1 ? `${rule.packagePrefix} (${n})` : rule.packagePrefix;
     }
     return packageDisplayName({
       referrer: batchReferrer,
@@ -257,6 +289,10 @@ export function initAddDialog(api) {
       isDirectFile: directFile,
       alreadyHave: alreadyHaveUrl,
     });
+    const keptNames = new Map();
+    for (const input of batchEntries.querySelectorAll("input.batch-entry-out")) {
+      keptNames.set(input.dataset.url, input.value);
+    }
     batchEntries.textContent = "";
     for (const row of reviewed) {
       const meta = formatIntakeMeta(row);
@@ -270,10 +306,16 @@ export function initAddDialog(api) {
       box.dataset.queued = row.queued ? "true" : "false";
       box.dataset.content = row.content || "";
       box.checked = kept.has(row.url) ? kept.get(row.url) : row.selected;
-      const name = document.createElement("span");
-      name.className = "batch-entry-name";
-      name.textContent = catchLabel(row.url);
+      const name = document.createElement("input");
+      name.type = "text";
+      name.className = "batch-entry-out field-input";
+      name.dataset.url = row.url;
+      name.value = keptNames.get(row.url) ?? basenameGuess(row.url);
+      name.placeholder = catchLabel(row.url);
       name.title = row.url;
+      name.autocomplete = "off";
+      name.spellcheck = false;
+      name.addEventListener("click", (e) => e.stopPropagation());
       const kind = document.createElement("span");
       kind.className = row.file ? "batch-kind is-file" : "batch-kind";
       if (row.content && row.content !== "other" && row.content !== "page") {
@@ -500,12 +542,17 @@ export function initAddDialog(api) {
 
   async function addBatch(candidates) {
     const boxes = [...batchEntries.querySelectorAll("input[type=checkbox]")];
+    const outs = new Map();
+    for (const input of batchEntries.querySelectorAll("input.batch-entry-out")) {
+      outs.set(input.dataset.url, input.value.trim());
+    }
     const urls = boxes.length
       ? boxes.filter((box) => box.checked).map((box) => box.dataset.url)
       : candidates;
     if (!urls.length) return;
     const at = modalStartAt();
-    const queue = holdOnAdd(at);
+    const rule = siteRuleFor(urls[0] || "");
+    const queue = holdOnAdd(at) || Boolean(rule?.alwaysQueue);
     modalError.classList.add("hidden");
     const packageName = (batchPackageName?.value || "").trim()
       || defaultBatchPackageName(urls);
@@ -513,7 +560,11 @@ export function initAddDialog(api) {
     const gids = [];
     try {
       for (const url of urls) {
-        const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
+        const gid = await rpc("aria2.addUri", [[url], addOptions(url, {
+          queue,
+          referrer: batchReferrer,
+          name: outs.get(url) || "",
+        })]);
         await holdAdded(gid, at);
         if (typeof gid === "string") gids.push(gid);
       }
@@ -701,6 +752,11 @@ export function initAddDialog(api) {
       : "";
     playlistNote.textContent = note;
     playlistNote.classList.toggle("hidden", !note);
+    const rule = siteRuleFor(info.webpageUrl || modalUrlInput.value.trim());
+    playlistRule.value = rememberedQualityRule(
+      rule?.qualityRule || loadQualityRule(),
+      "best",
+    );
     paintPlaylistRule();
 
     renderPlaylistEntries();
@@ -952,9 +1008,17 @@ export function initAddDialog(api) {
     if (!picked.length) return;
 
     const rule = playlistRule.value;
+    saveQualityRule(rule);
     const token = ++probeToken;
     const failures = [];
     let queued = 0;
+    const gids = [];
+    const named = playlist.info.title
+      ? (picked.length > 1 ? `${playlist.info.title} (${picked.length})` : playlist.info.title)
+      : packageDisplayName({
+        referrer: playlist.info.webpageUrl || "",
+        count: picked.length,
+      });
 
     setModalMode("busy");
     for (const [nth, index] of picked.entries()) {
@@ -985,7 +1049,8 @@ export function initAddDialog(api) {
       }
 
       try {
-        await queueChoice({ ...probe, webpageUrl: probe.webpageUrl || entry.url }, choice);
+        const gid = await queueChoice({ ...probe, webpageUrl: probe.webpageUrl || entry.url }, choice);
+        if (gid) gids.push(gid);
         queued++;
         // Untick what is already downloading, so what is left on the panel
         // after a partial run is exactly what still needs one.
@@ -996,6 +1061,7 @@ export function initAddDialog(api) {
     }
 
     if (token !== probeToken) return;
+    if (gids.length > 1) rememberPackage({ id: newPackageId(), name: named, gids });
     await pollAndSync();
     if (!failures.length) {
       closeModal();
@@ -1036,7 +1102,7 @@ export function initAddDialog(api) {
         header: [...f.headers, ...loginHeaders(f.url)],
       }]);
       await holdAdded(gid, at);
-      return;
+      return typeof gid === "string" ? gid : "";
     }
 
     const [v, a] = choice.formats;
@@ -1068,6 +1134,7 @@ export function initAddDialog(api) {
       state: "downloading",
     });
     saveJobs();
+    return typeof videoGid === "string" ? videoGid : "";
   }
 
   // Queue what the picker chose.

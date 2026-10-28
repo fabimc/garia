@@ -60,7 +60,21 @@ import {
   packageSummary,
   groupDownloadsByPackage,
   packageActions,
+  packageMenuExtras,
   formatWaitReason,
+  siteRuleFor,
+  applySiteRuleOptions,
+  formatSiteRuleSummary,
+  moveGidsToPackage,
+  packageExportPayload,
+  packageExportText,
+  parseLinkListText,
+  normalizeGrabJob,
+  grabJobSummary,
+  grabJobDue,
+  normalizeTemplate,
+  templateSummary,
+  rememberedQualityRule,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -391,6 +405,73 @@ test("wait reasons distinguish queue, schedule, and failure", () => {
   assert.equal(formatWaitReason({ held: true, holdNote: "starts Fri 9:00" }), "starts Fri 9:00");
   assert.match(formatWaitReason({ status: "error", errorCode: 24 }), /Login/);
   assert.match(formatWaitReason({ status: "error", errorCode: 5 }), /speed|cap|traffic/i);
+});
+
+test("site rules match host and merge options onto an add", () => {
+  const rules = [
+    { host: "cdn.example", referrer: "https://cdn.example/", extraHeaders: ["X-Token: a"], alwaysQueue: true },
+    { host: "files.example.com", defaultDir: "/Downloads/Files", qualityRule: "1080" },
+  ];
+  assert.equal(siteRuleFor("https://cdn.example/a.zip", rules).host, "cdn.example");
+  assert.equal(siteRuleFor("https://mirror.cdn.example/a.zip", rules).host, "cdn.example");
+  assert.equal(siteRuleFor("https://other.test/a.zip", rules), null);
+  const options = applySiteRuleOptions({ dir: "/tmp" }, rules[0]);
+  assert.equal(options.dir, "/tmp");
+  assert.equal(options.referer, "https://cdn.example/");
+  assert.equal(options.pause, "true");
+  assert.deepEqual(options.header, ["X-Token: a"]);
+  assert.match(formatSiteRuleSummary(rules[1]), /folder/);
+  assert.match(formatSiteRuleSummary(rules[1]), /1080/);
+});
+
+test("packages can move, export, and become templates", () => {
+  const start = [
+    { id: "p1", name: "One", gids: ["a", "b"], createdAt: 1 },
+    { id: "p2", name: "Two", gids: ["c"], createdAt: 2 },
+  ];
+  const moved = moveGidsToPackage(start, ["a", "c"], "p2");
+  assert.deepEqual(moved.find((p) => p.id === "p1").gids, ["b"]);
+  assert.deepEqual(moved.find((p) => p.id === "p2").gids.sort(), ["a", "c"]);
+  assert.deepEqual(moveGidsToPackage(moved, ["a"], null).find((p) => p.id === "p2").gids, ["c"]);
+  const payload = packageExportPayload({
+    name: "Dump",
+    urls: ["https://a.test/x.zip", { url: "https://a.test/y.mp4", out: "clip.mp4" }],
+  });
+  assert.equal(payload.version, 1);
+  assert.equal(payload.urls[1].out, "clip.mp4");
+  assert.equal(packageExportText(payload), "https://a.test/x.zip\nhttps://a.test/y.mp4");
+  assert.deepEqual(
+    parseLinkListText("# note\nhttps://a.test/x.zip\nhttps://a.test/x.zip\nnot-a-url"),
+    ["https://a.test/x.zip"],
+  );
+  assert.equal(templateSummary(normalizeTemplate(payload)), "2 saved links");
+  assert.deepEqual(
+    packageMenuExtras({ samePackage: true, hasPackages: true, selected: 2 }).map((i) => i.action),
+    ["move-package", "ungroup-package", "copy-package-urls", "save-package-template"],
+  );
+});
+
+test("grab jobs fire once per day or week after their minute", () => {
+  const job = normalizeGrabJob({
+    name: "Nightly",
+    urls: ["https://a.test/a.zip"],
+    every: "daily",
+    atMinute: 2 * 60,
+    lastRunAt: 0,
+  });
+  assert.match(grabJobSummary(job), /1 link/);
+  assert.match(grabJobSummary(job), /daily/);
+  const morning = new Date("2026-10-28T01:00:00");
+  const evening = new Date("2026-10-28T03:00:00");
+  assert.equal(grabJobDue(job, { now: morning }), false);
+  assert.equal(grabJobDue(job, { now: evening }), true);
+  assert.equal(grabJobDue(job, { now: evening, lastRunAt: evening.getTime() }), false);
+  const weekly = normalizeGrabJob({ ...job, every: "weekly", weekday: 3 }); // Wed
+  assert.equal(grabJobDue(weekly, { now: evening }), true); // 2026-10-28 is Wed
+  assert.equal(grabJobDue(weekly, { now: new Date("2026-10-29T03:00:00") }), false);
+  assert.equal(rememberedQualityRule("720"), "720");
+  assert.equal(rememberedQualityRule(""), "best");
+  assert.equal(rememberedQualityRule("nope"), "best");
 });
 
 test("the extension collector matches the shared page-capture helper", () => {

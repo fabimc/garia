@@ -986,3 +986,256 @@ export function formatTrackerSummary(peerCount, trackerCount) {
   }
   return `${n} tracker${n === 1 ? "" : "s"} · none have a peer connected yet.`;
 }
+
+// ── JDownloader parity items 4–7 ─────────────────────────────────────────
+// Site rules sit beside logins: credentials stay in netrc/headers; these
+// only shape how a URL is added. Grab jobs and templates share one shape so
+// a saved link set can be re-run by hand or on a clock.
+
+function hostOfUrl(url) {
+  try {
+    return new URL(String(url || "").trim()).hostname.replace(/\.+$/, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+export function normalizeSiteHost(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withScheme).hostname.replace(/\.+$/, "").toLowerCase();
+  } catch {
+    return raw.replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
+  }
+}
+
+export function siteRuleFor(url, rules = []) {
+  const host = hostOfUrl(url);
+  if (!host) return null;
+  const list = Array.isArray(rules) ? rules : [];
+  const exact = list.find((rule) => normalizeSiteHost(rule?.host) === host);
+  if (exact) return exact;
+  return list.find((rule) => {
+    const wanted = normalizeSiteHost(rule?.host);
+    return wanted && (host === wanted || host.endsWith(`.${wanted}`));
+  }) || null;
+}
+
+export function applySiteRuleOptions(baseOptions = {}, rule = null) {
+  if (!rule) return { ...baseOptions };
+  const options = { ...baseOptions };
+  const referrer = String(rule.referrer || "").trim();
+  if (referrer && !options.referer) options.referer = referrer;
+  const dir = String(rule.defaultDir || "").trim();
+  if (dir && !options.dir) options.dir = dir;
+  if (rule.alwaysQueue) options.pause = "true";
+  const extra = (rule.extraHeaders || [])
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  if (extra.length) {
+    const existing = Array.isArray(options.header) ? options.header : [];
+    options.header = [...existing, ...extra];
+  }
+  return options;
+}
+
+export function formatSiteRuleSummary(rule) {
+  if (!rule) return "";
+  const bits = [];
+  if (rule.referrer) bits.push("referrer");
+  const headers = (rule.extraHeaders || []).filter(Boolean).length;
+  if (headers) bits.push(headers === 1 ? "1 header" : `${headers} headers`);
+  if (rule.defaultDir) bits.push("folder");
+  if (rule.alwaysQueue) bits.push("queue");
+  if (rule.qualityRule) bits.push(`quality ${rule.qualityRule}`);
+  if (rule.packagePrefix) bits.push("package name");
+  return bits.length ? bits.join(" · ") : "No overrides yet";
+}
+
+export function moveGidsToPackage(packageList, gids, targetId, { name = "", now = Date.now() } = {}) {
+  const moving = [...new Set((gids || []).map(String).filter(Boolean))];
+  let packages = (packageList || [])
+    .map((pkg) => ({
+      id: pkg.id,
+      name: pkg.name || "Package",
+      gids: (pkg.gids || []).map(String),
+      createdAt: Number(pkg.createdAt) || 0,
+    }))
+    .filter((pkg) => pkg.id);
+
+  for (const pkg of packages) {
+    pkg.gids = pkg.gids.filter((gid) => !moving.includes(gid));
+  }
+
+  if (targetId === null || targetId === "") {
+    return packages.filter((pkg) => pkg.gids.length > 0);
+  }
+
+  let target = packages.find((pkg) => pkg.id === targetId);
+  if (!target) {
+    target = {
+      id: targetId === "new" ? newPackageId(now) : String(targetId),
+      name: String(name || "Package"),
+      gids: [],
+      createdAt: Number(now) || Date.now(),
+    };
+    packages = [target, ...packages];
+  } else if (name) {
+    target.name = String(name);
+  }
+  target.gids = [...new Set([...target.gids, ...moving])];
+  return packages.filter((pkg) => pkg.gids.length > 0);
+}
+
+export function packageExportPayload({ name = "", urls = [], createdAt = Date.now() } = {}) {
+  const entries = (urls || []).map((row) => {
+    if (typeof row === "string") return { url: row };
+    const url = String(row?.url || "").trim();
+    if (!url) return null;
+    const out = String(row.out || "").trim();
+    const dir = String(row.dir || "").trim();
+    return {
+      url,
+      ...(out ? { out } : {}),
+      ...(dir ? { dir } : {}),
+    };
+  }).filter(Boolean);
+  return {
+    version: 1,
+    name: String(name || "Package"),
+    urls: entries,
+    createdAt: Number(createdAt) || Date.now(),
+  };
+}
+
+export function packageExportText(payload) {
+  const rows = payload?.urls || [];
+  return rows.map((row) => (typeof row === "string" ? row : row.url)).filter(Boolean).join("\n");
+}
+
+export function parseLinkListText(text) {
+  const seen = new Set();
+  const urls = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const token = line.split(/\s+/)[0];
+    if (!(token.startsWith("magnet:") || /^https?:\/\//i.test(token) || /^ftps?:\/\//i.test(token))) {
+      continue;
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    urls.push(token);
+  }
+  return urls;
+}
+
+export function normalizeGrabJob(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newPackageId()),
+    name: String(raw.name || "Grab").trim() || "Grab",
+    urls,
+    enabled: raw.enabled !== false,
+    every: raw.every === "weekly" ? "weekly" : "daily",
+    atMinute: Math.max(0, Math.min(24 * 60 - 1, Number(raw.atMinute) || 0)),
+    weekday: Math.max(0, Math.min(6, Number(raw.weekday) || 0)),
+    packageName: String(raw.packageName || "").trim(),
+    lastRunAt: Number(raw.lastRunAt) || 0,
+  };
+}
+
+export function grabJobSummary(job) {
+  const row = normalizeGrabJob(job);
+  const n = row.urls.length;
+  const links = n === 1 ? "1 link" : `${n} links`;
+  const hh = String(Math.floor(row.atMinute / 60)).padStart(2, "0");
+  const mm = String(row.atMinute % 60).padStart(2, "0");
+  const when = row.every === "weekly"
+    ? `weekly · ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][row.weekday]} ${hh}:${mm}`
+    : `daily · ${hh}:${mm}`;
+  const state = row.enabled ? when : `paused · ${when}`;
+  return `${links} · ${state}`;
+}
+
+export function grabJobDue(job, { now = new Date(), lastRunAt } = {}) {
+  const row = normalizeGrabJob(job);
+  if (!row.enabled || !row.urls.length) return false;
+  const stamp = lastRunAt == null ? row.lastRunAt : Number(lastRunAt) || 0;
+  const current = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(current.getTime())) return false;
+  if (row.every === "weekly" && current.getDay() !== row.weekday) return false;
+  const minute = current.getHours() * 60 + current.getMinutes();
+  if (minute < row.atMinute) return false;
+  if (!stamp) return true;
+  const last = new Date(stamp);
+  if (Number.isNaN(last.getTime())) return true;
+  if (row.every === "daily") {
+    return last.toDateString() !== current.toDateString();
+  }
+  // Weekly: due once the most recent weekday+time has passed without a run.
+  const due = new Date(current);
+  due.setSeconds(0, 0);
+  due.setHours(Math.floor(row.atMinute / 60), row.atMinute % 60, 0, 0);
+  while (due.getDay() !== row.weekday) due.setDate(due.getDate() - 1);
+  return last.getTime() < due.getTime();
+}
+
+export function normalizeTemplate(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((row) => {
+      if (typeof row === "string") return { url: row };
+      const url = String(row?.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        ...(row.out ? { out: String(row.out) } : {}),
+        ...(row.dir ? { dir: String(row.dir) } : {}),
+      };
+    }).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newPackageId()),
+    name: String(raw.name || "Template").trim() || "Template",
+    urls,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+export function templateSummary(template) {
+  const row = normalizeTemplate(template);
+  const n = row.urls.length;
+  return n === 1 ? "1 saved link" : `${n} saved links`;
+}
+
+export function rememberedQualityRule(stored, fallback = "best") {
+  const value = String(stored || "").trim();
+  if (!value) return fallback;
+  if (value === "best" || value === "audio") return value;
+  const cap = Number(value);
+  return Number.isFinite(cap) && cap > 0 ? String(cap) : fallback;
+}
+
+export function packageMenuExtras({
+  samePackage = false,
+  hasPackages = false,
+  selected = 0,
+} = {}) {
+  const items = [];
+  const n = Math.max(0, Number(selected) || 0);
+  if (n > 0 && (samePackage || hasPackages)) {
+    items.push({ action: "move-package", label: "Move to Package…" });
+  }
+  if (samePackage) {
+    items.push({ action: "ungroup-package", label: "Remove from Package" });
+    items.push({ action: "copy-package-urls", label: "Copy Package URLs" });
+    items.push({ action: "save-package-template", label: "Save as Template" });
+  } else if (n > 1) {
+    items.push({ action: "new-package", label: "New Package from Selection" });
+  }
+  return items;
+}

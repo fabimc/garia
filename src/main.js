@@ -43,7 +43,22 @@ import {
   formatFilePriorityLabel,
   formatWaitReason,
   packageActions,
+  packageMenuExtras,
   packageSummary,
+  packageExportPayload,
+  packageExportText,
+  parseLinkListText,
+  siteRuleFor,
+  applySiteRuleOptions,
+  formatSiteRuleSummary,
+  moveGidsToPackage,
+  normalizeGrabJob,
+  grabJobDue,
+  grabJobSummary,
+  normalizeTemplate,
+  templateSummary,
+  rememberedQualityRule,
+  newPackageId,
   FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
@@ -443,8 +458,10 @@ function parseDownloadUrls(text) {
 // download already had, so it isn't routed through here — a retry lands where
 // the first attempt was going to, even if the rules have changed since.
 function addOptions(url, extras = {}) {
-  const dir = extras.dir || targetDir(url);
-  const options = dir ? { dir } : {};
+  const rule = extras.skipSiteRule ? null : siteRuleFor(url, siteRules);
+  const ruleDir = rule?.defaultDir || "";
+  const dir = extras.dir || ruleDir || targetDir(url);
+  let options = dir ? { dir } : {};
   const name = String(extras.name || "").replace(/^.*[/\\]/, "").trim();
   if (name && name !== "." && name !== "..") options.out = name;
   if (extras.referrer) options.referer = extras.referrer;
@@ -458,6 +475,10 @@ function addOptions(url, extras = {}) {
   // Headers for a site with a login. A password is not here and never will
   // be: aria2 reads that out of its own netrc, per host, per request.
   Object.assign(options, loginOptions(url));
+  // Site rules layer referrer, extra headers, default folder, and always-queue
+  // on top of the login — credentials stay in the login/netrc path.
+  options = applySiteRuleOptions(options, rule);
+  if (extras.queue || extras.forceQueue) options.pause = "true";
   return options;
 }
 
@@ -1010,6 +1031,86 @@ function prunePackages(alive) {
 }
 
 let renderPackageNav = null;
+
+const SITE_RULES_KEY = "garia:site-rules";
+const GRAB_JOBS_KEY = "garia:grab-jobs";
+const TEMPLATES_KEY = "garia:templates";
+const QUALITY_RULE_KEY = "garia:quality-rule";
+
+function loadSiteRules() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SITE_RULES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((rule) => rule && rule.host) : [];
+  } catch {
+    return [];
+  }
+}
+
+let siteRules = loadSiteRules();
+
+function saveSiteRules(next = siteRules) {
+  siteRules = Array.isArray(next) ? next : [];
+  try { localStorage.setItem(SITE_RULES_KEY, JSON.stringify(siteRules)); } catch { /* private mode */ }
+}
+
+function loadGrabJobs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GRAB_JOBS_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map(normalizeGrabJob) : [];
+  } catch {
+    return [];
+  }
+}
+
+let grabJobs = loadGrabJobs();
+
+function saveGrabJobs(next = grabJobs) {
+  grabJobs = (Array.isArray(next) ? next : []).map(normalizeGrabJob);
+  try { localStorage.setItem(GRAB_JOBS_KEY, JSON.stringify(grabJobs)); } catch { /* private mode */ }
+}
+
+function loadTemplates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map(normalizeTemplate) : [];
+  } catch {
+    return [];
+  }
+}
+
+let linkTemplates = loadTemplates();
+
+function saveTemplates(next = linkTemplates) {
+  linkTemplates = (Array.isArray(next) ? next : []).map(normalizeTemplate);
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(linkTemplates)); } catch { /* private mode */ }
+}
+
+function loadQualityRule() {
+  try { return rememberedQualityRule(localStorage.getItem(QUALITY_RULE_KEY) || ""); }
+  catch { return "best"; }
+}
+
+function saveQualityRule(rule) {
+  const value = rememberedQualityRule(rule);
+  try { localStorage.setItem(QUALITY_RULE_KEY, value); } catch { /* private mode */ }
+  return value;
+}
+
+window.__gariaParityState = {
+  get siteRules() { return siteRules; },
+  setSiteRules: saveSiteRules,
+  get grabJobs() { return grabJobs; },
+  setGrabJobs: saveGrabJobs,
+  get templates() { return linkTemplates; },
+  setTemplates: saveTemplates,
+  formatSiteRuleSummary,
+  grabJobSummary,
+  templateSummary,
+  normalizeGrabJob,
+  normalizeTemplate,
+  newPackageId,
+  parseLinkListText,
+};
 
 // Every aria2 gid a row stands for. One for an ordinary download; two for a
 // merged video, whose second half deliberately has no row of its own.
@@ -4339,6 +4440,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
     startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
     rememberPackage,
+    siteRuleFor: (url) => siteRuleFor(url, siteRules),
+    loadQualityRule,
+    saveQualityRule,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
@@ -4346,6 +4450,29 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
+  document.getElementById("link-list-input")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      let urls = parseLinkListText(text);
+      let packageName = file.name.replace(/\.[^.]+$/, "");
+      if (!urls.length && /\.json$/i.test(file.name)) {
+        const parsed = JSON.parse(text);
+        const rows = Array.isArray(parsed) ? parsed : parsed?.urls;
+        urls = (rows || []).map((row) => (typeof row === "string" ? row : row?.url)).filter(Boolean);
+        if (parsed?.name) packageName = String(parsed.name);
+      }
+      if (!urls.length) {
+        showNotice("That file did not contain any download links", { error: false });
+        return;
+      }
+      openModal(urls, { packageName });
+    } catch (err) {
+      failed(`Couldn't read “${file.name}”`, err);
+    }
+  });
 
   // Per-row buttons and section "View all" links. A plain click selects;
   // the name, a double-click, or Enter opens the panel — a list, not a
@@ -4504,7 +4631,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       || action === "pause-package"
       || action === "resume-package"
       || action === "retry-package"
-      || action === "clear-package-completed") {
+      || action === "clear-package-completed"
+      || action === "move-package"
+      || action === "ungroup-package"
+      || action === "copy-package-urls"
+      || action === "save-package-template"
+      || action === "new-package") {
       await runPackageAction(action);
       return;
     }
@@ -4553,8 +4685,76 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   async function runPackageAction(action) {
     const pkg = sharedPackageOfSelection();
+    const gids = [...selected];
+
+    if (action === "new-package") {
+      if (gids.length < 2) return;
+      const name = window.prompt("Package name", packageDisplayNameSafe(gids.length));
+      if (name == null) return;
+      packages = moveGidsToPackage(packages, gids, "new", { name: name.trim() || "Package" });
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "move-package") {
+      const choices = packages.map((row, i) => `${i + 1}. ${row.name}`).join("\n");
+      const answer = window.prompt(
+        `Move to package number, or type a new name:\n${choices || "(no packages yet)"}`,
+        pkg?.name || "Package",
+      );
+      if (answer == null || !answer.trim()) return;
+      const asIndex = Number(answer.trim());
+      let targetId = "new";
+      let name = answer.trim();
+      if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= packages.length) {
+        targetId = packages[asIndex - 1].id;
+        name = packages[asIndex - 1].name;
+      }
+      packages = moveGidsToPackage(packages, gids, targetId, { name });
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "ungroup-package") {
+      packages = moveGidsToPackage(packages, gids, null);
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
     if (!pkg) return;
     const members = pkg.gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+
+    if (action === "copy-package-urls") {
+      const urls = members.map(sourceUrl).filter(Boolean);
+      if (urls.length) await copyText(urls.join("\n"));
+      return;
+    }
+
+    if (action === "save-package-template") {
+      const urls = members.map((dl) => {
+        const url = sourceUrl(dl);
+        if (!url) return null;
+        return { url, out: fileName(dl) };
+      }).filter(Boolean);
+      if (!urls.length) return;
+      const template = normalizeTemplate({
+        id: newPackageId(),
+        name: pkg.name,
+        urls,
+        createdAt: Date.now(),
+      });
+      linkTemplates = [template, ...linkTemplates.filter((row) => row.id !== template.id)];
+      saveTemplates();
+      showNotice(`Saved template “${template.name}”`, { error: false });
+      return;
+    }
+
     if (action === "select-package") {
       selected.clear();
       for (const dl of members) selected.add(dl.gid);
@@ -4581,6 +4781,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     }
     if (changed) await pollAndSync();
+  }
+
+  function packageDisplayNameSafe(count) {
+    return count > 1 ? `Batch of ${count}` : "Package";
   }
 
   listEl.addEventListener("click", async (e) => {
@@ -4726,6 +4930,15 @@ window.addEventListener("DOMContentLoaded", async () => {
           selected: dls.length,
         }));
       }
+    }
+    const extras = packageMenuExtras({
+      samePackage: pkgIds.length === 1,
+      hasPackages: packages.length > 0,
+      selected: dls.length,
+    });
+    if (extras.length) {
+      items.push({ separator: true });
+      items.push(...extras);
     }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
@@ -5796,6 +6009,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (id === "new-download") openModal();
       if (id === "settings") openSettings();
       if (id === "open-torrent") document.getElementById("torrent-file-input").click();
+      if (id === "import-links") {
+        const input = document.getElementById("link-list-input");
+        if (input) { input.value = ""; input.click(); }
+      }
       if (id === "find") { nameSearch.focus(); nameSearch.select(); }
       if (id === "pause-all") pauseAll();
       if (id === "resume-all") resumeAll();
@@ -6041,11 +6258,32 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    // A saved link list (.txt / .json template) opens the batch review.
+    const listFile = files.find((f) => /\.(txt|json|crawljob)$/i.test(f.name));
+    if (listFile) {
+      try {
+        const text = await listFile.text();
+        let urls = parseLinkListText(text);
+        if (!urls.length && /\.json$/i.test(listFile.name)) {
+          const parsed = JSON.parse(text);
+          const rows = Array.isArray(parsed) ? parsed : parsed?.urls;
+          urls = (rows || []).map((row) => (typeof row === "string" ? row : row?.url)).filter(Boolean);
+        }
+        if (urls.length) {
+          openModal(urls, { packageName: listFile.name.replace(/\.[^.]+$/, "") });
+          return;
+        }
+      } catch (err) {
+        failed(`Couldn't read “${listFile.name}”`, err);
+        return;
+      }
+    }
+
     const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
     const urls = parseDownloadUrls(text);
     if (!urls.length) {
       if (files.length) {
-        showNotice("Only .torrent files can be dropped here — for anything else, drop its link",
+        showNotice("Drop a .torrent, a link, or a saved link list (.txt / .json)",
           { error: false });
       }
       return;
@@ -6258,12 +6496,75 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!document.hasFocus()) notifyCatch(url);
   }
 
+  function refreshParityStores() {
+    siteRules = loadSiteRules();
+    grabJobs = loadGrabJobs();
+    linkTemplates = loadTemplates();
+  }
+
+  let grabOffer = null;
+  async function tickGrabJobs() {
+    refreshParityStores();
+    if (grabOffer || overlayOpen() || !document.getElementById("modal-overlay")?.classList.contains("hidden")) {
+      // Still offer due jobs once the modal is free.
+    }
+    const now = new Date();
+    let changed = false;
+    for (const job of grabJobs) {
+      if (!grabJobDue(job, { now })) continue;
+      job.lastRunAt = now.getTime();
+      changed = true;
+      if (!grabOffer) {
+        grabOffer = {
+          name: job.name,
+          urls: [...job.urls],
+          packageName: job.packageName || job.name,
+        };
+      }
+    }
+    if (changed) saveGrabJobs(grabJobs);
+    if (grabOffer && document.getElementById("modal-overlay")?.classList.contains("hidden")) {
+      const offer = grabOffer;
+      grabOffer = null;
+      openModal(offer.urls, { packageName: offer.packageName, referrer: "" });
+      showNotice(`Recurring grab “${offer.name}” is ready to review`, { error: false });
+    }
+  }
+
   const prevAfterPoll = afterPoll;
   afterPoll = () => {
     prevAfterPoll();
     if (offeredUrl && alreadyHaveUrl(offeredUrl)) hideCatch();
     if (capturePending?.url && alreadyHaveUrl(capturePending.url)) closeCapture();
+    tickGrabJobs().catch((err) => console.error(err));
   };
+
+  function runQueuedTemplate() {
+    let raw = "";
+    try { raw = localStorage.getItem("garia:run-template") || ""; } catch { return; }
+    if (!raw) return;
+    try { localStorage.removeItem("garia:run-template"); } catch { /* ignore */ }
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch { return; }
+    refreshParityStores();
+    const template = linkTemplates.find((row) => row.id === payload?.id);
+    if (!template?.urls?.length) return;
+    const urls = template.urls.map((row) => (typeof row === "string" ? row : row.url)).filter(Boolean);
+    if (!urls.length) return;
+    openModal(urls, { packageName: template.name });
+    showNotice(`Template “${template.name}” is ready to review`, { error: false });
+  }
+
+  window.addEventListener("storage", (e) => {
+    if (!e.key || [SITE_RULES_KEY, GRAB_JOBS_KEY, TEMPLATES_KEY, QUALITY_RULE_KEY, "garia:run-template"].includes(e.key)) {
+      refreshParityStores();
+      if (e.key === "garia:run-template") runQueuedTemplate();
+    }
+  });
+  window.addEventListener("focus", () => {
+    refreshParityStores();
+    runQueuedTemplate();
+  });
 
   document.getElementById("catch-add").addEventListener("click", () => {
     if (offeredUrl) ingestUrl(offeredUrl);

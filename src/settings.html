@@ -375,6 +375,30 @@
                             stopped queue does not count as finished.
                         </p>
                     </div>
+
+                    <div class="field">
+                        <div class="modal-label">Recurring grabs</div>
+                        <p class="field-hint">
+                            Saved link sets that open for review on a daily or
+                            weekly schedule. Garia has to be running.
+                        </p>
+                        <ul id="settings-grab-jobs" class="login-list"></ul>
+                        <button
+                            class="btn-secondary login-add"
+                            id="settings-grab-add"
+                        >
+                            Add a grab…
+                        </button>
+                    </div>
+
+                    <div class="field">
+                        <div class="modal-label">Link templates</div>
+                        <p class="field-hint">
+                            Saved batches you can run again from here. Export a
+                            package from the download list to create one.
+                        </p>
+                        <ul id="settings-templates" class="login-list"></ul>
+                    </div>
                 </section>
 
                 <section
@@ -517,6 +541,22 @@
                     </div>
 
                     <div class="field">
+                        <div class="modal-label">Site rules</div>
+                        <p class="field-hint">
+                            Per-host defaults for referrer, extra headers, save
+                            folder, always-queue, and video quality — on top of
+                            a site login when you have one.
+                        </p>
+                        <ul id="settings-site-rules" class="login-list"></ul>
+                        <button
+                            class="btn-secondary login-add"
+                            id="settings-site-rule-add"
+                        >
+                            Add a rule…
+                        </button>
+                    </div>
+
+                    <div class="field">
                         <label class="modal-label" for="settings-cookies"
                             >Cookie file</label
                         >
@@ -537,8 +577,9 @@
                             </button>
                         </div>
                         <p class="field-hint">
-                            A cookies.txt exported from your browser. Clear the
-                            box to stop using it.
+                            A cookies.txt exported from your browser. Used by
+                            downloads and by video page probes. Clear the box to
+                            stop using it.
                         </p>
                     </div>
 
@@ -860,6 +901,218 @@
                         Cancel
                     </button>
                     <button class="btn-primary" id="login-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            id="site-rule-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="site-rule-title"
+        >
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="site-rule-title">Add a site rule</h2>
+                    <button
+                        class="modal-close"
+                        id="site-rule-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body stack">
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-host">Site</label>
+                        <input
+                            id="site-rule-host"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="files.example.com"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-referrer"
+                            >Referrer</label
+                        >
+                        <input
+                            id="site-rule-referrer"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="https://files.example.com/"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-headers"
+                            >Extra headers</label
+                        >
+                        <textarea
+                            id="site-rule-headers"
+                            class="field-input login-headers"
+                            rows="3"
+                            spellcheck="false"
+                            placeholder="User-Agent: …"
+                        ></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-dir"
+                            >Default folder</label
+                        >
+                        <input
+                            id="site-rule-dir"
+                            class="field-input is-path"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-package"
+                            >Package name prefix</label
+                        >
+                        <input
+                            id="site-rule-package"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="site-rule-quality"
+                            >Default video quality</label
+                        >
+                        <select id="site-rule-quality" class="field-input">
+                            <option value="">Use last chosen</option>
+                            <option value="best">Best available</option>
+                            <option value="2160">Up to 2160p</option>
+                            <option value="1080">Up to 1080p</option>
+                            <option value="720">Up to 720p</option>
+                            <option value="480">Up to 480p</option>
+                            <option value="audio">Audio only</option>
+                        </select>
+                    </div>
+                    <label class="field-check">
+                        <input type="checkbox" id="site-rule-queue" />
+                        <span>Always add to queue (paused)</span>
+                    </label>
+                    <p id="site-rule-error" class="error hidden"></p>
+                </div>
+                <div class="modal-footer login-footer">
+                    <button class="btn-secondary btn-danger" id="site-rule-delete">
+                        Remove
+                    </button>
+                    <button class="btn-secondary" id="site-rule-cancel">
+                        Cancel
+                    </button>
+                    <button class="btn-primary" id="site-rule-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            id="grab-overlay"
+            class="modal-overlay hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="grab-title"
+        >
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="grab-title">Add a recurring grab</h2>
+                    <button
+                        class="modal-close"
+                        id="grab-close"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="modal-body stack">
+                    <div class="field">
+                        <label class="modal-label" for="grab-name">Name</label>
+                        <input
+                            id="grab-name"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Weekly dumps"
+                        />
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="grab-urls">Links</label>
+                        <textarea
+                            id="grab-urls"
+                            class="field-input login-headers"
+                            rows="6"
+                            spellcheck="false"
+                            placeholder="One URL per line"
+                        ></textarea>
+                    </div>
+                    <div class="field-pair">
+                        <div class="field">
+                            <label class="modal-label" for="grab-every">Repeat</label>
+                            <select id="grab-every" class="field-input">
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="modal-label" for="grab-at">At</label>
+                            <input
+                                id="grab-at"
+                                class="field-input"
+                                type="time"
+                                value="02:00"
+                            />
+                        </div>
+                    </div>
+                    <div class="field" id="grab-weekday-row">
+                        <label class="modal-label" for="grab-weekday">Weekday</label>
+                        <select id="grab-weekday" class="field-input">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="modal-label" for="grab-package"
+                            >Package name</label
+                        >
+                        <input
+                            id="grab-package"
+                            class="field-input"
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <label class="field-check">
+                        <input type="checkbox" id="grab-enabled" checked />
+                        <span>Enabled</span>
+                    </label>
+                    <p id="grab-error" class="error hidden"></p>
+                </div>
+                <div class="modal-footer login-footer">
+                    <button class="btn-secondary btn-danger" id="grab-delete">
+                        Remove
+                    </button>
+                    <button class="btn-secondary" id="grab-cancel">Cancel</button>
+                    <button class="btn-primary" id="grab-save">Save</button>
                 </div>
             </div>
         </div>

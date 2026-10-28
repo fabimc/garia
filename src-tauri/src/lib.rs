@@ -3168,6 +3168,13 @@ fn video_probe_blocking(
         args.push("--proxy".to_string());
         args.push(proxy);
     }
+    // The same jar aria2 loads at launch. Probes read it immediately — no
+    // restart — so a logged-in watch page can be listed without a relaunch.
+    let cookie = current.cookie_file.trim();
+    if !cookie.is_empty() && std::path::Path::new(cookie).is_file() {
+        args.push("--cookies".to_string());
+        args.push(cookie.to_string());
+    }
     args.push(url);
 
     let no_proxy = current.proxy_no_proxy.clone();
@@ -4079,7 +4086,7 @@ pub fn run() {
                             eprintln!("[garia] Could not open Settings: {e}");
                         }
                     }
-                    "new-download" | "open-torrent" | "find"
+                    "new-download" | "open-torrent" | "import-links" | "find"
                     | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
                     | "retry-failed" | "clear-completed"
                     | "open-folder"
@@ -4198,6 +4205,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
     let open_torrent = MenuItemBuilder::with_id("open-torrent", "Open Torrent…")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
+    let import_links = MenuItemBuilder::with_id("import-links", "Import Link List…")
+        .build(app)?;
     let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder")
         .build(app)?;
     let find = MenuItemBuilder::with_id("find", "Find")
@@ -4254,6 +4263,7 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&new_download)
         .item(&open_torrent)
+        .item(&import_links)
         .separator()
         .item(&open_folder)
         .separator()

@@ -1,7 +1,100 @@
 const MB = 1024 * 1024;
 const PANE_KEY = "garia:settings-pane";
 const LOGINS_KEY = "garia:logins";
+const SITE_RULES_KEY = "garia:site-rules";
+const GRAB_JOBS_KEY = "garia:grab-jobs";
+const TEMPLATES_KEY = "garia:templates";
 const MODES = ["full", "medium", "light"];
+
+function newId(prefix = "id") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatSiteRuleSummary(rule) {
+  if (!rule) return "";
+  const bits = [];
+  if (rule.referrer) bits.push("referrer");
+  const headers = (rule.extraHeaders || []).filter(Boolean).length;
+  if (headers) bits.push(headers === 1 ? "1 header" : `${headers} headers`);
+  if (rule.defaultDir) bits.push("folder");
+  if (rule.alwaysQueue) bits.push("queue");
+  if (rule.qualityRule) bits.push(`quality ${rule.qualityRule}`);
+  if (rule.packagePrefix) bits.push("package name");
+  return bits.length ? bits.join(" · ") : "No overrides yet";
+}
+
+function normalizeGrabJob(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newId("grab")),
+    name: String(raw.name || "Grab").trim() || "Grab",
+    urls,
+    enabled: raw.enabled !== false,
+    every: raw.every === "weekly" ? "weekly" : "daily",
+    atMinute: Math.max(0, Math.min(24 * 60 - 1, Number(raw.atMinute) || 0)),
+    weekday: Math.max(0, Math.min(6, Number(raw.weekday) || 0)),
+    packageName: String(raw.packageName || "").trim(),
+    lastRunAt: Number(raw.lastRunAt) || 0,
+  };
+}
+
+function grabJobSummary(job) {
+  const row = normalizeGrabJob(job);
+  const n = row.urls.length;
+  const links = n === 1 ? "1 link" : `${n} links`;
+  const hh = String(Math.floor(row.atMinute / 60)).padStart(2, "0");
+  const mm = String(row.atMinute % 60).padStart(2, "0");
+  const when = row.every === "weekly"
+    ? `weekly · ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][row.weekday]} ${hh}:${mm}`
+    : `daily · ${hh}:${mm}`;
+  return `${links} · ${row.enabled ? when : `paused · ${when}`}`;
+}
+
+function normalizeTemplate(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((row) => {
+      if (typeof row === "string") return { url: row };
+      const url = String(row?.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        ...(row.out ? { out: String(row.out) } : {}),
+        ...(row.dir ? { dir: String(row.dir) } : {}),
+      };
+    }).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newId("tpl")),
+    name: String(raw.name || "Template").trim() || "Template",
+    urls,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function templateSummary(template) {
+  const row = normalizeTemplate(template);
+  const n = row.urls.length;
+  return n === 1 ? "1 saved link" : `${n} saved links`;
+}
+
+function parseLinkListText(text) {
+  const seen = new Set();
+  const urls = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const token = line.split(/\s+/)[0];
+    if (!(token.startsWith("magnet:") || /^https?:\/\//i.test(token) || /^ftps?:\/\//i.test(token))) {
+      continue;
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    urls.push(token);
+  }
+  return urls;
+}
 
 // Same host-OS class the main window sets, so the prefs sidebar clears the
 // traffic lights only on macOS.
@@ -1015,10 +1108,320 @@ loginOverlay.addEventListener("click", (e) => { if (e.target === loginOverlay) c
 loginPass.addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
 loginHost.addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
 
+// ── Site rules / grabs / templates (localStorage, shared with main) ─────
+let siteRules = [];
+let grabJobs = [];
+let linkTemplates = [];
+let editingRuleId = "";
+let editingGrabId = "";
+
+function loadSiteRules() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SITE_RULES_KEY) || "[]");
+    siteRules = Array.isArray(raw) ? raw.filter((rule) => rule && rule.host) : [];
+  } catch { siteRules = []; }
+}
+
+function saveSiteRules() {
+  try { localStorage.setItem(SITE_RULES_KEY, JSON.stringify(siteRules)); } catch { /* ignore */ }
+}
+
+function loadGrabJobs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GRAB_JOBS_KEY) || "[]");
+    grabJobs = Array.isArray(raw) ? raw.map(normalizeGrabJob) : [];
+  } catch { grabJobs = []; }
+}
+
+function saveGrabJobs() {
+  try { localStorage.setItem(GRAB_JOBS_KEY, JSON.stringify(grabJobs)); } catch { /* ignore */ }
+}
+
+function loadTemplates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || "[]");
+    linkTemplates = Array.isArray(raw) ? raw.map(normalizeTemplate) : [];
+  } catch { linkTemplates = []; }
+}
+
+function saveTemplates() {
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(linkTemplates)); } catch { /* ignore */ }
+}
+
+const settingsSiteRules = document.getElementById("settings-site-rules");
+const settingsGrabJobs = document.getElementById("settings-grab-jobs");
+const settingsTemplates = document.getElementById("settings-templates");
+
+function renderSiteRules() {
+  if (!settingsSiteRules) return;
+  settingsSiteRules.textContent = "";
+  if (!siteRules.length) {
+    const li = document.createElement("li");
+    li.className = "login-empty";
+    li.textContent = "No rules yet.";
+    settingsSiteRules.append(li);
+    return;
+  }
+  for (const rule of siteRules) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "login-row";
+    btn.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+    btn.querySelector(".login-host").textContent = rule.host;
+    btn.querySelector(".login-what").textContent = formatSiteRuleSummary(rule);
+    btn.addEventListener("click", () => openSiteRule(rule.id));
+    li.append(btn);
+    settingsSiteRules.append(li);
+  }
+}
+
+function renderGrabJobs() {
+  if (!settingsGrabJobs) return;
+  settingsGrabJobs.textContent = "";
+  if (!grabJobs.length) {
+    const li = document.createElement("li");
+    li.className = "login-empty";
+    li.textContent = "No recurring grabs yet.";
+    settingsGrabJobs.append(li);
+    return;
+  }
+  for (const job of grabJobs) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "login-row";
+    btn.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+    btn.querySelector(".login-host").textContent = job.name;
+    btn.querySelector(".login-what").textContent = grabJobSummary(job);
+    btn.addEventListener("click", () => openGrab(job.id));
+    li.append(btn);
+    settingsGrabJobs.append(li);
+  }
+}
+
+function renderTemplates() {
+  if (!settingsTemplates) return;
+  settingsTemplates.textContent = "";
+  if (!linkTemplates.length) {
+    const li = document.createElement("li");
+    li.className = "login-empty";
+    li.textContent = "No templates yet. Save one from a package in the download list.";
+    settingsTemplates.append(li);
+    return;
+  }
+  for (const template of linkTemplates) {
+    const li = document.createElement("li");
+    li.className = "template-row";
+    const row = document.createElement("div");
+    row.className = "login-row is-static";
+    row.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+    row.querySelector(".login-host").textContent = template.name;
+    row.querySelector(".login-what").textContent = templateSummary(template);
+    const actions = document.createElement("div");
+    actions.className = "template-actions";
+    const run = document.createElement("button");
+    run.type = "button";
+    run.className = "btn-secondary";
+    run.textContent = "Run";
+    run.title = "Open this template in Add Download on the main window";
+    run.addEventListener("click", () => {
+      try {
+        localStorage.setItem("garia:run-template", JSON.stringify({
+          id: template.id,
+          at: Date.now(),
+        }));
+      } catch { /* ignore */ }
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn-secondary";
+    del.textContent = "Remove";
+    del.addEventListener("click", () => {
+      linkTemplates = linkTemplates.filter((t) => t.id !== template.id);
+      saveTemplates();
+      renderTemplates();
+    });
+    actions.append(run, del);
+    li.append(row, actions);
+    settingsTemplates.append(li);
+  }
+}
+
+const siteRuleOverlay = document.getElementById("site-rule-overlay");
+const siteRuleTitle = document.getElementById("site-rule-title");
+const siteRuleHost = document.getElementById("site-rule-host");
+const siteRuleReferrer = document.getElementById("site-rule-referrer");
+const siteRuleHeaders = document.getElementById("site-rule-headers");
+const siteRuleDir = document.getElementById("site-rule-dir");
+const siteRulePackage = document.getElementById("site-rule-package");
+const siteRuleQuality = document.getElementById("site-rule-quality");
+const siteRuleQueue = document.getElementById("site-rule-queue");
+const siteRuleDelete = document.getElementById("site-rule-delete");
+const siteRuleError = document.getElementById("site-rule-error");
+
+function openSiteRule(id = "") {
+  const rule = siteRules.find((row) => row.id === id);
+  editingRuleId = rule?.id || "";
+  siteRuleTitle.textContent = rule ? "Edit site rule" : "Add a site rule";
+  siteRuleHost.value = rule?.host || "";
+  siteRuleReferrer.value = rule?.referrer || "";
+  siteRuleHeaders.value = (rule?.extraHeaders || []).join("\n");
+  siteRuleDir.value = rule?.defaultDir || "";
+  siteRulePackage.value = rule?.packagePrefix || "";
+  siteRuleQuality.value = rule?.qualityRule || "";
+  siteRuleQueue.checked = rule?.alwaysQueue === true;
+  siteRuleDelete.classList.toggle("hidden", !rule);
+  siteRuleError.classList.add("hidden");
+  siteRuleOverlay.classList.remove("hidden");
+  setTimeout(() => siteRuleHost.focus(), 50);
+}
+
+function closeSiteRule() { siteRuleOverlay.classList.add("hidden"); }
+
+function saveSiteRule() {
+  const host = siteOf(siteRuleHost.value);
+  if (!host) {
+    siteRuleError.textContent = "Which site is this for? Paste a URL or type a host name.";
+    siteRuleError.classList.remove("hidden");
+    return;
+  }
+  const headers = siteRuleHeaders.value.split("\n").map((h) => h.trim()).filter(Boolean);
+  for (const h of headers) {
+    if (!h.includes(":") || !h.split(":")[0]?.trim()) {
+      siteRuleError.textContent = `"${h}" is not a header — write it as Name: value`;
+      siteRuleError.classList.remove("hidden");
+      return;
+    }
+  }
+  const entry = {
+    id: editingRuleId || newId("rule"),
+    host,
+    referrer: siteRuleReferrer.value.trim(),
+    extraHeaders: headers,
+    defaultDir: siteRuleDir.value.trim(),
+    packagePrefix: siteRulePackage.value.trim(),
+    qualityRule: siteRuleQuality.value.trim(),
+    alwaysQueue: siteRuleQueue.checked,
+  };
+  siteRules = [
+    entry,
+    ...siteRules.filter((row) => row.id !== entry.id && row.host !== entry.host),
+  ].sort((a, b) => a.host.localeCompare(b.host));
+  saveSiteRules();
+  renderSiteRules();
+  closeSiteRule();
+}
+
+function removeSiteRule() {
+  siteRules = siteRules.filter((row) => row.id !== editingRuleId);
+  saveSiteRules();
+  renderSiteRules();
+  closeSiteRule();
+}
+
+const grabOverlay = document.getElementById("grab-overlay");
+const grabTitle = document.getElementById("grab-title");
+const grabName = document.getElementById("grab-name");
+const grabUrls = document.getElementById("grab-urls");
+const grabEvery = document.getElementById("grab-every");
+const grabAt = document.getElementById("grab-at");
+const grabWeekday = document.getElementById("grab-weekday");
+const grabWeekdayRow = document.getElementById("grab-weekday-row");
+const grabPackage = document.getElementById("grab-package");
+const grabEnabled = document.getElementById("grab-enabled");
+const grabDelete = document.getElementById("grab-delete");
+const grabError = document.getElementById("grab-error");
+
+function paintGrabEvery() {
+  grabWeekdayRow.classList.toggle("hidden", grabEvery.value !== "weekly");
+}
+
+function openGrab(id = "") {
+  const job = grabJobs.find((row) => row.id === id);
+  editingGrabId = job?.id || "";
+  grabTitle.textContent = job ? "Edit recurring grab" : "Add a recurring grab";
+  grabName.value = job?.name || "";
+  grabUrls.value = (job?.urls || []).join("\n");
+  grabEvery.value = job?.every || "daily";
+  grabAt.value = hhmm(job?.atMinute ?? 2 * 60);
+  grabWeekday.value = String(job?.weekday ?? 1);
+  grabPackage.value = job?.packageName || "";
+  grabEnabled.checked = job ? job.enabled !== false : true;
+  grabDelete.classList.toggle("hidden", !job);
+  grabError.classList.add("hidden");
+  paintGrabEvery();
+  grabOverlay.classList.remove("hidden");
+  setTimeout(() => grabName.focus(), 50);
+}
+
+function closeGrab() { grabOverlay.classList.add("hidden"); }
+
+function saveGrab() {
+  const urls = parseLinkListText(grabUrls.value);
+  if (!urls.length) {
+    grabError.textContent = "Paste at least one http(s), ftp, or magnet link.";
+    grabError.classList.remove("hidden");
+    return;
+  }
+  const at = minutesOf(grabAt.value);
+  if (at == null) {
+    grabError.textContent = "Pick a time of day.";
+    grabError.classList.remove("hidden");
+    return;
+  }
+  const was = grabJobs.find((row) => row.id === editingGrabId);
+  const entry = normalizeGrabJob({
+    id: editingGrabId || newId("grab"),
+    name: grabName.value.trim() || "Grab",
+    urls,
+    every: grabEvery.value,
+    atMinute: at,
+    weekday: Number(grabWeekday.value) || 0,
+    packageName: grabPackage.value.trim(),
+    enabled: grabEnabled.checked,
+    lastRunAt: was?.lastRunAt || 0,
+  });
+  grabJobs = [entry, ...grabJobs.filter((row) => row.id !== entry.id)];
+  saveGrabJobs();
+  renderGrabJobs();
+  closeGrab();
+}
+
+function removeGrab() {
+  grabJobs = grabJobs.filter((row) => row.id !== editingGrabId);
+  saveGrabJobs();
+  renderGrabJobs();
+  closeGrab();
+}
+
+document.getElementById("settings-site-rule-add")?.addEventListener("click", () => openSiteRule());
+document.getElementById("site-rule-save")?.addEventListener("click", saveSiteRule);
+document.getElementById("site-rule-cancel")?.addEventListener("click", closeSiteRule);
+document.getElementById("site-rule-close")?.addEventListener("click", closeSiteRule);
+siteRuleDelete?.addEventListener("click", removeSiteRule);
+siteRuleOverlay?.addEventListener("click", (e) => { if (e.target === siteRuleOverlay) closeSiteRule(); });
+
+document.getElementById("settings-grab-add")?.addEventListener("click", () => openGrab());
+document.getElementById("grab-save")?.addEventListener("click", saveGrab);
+document.getElementById("grab-cancel")?.addEventListener("click", closeGrab);
+document.getElementById("grab-close")?.addEventListener("click", closeGrab);
+grabDelete?.addEventListener("click", removeGrab);
+grabEvery?.addEventListener("change", paintGrabEvery);
+grabOverlay?.addEventListener("click", (e) => { if (e.target === grabOverlay) closeGrab(); });
+
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!categoryOverlay.classList.contains("hidden")) {
     closeCategory();
+    return;
+  }
+  if (!siteRuleOverlay?.classList.contains("hidden")) {
+    closeSiteRule();
+    return;
+  }
+  if (!grabOverlay?.classList.contains("hidden")) {
+    closeGrab();
     return;
   }
   if (!loginOverlay.classList.contains("hidden")) {
@@ -1063,4 +1466,10 @@ if (typeof listen === "function") {
   fillForm();
   await Promise.all([loadLogins(), loadSidecarTools(), loadAutostart(), loadRemote()]);
   renderLogins();
+  loadSiteRules();
+  loadGrabJobs();
+  loadTemplates();
+  renderSiteRules();
+  renderGrabJobs();
+  renderTemplates();
 })();
