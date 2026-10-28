@@ -2,10 +2,12 @@ import { initAddDialog } from "./add-dialog.js";
 import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
 import {
+  bulkPriorityMap,
   desiredIndices,
   failureCategoryLabel,
   failureKind,
   indicesDiffer,
+  isSlowDownload,
   isStalled,
   isTorrentDownload,
   leechersOf,
@@ -14,6 +16,8 @@ import {
   pickByRule,
   placeInQueue,
   prioritiesNeedAdvance,
+  prioritySummary,
+  recoveryNextStep,
   sameOrder,
   scheduleHoldNote,
   seedUntilLabel,
@@ -467,22 +471,55 @@ function seedOptions() {
 const PRIORITY_KEY = "garia:file-priority";
 const filePriorities = new Map();
 
-function loadFilePriorities() {
+function mergePriorityStore(raw) {
+  for (const [key, value] of Object.entries(raw || {})) {
+    if (value && typeof value === "object") filePriorities.set(key, value);
+  }
+}
+
+function loadFilePrioritiesLocal() {
   try {
-    const raw = JSON.parse(localStorage.getItem(PRIORITY_KEY) || "{}");
-    for (const [key, value] of Object.entries(raw)) {
-      if (value && typeof value === "object") filePriorities.set(key, value);
-    }
+    mergePriorityStore(JSON.parse(localStorage.getItem(PRIORITY_KEY) || "{}"));
   } catch { /* a bad record is the same as no priorities */ }
 }
 
-function saveFilePriorities() {
+function snapshotFilePriorities() {
   const raw = {};
   for (const [key, value] of filePriorities) raw[key] = value;
+  return raw;
+}
+
+function saveFilePrioritiesLocal(raw) {
   try { localStorage.setItem(PRIORITY_KEY, JSON.stringify(raw)); } catch { /* private mode */ }
 }
 
-loadFilePriorities();
+async function hydrateFilePriorities() {
+  loadFilePrioritiesLocal();
+  const inv = window.__TAURI__?.core?.invoke;
+  if (typeof inv !== "function") return;
+  try {
+    const fromDisk = await inv("get_file_priorities");
+    if (fromDisk && typeof fromDisk === "object" && Object.keys(fromDisk).length) {
+      mergePriorityStore(fromDisk);
+      saveFilePrioritiesLocal(snapshotFilePriorities());
+      return;
+    }
+    if (filePriorities.size) {
+      await inv("save_file_priorities", { priorities: snapshotFilePriorities() });
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function saveFilePriorities() {
+  const raw = snapshotFilePriorities();
+  saveFilePrioritiesLocal(raw);
+  const inv = window.__TAURI__?.core?.invoke;
+  if (typeof inv === "function") {
+    inv("save_file_priorities", { priorities: raw }).catch((err) => console.error(err));
+  }
+}
 
 function priorityKeyOf(dl) {
   if (dl?.infoHash) return `bt:${String(dl.infoHash).toLowerCase()}`;
@@ -1599,6 +1636,7 @@ function createItemEl(dl) {
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
       <span class="dl-verified hidden">Verified</span>
+      <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
     </div>
     <div class="dl-size is-num"></div>
@@ -1683,6 +1721,18 @@ function updateItemEl(li, dl) {
 
   // A capped row is slower than the line on purpose, and the row is where that
   // has to be said — the alternative is a download that looks stuck.
+  const priEl = li.querySelector(".dl-priority");
+  if (priEl && isTorrentDownload(dl)) {
+    const summary = prioritySummary(priorityFiles(dl));
+    priEl.classList.toggle("hidden", !summary);
+    if (summary) {
+      if (priEl.textContent !== summary.label) priEl.textContent = summary.label;
+      priEl.title = summary.title;
+    }
+  } else if (priEl) {
+    priEl.classList.add("hidden");
+  }
+
   const capEl = li.querySelector(".dl-cap");
   const cap = LIMITABLE.has(dl.status) ? rowLimit(dl.gid) : 0;
   const capText = cap > 0 ? limitLabel(cap) : "";
@@ -1734,6 +1784,7 @@ function updateItemEl(li, dl) {
     const shared = Number(dl.uploadLength) || 0;
     statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
   } else if (isStalled(dl)) statusText = "Stalled";
+  else if (isSlowDownload(dl)) statusText = "Slow";
   else if (dl.status === "waiting" && !showBar) statusText = "Queued";
   else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
@@ -1743,11 +1794,6 @@ function updateItemEl(li, dl) {
 
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
-  statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
-  statusEl.classList.toggle("is-error", dl.status === "error");
-  statusEl.classList.toggle("is-checksum", failKind === "checksum");
-  statusEl.classList.toggle("is-seeding", dl.status === "seeding");
-  statusEl.classList.toggle("is-stalled", statusText === "Stalled");
   const failKind = dl.status === "error"
     ? failureKind({
       errorCode: dl.errorCode,
@@ -1755,17 +1801,30 @@ function updateItemEl(li, dl) {
       jobError: dl.job?.state === "failed" ? dl.job?.error : "",
     })
     : "";
+  statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
+  statusEl.classList.toggle("is-error", dl.status === "error");
+  statusEl.classList.toggle("is-checksum", failKind === "checksum");
+  statusEl.classList.toggle("is-seeding", dl.status === "seeding");
+  statusEl.classList.toggle("is-stalled", statusText === "Stalled");
+  statusEl.classList.toggle("is-slow", statusText === "Slow");
   const reason = dl.status === "error" ? errorReason(dl) : "";
+  const recovery = dl.status === "error" ? recoveryNextStep(dl) : "";
   const seedTip = dl.status === "seeding"
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
   const stallTip = statusText === "Stalled"
     ? "No peers are connected, so nothing is arriving."
     : "";
+  const slowTip = statusText === "Slow"
+    ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
+    : "";
+  const waitTip = dl.status === "waiting" && !held
+    ? (schedule.queueStopped ? "Queue is stopped — Start Queue to let it run." : "Waiting for a free slot in the queue.")
+    : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? `${formatBytes(dl.completedLength)} were already on disk when this session started.`
     : "";
-  statusEl.title = [held, reason, seedTip, stallTip, resumeTip].filter(Boolean).join(" ");
+  statusEl.title = [held, reason, recovery, seedTip, stallTip, slowTip, waitTip, resumeTip].filter(Boolean).join(" ");
 
   fillCols(li, dl);
 
@@ -2592,7 +2651,9 @@ function factValues(st) {
       ? "Seeding"
       : isStalled(st)
         ? "Stalled"
-        : statusLabel(st.status),
+        : isSlowDownload(st)
+          ? "Slow"
+          : statusLabel(st.status),
     connections: String(Number(st.connections) || 0),
     seeders: String(Number(st.numSeeders) || 0),
     leechers: "—",
@@ -2778,6 +2839,20 @@ function buildPart(part) {
   if (bt) filesTable.dataset.pick = "true";
   sec.appendChild(filesTable);
   if (bt) {
+    const bulk = el("div", "detail-file-bulk");
+    bulk.dataset.gid = part.gid;
+    for (const [action, label] of [
+      ["all-high", "All → High"],
+      ["all-normal", "All → Normal"],
+      ["checked-high", "Checked → High"],
+      ["checked-off", "Checked → Off"],
+    ]) {
+      const btn = el("button", "btn-secondary detail-file-bulk-btn", label);
+      btn.type = "button";
+      btn.dataset.bulkPriority = action;
+      bulk.appendChild(btn);
+    }
+    sec.appendChild(bulk);
     const bar = el("div", "detail-select hidden");
     bar.appendChild(el("p", "detail-note detail-select-note"));
     const apply = el("button", "btn-secondary detail-select-apply", "Apply");
@@ -3418,11 +3493,15 @@ function updatePart(sec, part) {
 
   const errEl = sec.querySelector(".detail-error");
   let reason = st.status === "error" ? errorReason(st) : "";
+  const nextStep = st.status === "error" ? recoveryNextStep(st) : "";
+  if (reason && nextStep) reason = `${reason} ${nextStep}`;
   if (reason && Number(st.completedLength) > 0) {
     reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
   }
   if (st.status === "active" && isStalled(st)) {
     reason = formatTorrentStateMessage(st);
+  } else if (st.status === "active" && isSlowDownload(st)) {
+    reason = "Slow — peers are connected but the speed is very low.";
   }
   errEl.classList.toggle("hidden", !reason);
   if (reason && errEl.textContent !== reason) errEl.textContent = reason;
@@ -4602,6 +4681,36 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // ── Detail panel ─────────────────────────────────────────────────────────
   const detailOverlay = document.getElementById("detail-overlay");
+
+  detailOverlay.addEventListener("click", (e) => {
+    const bulkBtn = e.target.closest("[data-bulk-priority]");
+    if (!bulkBtn) return;
+    const sec = bulkBtn.closest(".detail-part");
+    const gid = sec?.dataset.gid;
+    if (!sec || !gid) return;
+    const fileRows = [...sec.querySelectorAll("select[data-file-priority]")].map((sel) => ({
+      index: Number(sel.dataset.filePriority),
+      priority: sel.value,
+      length: Number(sel.dataset.length) || 0,
+      completedLength: Number(sel.dataset.completed) || 0,
+    }));
+    const checked = [...sec.querySelectorAll("input[data-file-index]:checked")]
+      .map((box) => Number(box.dataset.fileIndex));
+    const map = bulkPriorityMap(fileRows, bulkBtn.dataset.bulkPriority, checked);
+    const draft = filePriorityDraft.get(gid) || new Map();
+    for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
+      const key = String(sel.dataset.filePriority);
+      const next = map[key] ?? map[Number(key)];
+      if (!next) continue;
+      sel.value = next;
+      draft.set(Number(sel.dataset.filePriority), next);
+      const box = sec.querySelector(`input[data-file-index="${sel.dataset.filePriority}"]`);
+      if (box) box.checked = next !== "off";
+    }
+    filePriorityDraft.set(gid, draft);
+    fileSelection.set(gid, new Set(selectedIndices(sec)));
+    updateSelectBar(sec);
+  });
 
   detailOverlay.addEventListener("change", (e) => {
     const sel = e.target.closest("select[data-file-priority]");
@@ -5951,6 +6060,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   };
   loadLogins();
   listenNotificationClicks();
+  await hydrateFilePriorities();
   pollAndSync();
   Promise.all([loadSettings(), loadVideoTools()]).then(() => {
     renderCategoryNav();

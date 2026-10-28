@@ -832,6 +832,33 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--accent);
 }
 
+.dl-priority {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 0.08rem 0.4rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--warning-soft, rgba(255, 180, 0, 0.15));
+    color: var(--warning, #b8860b);
+}
+
+.detail-file-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.35rem 0 0.5rem;
+}
+
+.detail-file-bulk-btn {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.45rem;
+}
+
+.dl-status-text.is-slow {
+    color: var(--warning, #b8860b);
+}
+
 /* Not garia's claim but aria2's: a download carrying a hash that reached
    "complete" is one whose bytes were checked on the way in. */
 .dl-verified {

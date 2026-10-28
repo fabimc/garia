@@ -420,3 +420,73 @@ export function formatFilePriorityLabel(priority) {
 }
 
 export const priorityDisplay = formatFilePriorityLabel;
+
+// Active, peers connected, but barely moving — not stalled (zero peers).
+export function isSlowDownload(dl, minSpeedBytes = 1024) {
+  if (!isTorrentDownload(dl)) return false;
+  if (dl.status !== "active" || dl.seeder === "true") return false;
+  const total = Number(dl.totalLength) || 0;
+  const done = Number(dl.completedLength) || 0;
+  if (!(total > 0) || done >= total) return false;
+  if (isStalled(dl)) return false;
+  const speed = Number(dl.downloadSpeed) || 0;
+  const peers = Number(dl.connections) || 0;
+  return peers > 0 && speed > 0 && speed < minSpeedBytes;
+}
+
+// What to show on a torrent row when the user set non-default file tiers.
+export function prioritySummary(files) {
+  const rows = (files || [])
+    .map((file) => ({
+      priority: normalizePriority(file.priority),
+      done: fileDone(file),
+    }))
+    .filter((file) => file.priority !== "off" && !file.done);
+  if (!rows.length) return null;
+  const pending = rows.map((r) => r.priority);
+  if (pending.some((p) => p === "high")) {
+    return { label: "High first", title: "High-priority files download before Normal and Low." };
+  }
+  if (pending.some((p) => p === "low") && !pending.some((p) => p === "normal")) {
+    return { label: "Low only", title: "Only Low-priority files are still waiting." };
+  }
+  if (pending.every((p) => p === "off")) return null;
+  return { label: "Custom files", title: "This torrent uses custom per-file priorities." };
+}
+
+export function bulkPriorityMap(files, action, checkedIndices) {
+  const checked = new Set(checkedIndices || []);
+  const out = {};
+  for (const file of files || []) {
+    const index = Number(file.index);
+    if (!Number.isFinite(index)) continue;
+    const key = String(index);
+    const current = normalizePriority(file.priority);
+    if (action === "all-high") out[key] = "high";
+    else if (action === "all-normal") out[key] = "normal";
+    else if (action === "all-low") out[key] = "low";
+    else if (action === "all-off") out[key] = "off";
+    else if (action === "checked-high" && checked.has(index)) out[key] = "high";
+    else if (action === "checked-normal" && checked.has(index)) out[key] = "normal";
+    else if (action === "checked-low" && checked.has(index)) out[key] = "low";
+    else if (action === "checked-off" && checked.has(index)) out[key] = "off";
+    else out[key] = current;
+  }
+  return out;
+}
+
+// One line of guidance for recoverable failures (tooltip / detail panel).
+export function recoveryNextStep(dl) {
+  if (!dl || dl.status !== "error") return "";
+  const code = Number(dl.errorCode);
+  if (code === 24) return "Add a login in Settings, then retry.";
+  if (code === 9) return "Free disk space, then retry.";
+  if (code === 32) return "Check the checksum or download again without one.";
+  if (code === 6 || code === 2) return "Check your connection, then retry.";
+  if (code === 3 || code === 4 || code === 8) return "The file may be gone or the link changed — try a fresh URL.";
+  if (code === 13) return "Remove or rename the existing file, then retry.";
+  if (code === 29) return "Wait a few minutes and retry.";
+  if (code === 5) return "Raise the speed limit or traffic mode, then retry.";
+  return "Use Retry on the row or Download → Retry Failed.";
+}
+

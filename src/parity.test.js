@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bulkPriorityMap,
   desiredIndices,
   failureCategoryLabel,
   failureKind,
   indicesDiffer,
+  isSlowDownload,
   isStalled,
   isTorrentDownload,
   leechersOf,
@@ -14,6 +16,8 @@ import {
   placeInQueue,
   prioritiesNeedAdvance,
   priorityDisplay,
+  prioritySummary,
+  recoveryNextStep,
   sameOrder,
   scheduleHoldNote,
   seedUntilLabel,
@@ -250,4 +254,43 @@ test("detail badges distinguish torrent, video, and http", () => {
 test("file priority labels match the tier names in the UI", () => {
   assert.equal(formatFilePriorityLabel("high"), "High");
   assert.equal(formatFilePriorityLabel(false), "Normal");
+});
+
+test("slow is active with peers but almost no speed", () => {
+  const base = {
+    bittorrent: {},
+    status: "active",
+    totalLength: "1000",
+    completedLength: "100",
+    downloadSpeed: "512",
+    connections: "3",
+  };
+  assert.equal(isSlowDownload(base), true);
+  assert.equal(isSlowDownload({ ...base, downloadSpeed: "2048" }), false);
+  assert.equal(isSlowDownload({ ...base, connections: "0" }), false);
+});
+
+test("priority summary names the tier still waiting", () => {
+  const files = [
+    { index: 1, length: 10, completedLength: 10, priority: "high" },
+    { index: 2, length: 10, completedLength: 0, priority: "normal" },
+  ];
+  assert.equal(prioritySummary(files)?.label, "Custom files");
+  files[0].completedLength = 0;
+  assert.equal(prioritySummary(files)?.label, "High first");
+});
+
+test("bulk priority maps every file or only checked ones", () => {
+  const files = [
+    { index: 1, priority: "normal" },
+    { index: 2, priority: "normal" },
+  ];
+  assert.deepEqual(bulkPriorityMap(files, "all-high"), { 1: "high", 2: "high" });
+  assert.deepEqual(bulkPriorityMap(files, "checked-low", [2]), { 1: "normal", 2: "low" });
+});
+
+test("recovery hints name a next step for common errors", () => {
+  assert.match(recoveryNextStep({ status: "error", errorCode: "24" }), /Settings/i);
+  assert.match(recoveryNextStep({ status: "error", errorCode: "9" }), /disk/i);
+  assert.equal(recoveryNextStep({ status: "active" }), "");
 });
