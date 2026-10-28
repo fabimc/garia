@@ -163,6 +163,7 @@ let settings = {
   categories: [],
   notifyOnComplete: true,
   catchClipboard: true,
+  catchPageClipboard: false,
   confirmCapture: true,
   inOrder: false,
   cookieFile: "",
@@ -2193,6 +2194,15 @@ function rowChecksum(gid) {
   return "";
 }
 
+function sourcePageFor(gid) {
+  const direct = snapshot.get(gid);
+  if (direct?.job?.webpageUrl) return direct.job.webpageUrl;
+  for (const [rid, row] of snapshot) {
+    if (row.job?.webpageUrl && gidsFor(rid).includes(gid)) return row.job.webpageUrl;
+  }
+  return rowReferrers.get(gid) || "";
+}
+
 async function setRowLimit(gid, bytes) {
   const gids = gidsFor(gid);
   await Promise.all(gids.map((g) =>
@@ -3057,6 +3067,7 @@ function updateLimitBlock(sec, data) {
 
   const said = [];
   if (bytes > 0) {
+    // Prefer the specific speed sentence — do not also say "Held to a cap…".
     said.push(`Held to ${formatSpeed(bytes)}.`);
     // A cap set back when Light meant something else is still that many bytes.
     if (!mode) said.push("That is a cap for this download alone — neither traffic mode stands for it.");
@@ -3342,8 +3353,7 @@ function updatePart(sec, part) {
     st.bittorrent ? st.infoHash || "" : uris[0] || "",
     uris.length > 1 ? uris.join("\n") : "");
   if (!bt) {
-    const row = snapshot.get(part.gid);
-    const page = row?.job?.webpageUrl || rowReferrers.get(part.gid) || "";
+    const page = sourcePageFor(part.gid);
     setField(sec, "page", page, page);
   }
   setField(sec, "dest", destinationOf(st));
@@ -5928,11 +5938,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     if (settings.catchClipboard === false) return;
+    if (source === "clipboard" && looksLikeAPage(url) && settings.catchPageClipboard !== true) return;
     offeredUrl = url;
     const folder = targetDir(url);
-    catchText.textContent = folder
-      ? `Download ${catchLabel(url)} into ${folder}?`
-      : `Download ${catchLabel(url)}?`;
+    const page = looksLikeAPage(url);
+    catchText.textContent = page
+      ? "Read this page for downloadable video and audio?"
+      : folder
+        ? `Download ${catchLabel(url)} into ${folder}?`
+        : `Download ${catchLabel(url)}?`;
     catchBanner.classList.remove("hidden");
     clearTimeout(catchTimer);
     catchTimer = setTimeout(hideCatch, CATCH_MS);

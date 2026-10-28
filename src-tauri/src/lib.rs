@@ -171,6 +171,10 @@ struct Settings {
     /// default: catching a download that started in the browser is why the
     /// app stays open. Off if the offer gets in the way.
     catch_clipboard: bool,
+    /// Also offer copied http(s) pages (video sites) for the quality picker.
+    /// Off by default — file links are enough for most people.
+    #[serde(default)]
+    catch_page_clipboard: bool,
     /// Ask for a name, a folder, and start-vs-queue when the browser
     /// extension sends a file. On by default — a click in the browser is
     /// not the same as choosing Services, and the sheet is where those
@@ -267,6 +271,7 @@ impl Default for Settings {
             categories: Vec::new(),
             notify_on_complete: true,
             catch_clipboard: true,
+            catch_page_clipboard: false,
             confirm_capture: true,
             in_order: false,
             cookie_file: String::new(),
@@ -2032,11 +2037,13 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
         let mut primed = false;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(800));
-            let watching = app
+            let (watch_files, watch_pages) = app
                 .try_state::<SettingsState>()
-                .and_then(|s| s.current.lock().ok().map(|g| g.catch_clipboard))
-                .unwrap_or(true);
-            if !watching {
+                .and_then(|s| {
+                    s.current.lock().ok().map(|g| (g.catch_clipboard, g.catch_page_clipboard))
+                })
+                .unwrap_or((true, false));
+            if !watch_files && !watch_pages {
                 primed = false;
                 last = None;
                 continue;
@@ -2062,8 +2069,16 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
             if ours {
                 continue;
             }
-            if let Some(url) = catch::file_url_in(&text) {
-                dispatch_catch(&app, url, "clipboard");
+            if watch_files {
+                if let Some(url) = catch::file_url_in(&text) {
+                    dispatch_catch(&app, url, "clipboard");
+                    continue;
+                }
+            }
+            if watch_pages {
+                if let Some(url) = catch::page_url_in(&text) {
+                    dispatch_catch(&app, url, "clipboard");
+                }
             }
         }
     });
