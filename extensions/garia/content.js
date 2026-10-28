@@ -22,27 +22,44 @@ if (api?.storage?.onChanged) {
   });
 }
 
-document.addEventListener("click", (event) => {
-  if (!clickCapture) return;
-  if (event.defaultPrevented || event.button !== 0) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const a = event.target.closest?.("a[href]");
-  if (!a) return;
-
-  let href;
-  try { href = new URL(a.href, document.baseURI).href; } catch { return; }
-  if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  const name = a.getAttribute("download") || gariaBasenameFromUrl(href);
+function sendFileCapture(href, name) {
   api.runtime.sendMessage({
     type: "capture",
     url: href,
     name,
     referrer: location.href,
   });
+}
+
+document.addEventListener("click", (event) => {
+  if (!clickCapture) return;
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  const a = event.target.closest?.("a[href]");
+  if (a) {
+    let href;
+    try { href = new URL(a.href, document.baseURI).href; } catch { return; }
+    if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const name = a.getAttribute("download") || gariaBasenameFromUrl(href);
+    sendFileCapture(href, name);
+    return;
+  }
+
+  const video = event.target.closest?.("video");
+  const src = video?.currentSrc || video?.src;
+  if (!src) return;
+  let href;
+  try { href = new URL(src, document.baseURI).href; } catch { return; }
+  if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  sendFileCapture(href, gariaBasenameFromUrl(href));
 }, true);
 
 function collectPageLinks() {

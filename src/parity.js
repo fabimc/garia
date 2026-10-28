@@ -171,6 +171,130 @@ export function leechersOf({ connections = 0, seeders = 0, peers = [] } = {}) {
   return Math.max(0, (Number(connections) || 0) - (Number(seeders) || 0));
 }
 
+// Why a paused row is waiting — queue stopped, schedule window, or a start time.
+export function scheduleHoldNote({
+  held = false,
+  startAtLabel = "",
+  queueStopped = false,
+  scheduleBlocked = false,
+  scheduleStartLabel = "",
+} = {}) {
+  if (!held) return "";
+  if (startAtLabel) return `starts ${startAtLabel}`;
+  if (queueStopped) return "Queue stopped";
+  if (scheduleBlocked && scheduleStartLabel) return `starts ${scheduleStartLabel}`;
+  return "held";
+}
+
+const FAILURE_LABELS = {
+  checksum: "Checksum",
+  network: "Network",
+  disk: "Disk",
+  auth: "Login",
+  server: "Server",
+  media: "Media merge",
+  unknown: "Error",
+};
+
+export function failureCategoryLabel(kind) {
+  return FAILURE_LABELS[kind] || "";
+}
+
+export function failureKind({ errorCode, errorMessage, jobError } = {}) {
+  if (jobError) return "media";
+  const code = Number(errorCode) || 0;
+  const msg = String(errorMessage || "").toLowerCase();
+  if (code === 32) return "checksum";
+  if (code === 24) return "auth";
+  if ([9, 15, 16, 17, 18, 14, 13].includes(code)) return "disk";
+  if ([2, 6, 19].includes(code)) return "network";
+  if ([3, 4, 8, 22, 23, 29].includes(code)) return "server";
+  if (/status=(403|401|404|429|500|502|503)/.test(msg)) return "server";
+  if (/timed out|timeout|network|resolve|connection reset|refused/.test(msg)) return "network";
+  if (/checksum|hash|digest/.test(msg)) return "checksum";
+  if (/space|disk|no such file|permission|read-only/.test(msg)) return "disk";
+  if (code) return "unknown";
+  return "";
+}
+
+// The seven digests and their lengths are aria2's, not a convention borrowed
+// from elsewhere.
+const CHECKSUM_ALGOS = {
+  8: "adler32", 32: "md5", 40: "sha-1", 56: "sha-224",
+  64: "sha-256", 96: "sha-384", 128: "sha-512",
+};
+
+const ALGO_LABELS = {
+  adler32: "Adler-32", md5: "MD5", "sha-1": "SHA-1", "sha-224": "SHA-224",
+  "sha-256": "SHA-256", "sha-384": "SHA-384", "sha-512": "SHA-512",
+};
+
+function algoDigits(algo) {
+  return Number(Object.keys(CHECKSUM_ALGOS).find((n) => CHECKSUM_ALGOS[n] === algo)) || 0;
+}
+
+function normalizeAlgo(text) {
+  const t = text.toLowerCase().replace(/-/g, "");
+  return t === "adler32" || t === "md5" ? t : `sha-${t.slice(3)}`;
+}
+
+export function parseChecksum(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  const named = raw.match(/\b(adler-?32|md5|sha-?(?:224|256|384|512|1))\b[\s:=]*/i);
+  const claimed = named ? normalizeAlgo(named[1]) : "";
+  const rest = named ? raw.slice(named.index + named[0].length) : raw;
+
+  const hex = (t) => /^[0-9a-f]+$/i.test(t);
+  const tokens = rest.split(/[\s,]+/).filter(Boolean);
+  let digest = tokens.find((t) => hex(t) && CHECKSUM_ALGOS[t.length]);
+  if (!digest && tokens.length > 1 && tokens.every(hex)) {
+    const joined = tokens.join("");
+    if (CHECKSUM_ALGOS[joined.length]) digest = joined;
+  }
+  if (!digest) {
+    const attempt = tokens.find(hex);
+    if (claimed && attempt) {
+      return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${attempt.length}.` };
+    }
+    return { error: "That isn't a hash garia can read. It takes 32, 40, 56, 64, 96 or 128 hex digits — on their own, or after something like sha256=." };
+  }
+
+  digest = digest.toLowerCase();
+  const implied = CHECKSUM_ALGOS[digest.length];
+  if (claimed && claimed !== implied) {
+    return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${digest.length}.` };
+  }
+  const algo = claimed || implied;
+  return { algo, digest, spec: `${algo}=${digest}`, label: ALGO_LABELS[algo] };
+}
+
+export function splitChecksum(spec) {
+  const text = String(spec || "");
+  const at = text.indexOf("=");
+  if (at < 1) return null;
+  const algo = text.slice(0, at).toLowerCase();
+  return { algo, digest: text.slice(at + 1), label: ALGO_LABELS[algo] || algo.toUpperCase(), spec: text };
+}
+
+// Playlist rule ids match QUALITY_RULES in the add dialog.
+export function pickByRule(choices, rule) {
+  if (!choices?.length) return null;
+  const audio = choices.find((c) => c.label === "Audio");
+  if (rule === "audio") return audio || choices[choices.length - 1];
+
+  const pictures = choices.filter((c) => c !== audio);
+  if (!pictures.length) return choices[0];
+  if (rule === "best") return pictures[0];
+
+  const cap = Number(rule);
+  return (
+    pictures.find((c) => (parseInt(c.label, 10) || 0) <= cap) ||
+    pictures[pictures.length - 1]
+  );
+}
+
 // XDM-style copy for empty states, media capture, limits, and failure recovery
 // (P3–P5 in docs/XDM-Parity-Plan.md). Shared so list, detail, and settings agree.
 
@@ -203,7 +327,7 @@ export function formatEmptyQueueState({
   }
   return {
     title: "No downloads yet",
-    sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}`,
+    sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}, or install the browser extension to catch links and video pages`,
   };
 }
 
@@ -294,3 +418,5 @@ export function formatFilePriorityLabel(priority) {
   const labels = { high: "High", normal: "Normal", low: "Low", off: "Off" };
   return labels[tier] || "Normal";
 }
+
+export const priorityDisplay = formatFilePriorityLabel;

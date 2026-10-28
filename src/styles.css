@@ -901,6 +901,10 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-status-text.is-error {
     color: var(--danger);
 }
+.dl-status-text.is-checksum {
+    color: var(--danger);
+    font-weight: 600;
+}
 .dl-status-text.is-seeding {
     color: var(--brand);
 }

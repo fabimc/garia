@@ -2,16 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   desiredIndices,
+  failureCategoryLabel,
+  failureKind,
   indicesDiffer,
   isStalled,
   isTorrentDownload,
   leechersOf,
+  parseChecksum,
   parseKilobytes,
+  pickByRule,
   placeInQueue,
   prioritiesNeedAdvance,
+  priorityDisplay,
   sameOrder,
+  scheduleHoldNote,
   seedUntilLabel,
   selectedIndicesOf,
+  splitChecksum,
   torrentHealth,
   trackerRows,
   trackerStatus,
@@ -147,6 +154,50 @@ test("a custom cap is kilobytes per second, and a blank field clears it", () => 
   assert.equal(parseKilobytes("0"), 0);
   assert.equal(parseKilobytes("-1"), null);
   assert.equal(parseKilobytes("fast"), null);
+});
+
+test("schedule hold notes name the reason a row is waiting", () => {
+  assert.equal(scheduleHoldNote({ held: false }), "");
+  assert.equal(scheduleHoldNote({ held: true, startAtLabel: "3:00 PM" }), "starts 3:00 PM");
+  assert.equal(scheduleHoldNote({ held: true, queueStopped: true }), "Queue stopped");
+  assert.equal(
+    scheduleHoldNote({ held: true, scheduleBlocked: true, scheduleStartLabel: "2:00 AM" }),
+    "starts 2:00 AM",
+  );
+});
+
+test("failure kinds group aria2 and merge errors for the UI", () => {
+  assert.equal(failureKind({ errorCode: 32 }), "checksum");
+  assert.equal(failureKind({ errorCode: 24 }), "auth");
+  assert.equal(failureKind({ errorCode: 6 }), "network");
+  assert.equal(failureKind({ jobError: "ffmpeg missing" }), "media");
+  assert.equal(failureCategoryLabel("checksum"), "Checksum");
+  assert.equal(failureCategoryLabel(""), "");
+});
+
+test("checksum parsing matches aria2's accepted forms", () => {
+  const parsed = parseChecksum("sha256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+  assert.equal(parsed.spec, "sha-256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+  assert.deepEqual(splitChecksum(parsed.spec)?.algo, "sha-256");
+  assert.ok(parseChecksum("not-a-hash")?.error);
+});
+
+test("playlist rules pick the tallest quality inside the cap", () => {
+  const choices = [
+    { label: "1080p" },
+    { label: "720p" },
+    { label: "Audio" },
+  ];
+  assert.equal(pickByRule(choices, "best").label, "1080p");
+  assert.equal(pickByRule(choices, "720").label, "720p");
+  assert.equal(pickByRule(choices, "480").label, "720p");
+  assert.equal(pickByRule(choices, "audio").label, "Audio");
+});
+
+test("priority labels match the detail panel wording", () => {
+  assert.equal(priorityDisplay("high"), "High");
+  assert.equal(priorityDisplay("off"), "Off");
+  assert.equal(priorityDisplay(false), "Normal");
 });
 
 test("empty queue copy follows filter and connection state", () => {
