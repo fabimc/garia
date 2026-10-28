@@ -16,6 +16,12 @@ import {
   torrentHealth,
   trackerRows,
   trackerStatus,
+  formatEmptyQueueState,
+  formatRecoverableNextStep,
+  formatFfmpegMergeLine,
+  formatTorrentStateMessage,
+  formatDetailBadge,
+  formatIntegrityFailureReason,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -726,11 +732,10 @@ function videoToolsSummary() {
   // Garia ships its own ffmpeg, so the interesting case is no longer "have
   // you installed one" — it's which one answered. A "system" here means the
   // bundled binary didn't run, which is worth seeing before a merge fails.
-  const merge = !videoTools.ffmpeg
-    ? "No ffmpeg — the bundled one is missing, so only qualities that come as a single file are offered."
-    : videoTools.ffmpegSource === "system"
-      ? "Merging uses your own ffmpeg; the copy garia ships didn't run."
-      : "Merging uses the ffmpeg garia ships, so the split video-and-audio qualities are all on offer.";
+  const merge = formatFfmpegMergeLine({
+    hasFfmpeg: videoTools.ffmpeg,
+    ffmpegSource: videoTools.ffmpegSource,
+  });
   return { text: `yt-dlp ${videoTools.version} (${where}). ${merge}`, missing: false };
 }
 
@@ -1413,11 +1418,16 @@ function errorReason(dl) {
   // aria2 says "Authorization failed", which is true and leads nowhere. This
   // is the one failure with a fix inside the app, so the row names it.
   if (Number(dl.errorCode) === 24) return "Needs a login — add one in Settings";
+  const integrity = formatIntegrityFailureReason(dl.errorCode);
   const message = (dl.errorMessage || "").trim();
-  if (message) return message;
-  const code = Number(dl.errorCode);
-  if (code) return ERROR_REASONS[code] || `Failed with error ${code}`;
-  return "Download failed";
+  const base = message || (Number(dl.errorCode)
+    ? ERROR_REASONS[Number(dl.errorCode)] || `Failed with error ${dl.errorCode}`
+    : "Download failed");
+  const step = formatRecoverableNextStep(dl.errorCode);
+  if (integrity && !base.includes(integrity)) {
+    return `${integrity} ${step}`;
+  }
+  return step ? `${base} ${step}` : base;
 }
 
 // The few words a row's status cell has room for. errorReason is the tooltip.
@@ -2038,25 +2048,12 @@ function applyFilter(listEl) {
   const empty = document.getElementById("empty-state");
   empty.classList.toggle("hidden", visible > 0);
   if (visible === 0) {
-    let title, sub;
-    if (items.length > 0) {
-      title = activeFilter.startsWith("cat:")
-        ? "Nothing in this category"
-        : activeFilter === "torrents"
-          ? "No torrents"
-          : "Nothing matches this view";
-      sub = activeFilter.startsWith("cat:")
-        ? "Downloads that land in this folder show up here"
-        : activeFilter === "torrents"
-          ? "Magnets and .torrent files show up here"
-          : "Try a different filter or clear the search field";
-    } else if (connState === "error") {
-      title = "Can't reach aria2";
-      sub = "Start aria2 and garia will reconnect on its own";
-    } else {
-      title = "No downloads yet";
-      sub = `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modGlyph()}N`;
-    }
+    const { title, sub } = formatEmptyQueueState({
+      filter: activeFilter,
+      hasAnyDownloads: items.length > 0,
+      connError: connState === "error",
+      modNHint: `${modGlyph()}N`,
+    });
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
   }
@@ -3488,7 +3485,7 @@ function updatePart(sec, part) {
     reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
   }
   if (st.status === "active" && isStalled(st)) {
-    reason = "Stalled — no peers are connected, so nothing is arriving.";
+    reason = formatTorrentStateMessage(st);
   }
   errEl.classList.toggle("hidden", !reason);
   if (reason && errEl.textContent !== reason) errEl.textContent = reason;
