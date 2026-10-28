@@ -47,6 +47,7 @@ Want to learn more?
  * [uTorrent parity review](uTorrent-Parity.md)
  * [JDownloader parity review](JDownloader-Parity.md)
  * [Motrix parity review](Motrix-Parity.md)
+ * [Folx parity review](Folx-Parity.md)
  * [Persepolis parity review](Persepolis-Parity.md)
  * [XDM parity plan](XDM-Parity-Plan.md)
  * [Browser capture](Browser-Capture.md)
