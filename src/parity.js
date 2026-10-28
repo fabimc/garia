@@ -5,6 +5,26 @@
 
 const TIER = ["high", "normal", "low"];
 
+function asString(value) {
+  return String(value ?? "").trim();
+}
+
+function isFalseSelection(value) {
+  const text = asString(value).toLowerCase();
+  return value === false || text === "false" || value === 0;
+}
+
+function isTrueSelection(value) {
+  const text = asString(value).toLowerCase();
+  return value === true || text === "true";
+}
+
+function normalizePriority(value) {
+  if (value === false || value === null || value === undefined || value === 0) return "normal";
+  const text = asString(value).toLowerCase();
+  return text || "normal";
+}
+
 export function isTorrentDownload(dl) {
   if (!dl) return false;
   return Boolean(dl.bittorrent || dl.infoHash);
@@ -23,7 +43,7 @@ export function desiredIndices(files) {
   const rows = (files || [])
     .map((file) => ({
       index: Number(file.index),
-      priority: file.priority || "normal",
+      priority: normalizePriority(file.priority),
       done: fileDone(file),
     }))
     .filter((file) => file.priority !== "off" && Number.isFinite(file.index));
@@ -41,7 +61,10 @@ export function desiredIndices(files) {
 }
 
 export function prioritiesNeedAdvance(files) {
-  return (files || []).some((file) => file.priority && file.priority !== "normal");
+  return (files || []).some((file) => {
+    const priority = normalizePriority(file?.priority);
+    return priority && priority !== "normal";
+  });
 }
 
 export function indicesDiffer(current, wanted) {
@@ -52,7 +75,7 @@ export function indicesDiffer(current, wanted) {
 
 export function selectedIndicesOf(files) {
   return (files || [])
-    .filter((file) => file.selected !== "false")
+    .filter((file) => !isFalseSelection(file?.selected))
     .map((file) => Number(file.index))
     .filter((n) => Number.isFinite(n))
     .sort((a, b) => a - b);
