@@ -1922,7 +1922,6 @@ function updateItemEl(li, dl) {
   statusEl.classList.toggle("is-stalled", statusText === "Stalled");
   statusEl.classList.toggle("is-slow", statusText === "Slow");
   const reason = dl.status === "error" ? errorReason(dl) : "";
-  const recovery = dl.status === "error" ? recoveryNextStep(dl) : "";
   const waitReason = formatWaitReason({
     status: dl.status,
     held: Boolean(held),
@@ -1944,7 +1943,8 @@ function updateItemEl(li, dl) {
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
-  statusEl.title = [waitReason, reason, recovery, seedTip, stallTip, slowTip, resumeTip]
+  // waitReason already carries the recovery next step for tagged failures.
+  statusEl.title = [waitReason, reason, seedTip, stallTip, slowTip, resumeTip]
     .filter(Boolean)
     .filter((text, i, all) => all.indexOf(text) === i)
     .join(" ");
