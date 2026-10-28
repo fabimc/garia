@@ -821,6 +821,39 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 
 /* Why this row is slower than the rest of them, said on the row rather than
    left for the detail panel to explain. */
+.dl-scan {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 0.08rem 0.4rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--muted) 16%, transparent);
+    color: var(--muted);
+}
+.dl-scan[data-scan="active"],
+.dl-scan[data-scan="merging"],
+.dl-scan[data-scan="torrent"],
+.dl-scan[data-scan="video"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.dl-scan[data-scan="done"],
+.dl-scan[data-scan="seeding"] {
+    background: var(--success-soft);
+    color: var(--success);
+}
+.dl-scan[data-scan="failed"],
+.dl-scan[data-scan="stalled"] {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+.dl-scan[data-scan="slow"],
+.dl-scan[data-scan="scheduled"] {
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+
 .dl-cap {
     flex-shrink: 0;
     font-size: 0.66rem;
@@ -830,6 +863,33 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     white-space: nowrap;
     background: var(--accent-soft);
     color: var(--accent);
+}
+
+.dl-priority {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 0.08rem 0.4rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--warning-soft, rgba(255, 180, 0, 0.15));
+    color: var(--warning, #b8860b);
+}
+
+.detail-file-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.35rem 0 0.5rem;
+}
+
+.detail-file-bulk-btn {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.45rem;
+}
+
+.dl-status-text.is-slow {
+    color: var(--warning, #b8860b);
 }
 
 /* Not garia's claim but aria2's: a download carrying a hash that reached
@@ -900,6 +960,10 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .dl-status-text.is-error {
     color: var(--danger);
+}
+.dl-status-text.is-checksum {
+    color: var(--danger);
+    font-weight: 600;
 }
 .dl-status-text.is-seeding {
     color: var(--brand);
@@ -2117,7 +2181,17 @@ html.in-app .modal.modal-lg {
     border-bottom: 1px solid var(--border);
 }
 .batch-entry.is-link {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+.batch-kind {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.batch-kind.is-file {
+    color: var(--text);
 }
 .batch-entry:last-child {
     border-bottom: none;
@@ -2555,6 +2629,18 @@ html.prefs.in-app .modal {
 .modal.modal-lg {
     width: min(620px, 92vw);
     max-height: 86vh;
+}
+
+.detail-priority-bulk {
+    margin-top: 0;
+    margin-bottom: 0.15rem;
+}
+
+.detail-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
 }
 
 .detail-title {

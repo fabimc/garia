@@ -49,6 +49,21 @@ const FILE_EXTS: &[&str] = &[
     "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat",
 ];
 
+/// The first watch-page URL in a clipboard dump — http(s) without a direct-file
+/// extension. Optional; off by default so copied YouTube links do not nag.
+pub fn page_url_in(text: &str) -> Option<String> {
+    for raw in text.split_whitespace() {
+        let token = tidy_token(raw);
+        if as_file_url(token).is_some() {
+            continue;
+        }
+        if token.starts_with("http://") || token.starts_with("https://") {
+            return Some(token.to_string());
+        }
+    }
+    None
+}
+
 /// The first file URL in a clipboard dump. Magnets count; a bare page does not.
 pub fn file_url_in(text: &str) -> Option<String> {
     for raw in text.split_whitespace() {
@@ -307,6 +322,15 @@ mod tests {
             file_url_in("https://files.example.com/app.dmg?dl=1"),
             Some("https://files.example.com/app.dmg?dl=1".into())
         );
+    }
+
+    #[test]
+    fn a_copied_watch_page_is_found_for_the_optional_offer() {
+        assert_eq!(
+            page_url_in("https://www.youtube.com/watch?v=aqz-KE-bpKQ"),
+            Some("https://www.youtube.com/watch?v=aqz-KE-bpKQ".into())
+        );
+        assert_eq!(page_url_in("https://files.example.com/app.dmg?dl=1"), None);
     }
 
     #[test]

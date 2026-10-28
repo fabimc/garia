@@ -22,44 +22,64 @@ if (api?.storage?.onChanged) {
   });
 }
 
-document.addEventListener("click", (event) => {
-  if (!clickCapture) return;
-  if (event.defaultPrevented || event.button !== 0) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  const a = event.target.closest?.("a[href]");
-  if (!a) return;
-
-  let href;
-  try { href = new URL(a.href, document.baseURI).href; } catch { return; }
-  if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  const name = a.getAttribute("download") || gariaBasenameFromUrl(href);
+function sendFileCapture(href, name) {
   api.runtime.sendMessage({
     type: "capture",
     url: href,
     name,
     referrer: location.href,
   });
+}
+
+document.addEventListener("click", (event) => {
+  if (!clickCapture) return;
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  const a = event.target.closest?.("a[href]");
+  if (a) {
+    let href;
+    try { href = new URL(a.href, document.baseURI).href; } catch { return; }
+    if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const name = a.getAttribute("download") || gariaBasenameFromUrl(href);
+    sendFileCapture(href, name);
+    return;
+  }
+
+  const video = event.target.closest?.("video");
+  const src = video?.currentSrc || video?.src;
+  if (!src) return;
+  let href;
+  try { href = new URL(src, document.baseURI).href; } catch { return; }
+  if (typeof gariaIsFileUrl !== "function" || !gariaIsFileUrl(href)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  sendFileCapture(href, gariaBasenameFromUrl(href));
 }, true);
 
 function collectPageLinks() {
-  const page = location.href.split("#")[0];
-  const seen = new Set();
-  const urls = [];
+  const links = [];
   for (const a of document.querySelectorAll("a[href]")) {
-    let href;
-    try { href = new URL(a.href, document.baseURI).href; } catch { continue; }
-    if (!(href.startsWith("magnet:") || /^https?:/i.test(href))) continue;
-    const bare = href.split("#")[0];
-    if (bare === page) continue;
-    if (seen.has(href)) continue;
-    seen.add(href);
-    urls.push(href);
+    try { links.push(new URL(a.href, document.baseURI).href); } catch { /* skip */ }
   }
-  return urls;
+  const media = [];
+  const nodes = document.querySelectorAll(
+    "video[src], audio[src], video source[src], audio source[src], a[download][href]",
+  );
+  for (const node of nodes) {
+    const raw = node.currentSrc || node.getAttribute("src") || node.href || "";
+    if (!raw) continue;
+    try { media.push(new URL(raw, document.baseURI).href); } catch { /* skip */ }
+  }
+  if (typeof gariaCaptureTargets === "function") {
+    return gariaCaptureTargets({ pageUrl: location.href, links, media });
+  }
+  return links;
 }
 
 if (window === window.top) {

@@ -2,20 +2,46 @@ import { initAddDialog } from "./add-dialog.js";
 import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
 import {
+  bulkPriorityMap,
   desiredIndices,
+  failureCategoryLabel,
+  failureKind,
   indicesDiffer,
+  isSlowDownload,
   isStalled,
   isTorrentDownload,
   leechersOf,
+  parseChecksum,
   parseKilobytes,
+  pickByRule,
   placeInQueue,
   prioritiesNeedAdvance,
+  prioritySummary,
+  recoveryNextStep,
   sameOrder,
+  scheduleHoldNote,
   seedUntilLabel,
   selectedIndicesOf,
+  splitChecksum,
   torrentHealth,
   trackerRows,
   trackerStatus,
+  formatEmptyQueueState,
+  formatRecoverableNextStep,
+  formatFfmpegMergeLine,
+  formatCaptureFlowHint,
+  formatTorrentStateMessage,
+  formatDetailBadge,
+  formatIntegrityFailureReason,
+  formatQueueScan,
+  housekeepingActions,
+  formatRestartResumeNote,
+  formatUnsupportedMerge,
+  formatUnplayableMediaNote,
+  formatTorrentNextStep,
+  formatTrackerSummary,
+  formatFilePriorityLabel,
+  FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -147,6 +173,7 @@ let settings = {
   categories: [],
   notifyOnComplete: true,
   catchClipboard: true,
+  catchPageClipboard: false,
   confirmCapture: true,
   inOrder: false,
   cookieFile: "",
@@ -455,22 +482,55 @@ function seedOptions() {
 const PRIORITY_KEY = "garia:file-priority";
 const filePriorities = new Map();
 
-function loadFilePriorities() {
+function mergePriorityStore(raw) {
+  for (const [key, value] of Object.entries(raw || {})) {
+    if (value && typeof value === "object") filePriorities.set(key, value);
+  }
+}
+
+function loadFilePrioritiesLocal() {
   try {
-    const raw = JSON.parse(localStorage.getItem(PRIORITY_KEY) || "{}");
-    for (const [key, value] of Object.entries(raw)) {
-      if (value && typeof value === "object") filePriorities.set(key, value);
-    }
+    mergePriorityStore(JSON.parse(localStorage.getItem(PRIORITY_KEY) || "{}"));
   } catch { /* a bad record is the same as no priorities */ }
 }
 
-function saveFilePriorities() {
+function snapshotFilePriorities() {
   const raw = {};
   for (const [key, value] of filePriorities) raw[key] = value;
+  return raw;
+}
+
+function saveFilePrioritiesLocal(raw) {
   try { localStorage.setItem(PRIORITY_KEY, JSON.stringify(raw)); } catch { /* private mode */ }
 }
 
-loadFilePriorities();
+async function hydrateFilePriorities() {
+  loadFilePrioritiesLocal();
+  const inv = window.__TAURI__?.core?.invoke;
+  if (typeof inv !== "function") return;
+  try {
+    const fromDisk = await inv("get_file_priorities");
+    if (fromDisk && typeof fromDisk === "object" && Object.keys(fromDisk).length) {
+      mergePriorityStore(fromDisk);
+      saveFilePrioritiesLocal(snapshotFilePriorities());
+      return;
+    }
+    if (filePriorities.size) {
+      await inv("save_file_priorities", { priorities: snapshotFilePriorities() });
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function saveFilePriorities() {
+  const raw = snapshotFilePriorities();
+  saveFilePrioritiesLocal(raw);
+  const inv = window.__TAURI__?.core?.invoke;
+  if (typeof inv === "function") {
+    inv("save_file_priorities", { priorities: raw }).catch((err) => console.error(err));
+  }
+}
 
 function priorityKeyOf(dl) {
   if (dl?.infoHash) return `bt:${String(dl.infoHash).toLowerCase()}`;
@@ -533,85 +593,8 @@ async function advanceFilePriorities(downloads) {
 // `complete` already means on a download that was given a checksum, and the
 // only thing to remember is that it had one.
 //
-// The seven digests and their lengths are aria2's, not a convention borrowed
-// from elsewhere — it rejects a --checksum outright when the digit count and
-// the named algorithm disagree. Which is also what lets a bare hash name its
-// own algorithm: there is exactly one that could have produced it.
-const CHECKSUM_ALGOS = {
-  8: "adler32", 32: "md5", 40: "sha-1", 56: "sha-224",
-  64: "sha-256", 96: "sha-384", 128: "sha-512",
-};
-
-const ALGO_LABELS = {
-  adler32: "Adler-32", md5: "MD5", "sha-1": "SHA-1", "sha-224": "SHA-224",
-  "sha-256": "SHA-256", "sha-384": "SHA-384", "sha-512": "SHA-512",
-};
-
-function algoDigits(algo) {
-  return Number(Object.keys(CHECKSUM_ALGOS).find((n) => CHECKSUM_ALGOS[n] === algo)) || 0;
-}
-
-function normalizeAlgo(text) {
-  const t = text.toLowerCase().replace(/-/g, "");
-  return t === "adler32" || t === "md5" ? t : `sha-${t.slice(3)}`;
-}
-
-// What is actually in the clipboard when someone copies a hash: the digest on
-// its own, a `sha256:` prefix in front of it, the whole `<hash>  <filename>`
-// line out of a SHASUMS file, or certutil's two-digit groups. All four end up
-// as the one string aria2 takes. Returns null for an empty field, an object
-// with `error` for something unusable, and the parsed hash otherwise — the
-// three answers the hint under the field has to tell apart.
-function parseChecksum(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return null;
-
-  // An algorithm the user named beats the one the length implies, so that a
-  // disagreement between the two is caught here rather than by aria2 refusing
-  // the download a moment later.
-  const named = raw.match(/\b(adler-?32|md5|sha-?(?:224|256|384|512|1))\b[\s:=]*/i);
-  const claimed = named ? normalizeAlgo(named[1]) : "";
-  const rest = named ? raw.slice(named.index + named[0].length) : raw;
-
-  const hex = (t) => /^[0-9a-f]+$/i.test(t);
-  const tokens = rest.split(/[\s,]+/).filter(Boolean);
-  let digest = tokens.find((t) => hex(t) && CHECKSUM_ALGOS[t.length]);
-  // Joining the pieces is only safe when every one of them is hex — otherwise
-  // the filename on a SHASUMS line would be swallowed into the digest.
-  if (!digest && tokens.length > 1 && tokens.every(hex)) {
-    const joined = tokens.join("");
-    if (CHECKSUM_ALGOS[joined.length]) digest = joined;
-  }
-  if (!digest) {
-    // Someone who named the algorithm has told us how long the digest should
-    // be, so the count is the useful thing to say back rather than the list.
-    const attempt = tokens.find(hex);
-    if (claimed && attempt) {
-      return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${attempt.length}.` };
-    }
-    return { error: "That isn't a hash garia can read. It takes 32, 40, 56, 64, 96 or 128 hex digits — on their own, or after something like sha256=." };
-  }
-
-  digest = digest.toLowerCase();
-  const implied = CHECKSUM_ALGOS[digest.length];
-  if (claimed && claimed !== implied) {
-    return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${digest.length}.` };
-  }
-  const algo = claimed || implied;
-  return { algo, digest, spec: `${algo}=${digest}`, label: ALGO_LABELS[algo] };
-}
-
 function checksumOption(parsed) {
   return parsed?.spec ? { checksum: parsed.spec } : {};
-}
-
-// The option as aria2 hands it back, taken apart for showing.
-function splitChecksum(spec) {
-  const text = String(spec || "");
-  const at = text.indexOf("=");
-  if (at < 1) return null;
-  const algo = text.slice(0, at).toLowerCase();
-  return { algo, digest: text.slice(at + 1), label: ALGO_LABELS[algo] || algo.toUpperCase(), spec: text };
 }
 
 // A hash is a claim about one file, and neither a torrent nor a magnet is one:
@@ -726,11 +709,10 @@ function videoToolsSummary() {
   // Garia ships its own ffmpeg, so the interesting case is no longer "have
   // you installed one" — it's which one answered. A "system" here means the
   // bundled binary didn't run, which is worth seeing before a merge fails.
-  const merge = !videoTools.ffmpeg
-    ? "No ffmpeg — the bundled one is missing, so only qualities that come as a single file are offered."
-    : videoTools.ffmpegSource === "system"
-      ? "Merging uses your own ffmpeg; the copy garia ships didn't run."
-      : "Merging uses the ffmpeg garia ships, so the split video-and-audio qualities are all on offer.";
+  const merge = formatFfmpegMergeLine({
+    hasFfmpeg: videoTools.ffmpeg,
+    ffmpegSource: videoTools.ffmpegSource,
+  });
   return { text: `yt-dlp ${videoTools.version} (${where}). ${merge}`, missing: false };
 }
 
@@ -884,27 +866,6 @@ const QUALITY_RULES = [
   { id: "audio", label: "Audio only",     detail: "Sound, no picture" },
 ];
 
-// The rule applied to one entry's choices. `buildChoices` has already put the
-// tallest first, so the first one inside the cap is the best one inside it —
-// and a video whose every quality is over the cap still downloads, at its
-// smallest, because refusing to fetch a 720p-only video under a 480p rule
-// would be a silent hole in the list rather than a decision.
-function pickByRule(choices, rule) {
-  if (!choices.length) return null;
-  const audio = choices.find((c) => c.label === "Audio");
-  if (rule === "audio") return audio || choices[choices.length - 1];
-
-  const pictures = choices.filter((c) => c !== audio);
-  if (!pictures.length) return choices[0];
-  if (rule === "best") return pictures[0];
-
-  const cap = Number(rule);
-  return (
-    pictures.find((c) => (parseInt(c.label, 10) || 0) <= cap) ||
-    pictures[pictures.length - 1]
-  );
-}
-
 // What's on the page but out of reach, said plainly rather than left as a
 // quality that mysteriously isn't listed.
 function missingNote(info, choices, canMerge) {
@@ -912,14 +873,10 @@ function missingNote(info, choices, canMerge) {
   const videos = info.formats.filter((f) => f.kind === "video");
   if (!canMerge && videos.length) {
     const best = Math.max(...videos.map((f) => f.height || 0));
-    notes.push(
-      `Higher qualities here${best ? ` — up to ${best}p` : ""} arrive as separate ` +
-      "video and audio, and the ffmpeg that merges them isn't running — see Settings.",
-    );
+    const merge = formatUnsupportedMerge({ canMerge: false, bestHeight: best });
+    if (merge) notes.push(merge);
   }
-  if (!choices.length) {
-    notes.push("Nothing on this page can be downloaded as a plain file — it's a live or segmented stream.");
-  }
+  if (!choices.length) notes.push(formatUnplayableMediaNote());
   return notes.join(" ");
 }
 
@@ -1413,11 +1370,26 @@ function errorReason(dl) {
   // aria2 says "Authorization failed", which is true and leads nowhere. This
   // is the one failure with a fix inside the app, so the row names it.
   if (Number(dl.errorCode) === 24) return "Needs a login — add one in Settings";
+  if (dl.status === "error" && dl.job?.state === "failed" && dl.job?.error) {
+    const tag = failureCategoryLabel(failureKind({ jobError: dl.job.error }));
+    return tag ? `${tag}: ${dl.job.error}` : dl.job.error;
+  }
+  const integrity = formatIntegrityFailureReason(dl.errorCode);
+  const kind = failureKind({ errorCode: dl.errorCode, errorMessage: dl.errorMessage });
+  const tag = failureCategoryLabel(kind);
   const message = (dl.errorMessage || "").trim();
-  if (message) return message;
-  const code = Number(dl.errorCode);
-  if (code) return ERROR_REASONS[code] || `Failed with error ${code}`;
-  return "Download failed";
+  const base = message || (Number(dl.errorCode)
+    ? ERROR_REASONS[Number(dl.errorCode)] || `Failed with error ${dl.errorCode}`
+    : "Download failed");
+  const step = formatRecoverableNextStep(dl.errorCode);
+  let reason;
+  if (integrity && !base.includes(integrity)) {
+    reason = `${integrity} ${step}`.trim();
+  } else {
+    reason = step ? `${base} ${step}` : base;
+  }
+  if (tag && !reason.startsWith(`${tag}:`)) return `${tag}: ${reason}`;
+  return reason;
 }
 
 // The few words a row's status cell has room for. errorReason is the tooltip.
@@ -1670,7 +1642,9 @@ function createItemEl(dl) {
     </div>
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
+      <span class="dl-scan hidden"></span>
       <span class="dl-verified hidden">Verified</span>
+      <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
     </div>
     <div class="dl-size is-num"></div>
@@ -1755,6 +1729,18 @@ function updateItemEl(li, dl) {
 
   // A capped row is slower than the line on purpose, and the row is where that
   // has to be said — the alternative is a download that looks stuck.
+  const priEl = li.querySelector(".dl-priority");
+  if (priEl && isTorrentDownload(dl)) {
+    const summary = prioritySummary(priorityFiles(dl));
+    priEl.classList.toggle("hidden", !summary);
+    if (summary) {
+      if (priEl.textContent !== summary.label) priEl.textContent = summary.label;
+      priEl.title = summary.title;
+    }
+  } else if (priEl) {
+    priEl.classList.add("hidden");
+  }
+
   const capEl = li.querySelector(".dl-cap");
   const cap = LIMITABLE.has(dl.status) ? rowLimit(dl.gid) : 0;
   const capText = cap > 0 ? limitLabel(cap) : "";
@@ -1806,6 +1792,7 @@ function updateItemEl(li, dl) {
     const shared = Number(dl.uploadLength) || 0;
     statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
   } else if (isStalled(dl)) statusText = "Stalled";
+  else if (isSlowDownload(dl)) statusText = "Slow";
   else if (dl.status === "waiting" && !showBar) statusText = "Queued";
   else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
@@ -1813,23 +1800,51 @@ function updateItemEl(li, dl) {
   else if (showBar) statusText = `${pct}%`;
   else statusText = statusLabel(dl.status);
 
+  const scan = formatQueueScan(dl.status, {
+    stalled: isStalled(dl),
+    slow: isSlowDownload(dl),
+    scheduled: Boolean(held),
+  });
+  const scanEl = li.querySelector(".dl-scan");
+  scanEl.classList.toggle("hidden", !scan.label);
+  if (scanEl.dataset.scan !== scan.key) scanEl.dataset.scan = scan.key;
+  if (scan.label && scanEl.textContent !== scan.label) scanEl.textContent = scan.label;
+
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
+  const failKind = dl.status === "error"
+    ? failureKind({
+      errorCode: dl.errorCode,
+      errorMessage: dl.errorMessage,
+      jobError: dl.job?.state === "failed" ? dl.job?.error : "",
+    })
+    : "";
   statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
   statusEl.classList.toggle("is-error", dl.status === "error");
+  statusEl.classList.toggle("is-checksum", failKind === "checksum");
   statusEl.classList.toggle("is-seeding", dl.status === "seeding");
   statusEl.classList.toggle("is-stalled", statusText === "Stalled");
+  statusEl.classList.toggle("is-slow", statusText === "Slow");
   const reason = dl.status === "error" ? errorReason(dl) : "";
+  const recovery = dl.status === "error" ? recoveryNextStep(dl) : "";
   const seedTip = dl.status === "seeding"
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
   const stallTip = statusText === "Stalled"
-    ? "No peers are connected, so nothing is arriving."
+    ? [formatTorrentStateMessage(dl), formatTorrentNextStep(dl)].filter(Boolean).join(" ")
+    : "";
+  const slowTip = statusText === "Slow"
+    ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
+    : "";
+  const waitTip = dl.status === "waiting" && !held
+    ? ((schedule.queueStopped === true || settings.queueStopped === true)
+      ? "Queue is stopped — Start Queue to let it run."
+      : "Waiting for a free slot in the queue.")
     : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
-    ? `${formatBytes(dl.completedLength)} were already on disk when this session started.`
+    ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
-  statusEl.title = [held, reason, seedTip, stallTip, resumeTip].filter(Boolean).join(" ");
+  statusEl.title = [held, reason, recovery, seedTip, stallTip, slowTip, waitTip, resumeTip].filter(Boolean).join(" ");
 
   fillCols(li, dl);
 
@@ -2038,25 +2053,12 @@ function applyFilter(listEl) {
   const empty = document.getElementById("empty-state");
   empty.classList.toggle("hidden", visible > 0);
   if (visible === 0) {
-    let title, sub;
-    if (items.length > 0) {
-      title = activeFilter.startsWith("cat:")
-        ? "Nothing in this category"
-        : activeFilter === "torrents"
-          ? "No torrents"
-          : "Nothing matches this view";
-      sub = activeFilter.startsWith("cat:")
-        ? "Downloads that land in this folder show up here"
-        : activeFilter === "torrents"
-          ? "Magnets and .torrent files show up here"
-          : "Try a different filter or clear the search field";
-    } else if (connState === "error") {
-      title = "Can't reach aria2";
-      sub = "Start aria2 and garia will reconnect on its own";
-    } else {
-      title = "No downloads yet";
-      sub = `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modGlyph()}N`;
-    }
+    const { title, sub } = formatEmptyQueueState({
+      filter: activeFilter,
+      hasAnyDownloads: items.length > 0,
+      connError: connState === "error",
+      modNHint: `${modGlyph()}N`,
+    });
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
   }
@@ -2169,6 +2171,7 @@ function rowLimit(gid) {
 // as complete unless the hash matched, so a completed row with a checksum on
 // it is a verified row, and nothing else has to be recorded.
 const rowChecksums = new Map();
+const rowReferrers = new Map();
 
 // One question per download, asked once for the life of the run. The cap and
 // the checksum come out of the same getOption, which is why they are learned
@@ -2185,11 +2188,13 @@ function learnOptions(raw) {
     // Defaults only: a download garia has just added already knows its own.
     if (!rowLimits.has(dl.gid)) rowLimits.set(dl.gid, 0);
     if (!rowChecksums.has(dl.gid)) rowChecksums.set(dl.gid, "");
+    if (!rowReferrers.has(dl.gid)) rowReferrers.set(dl.gid, "");
     rpc("aria2.getOption", [dl.gid])
       .then((opt) => {
         const bytes = parseLimit(opt?.["max-download-limit"]);
         if (bytes > 0) rowLimits.set(dl.gid, bytes);
         if (opt?.checksum) rowChecksums.set(dl.gid, String(opt.checksum));
+        if (opt?.referer) rowReferrers.set(dl.gid, String(opt.referer));
       })
       .catch(() => { /* finished, or forgotten, between the poll and the ask */ });
   }
@@ -2204,6 +2209,15 @@ function rowChecksum(gid) {
     if (spec) return spec;
   }
   return "";
+}
+
+function sourcePageFor(gid) {
+  const direct = snapshot.get(gid);
+  if (direct?.job?.webpageUrl) return direct.job.webpageUrl;
+  for (const [rid, row] of snapshot) {
+    if (row.job?.webpageUrl && gidsFor(rid).includes(gid)) return row.job.webpageUrl;
+  }
+  return rowReferrers.get(gid) || "";
 }
 
 async function setRowLimit(gid, bytes) {
@@ -2296,12 +2310,14 @@ function isHeld(gid) {
 // about a paused row: a held download and a hand-paused one are both `paused`
 // to aria2, and this is the whole of the difference the user can see.
 function heldNote(gid) {
-  if (!isHeld(gid)) return "";
   const at = startAt(gid);
-  if (at) return `starts ${clockOf(at)}`;
-  if (schedule.queueStopped) return "Queue stopped";
-  if (schedule.enabled && !schedule.open) return `starts ${clockLabel(schedule.start)}`;
-  return "held";
+  return scheduleHoldNote({
+    held: isHeld(gid),
+    startAtLabel: at ? clockOf(at) : "",
+    queueStopped: schedule.queueStopped,
+    scheduleBlocked: schedule.enabled && !schedule.open,
+    scheduleStartLabel: schedule.enabled && !schedule.open ? clockLabel(schedule.start) : "",
+  });
 }
 
 const QUEUE_STOP_NOTE = "Running and queued downloads pause, and nothing new starts. Seeding continues.";
@@ -2664,7 +2680,9 @@ function factValues(st) {
       ? "Seeding"
       : isStalled(st)
         ? "Stalled"
-        : statusLabel(st.status),
+        : isSlowDownload(st)
+          ? "Slow"
+          : statusLabel(st.status),
     connections: String(Number(st.connections) || 0),
     seeders: String(Number(st.numSeeders) || 0),
     leechers: "—",
@@ -2823,6 +2841,7 @@ function buildPart(part) {
   sec.appendChild(facts);
 
   sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
+  if (!bt) sec.appendChild(buildField("page", "Source page"));
   sec.appendChild(buildField("dest", "Saving to"));
 
   // Always built, usually hidden: whether a partial file is worth opening
@@ -2847,8 +2866,33 @@ function buildPart(part) {
   // The tick column pushes the name along one, and the name is the only column
   // in these tables that isn't a measurement.
   if (bt) filesTable.dataset.pick = "true";
+  if (bt) {
+    const bulk = el("div", "playlist-bar detail-priority-bulk");
+    bulk.appendChild(el("span", "playlist-count", "Set every file"));
+    for (const tier of FILE_PRIORITY_TIERS) {
+      const btn = el("button", "playlist-pick", formatFilePriorityLabel(tier));
+      btn.type = "button";
+      btn.dataset.bulkPriority = tier;
+      bulk.appendChild(btn);
+    }
+    sec.appendChild(bulk);
+  }
   sec.appendChild(filesTable);
   if (bt) {
+    const bulk = el("div", "detail-file-bulk");
+    bulk.dataset.gid = part.gid;
+    for (const [action, label] of [
+      ["all-high", "All → High"],
+      ["all-normal", "All → Normal"],
+      ["checked-high", "Checked → High"],
+      ["checked-off", "Checked → Off"],
+    ]) {
+      const btn = el("button", "btn-secondary detail-file-bulk-btn", label);
+      btn.type = "button";
+      btn.dataset.bulkPriority = action;
+      bulk.appendChild(btn);
+    }
+    sec.appendChild(bulk);
     const bar = el("div", "detail-select hidden");
     bar.appendChild(el("p", "detail-note detail-select-note"));
     const apply = el("button", "btn-secondary detail-select-apply", "Apply");
@@ -2858,6 +2902,7 @@ function buildPart(part) {
     sec.appendChild(bar);
     sec.appendChild(buildSeedBlock(part.gid));
     sec.appendChild(buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]));
+    sec.appendChild(el("p", "detail-note detail-tracker-note"));
   }
   const folder = el("div", "detail-folder hidden");
   const change = el("button", "btn-secondary detail-folder-change", "Change folder");
@@ -3051,6 +3096,7 @@ function updateLimitBlock(sec, data) {
 
   const said = [];
   if (bytes > 0) {
+    // Prefer the specific speed sentence — do not also say "Held to a cap…".
     said.push(`Held to ${formatSpeed(bytes)}.`);
     // A cap set back when Light meant something else is still that many bytes.
     if (!mode) said.push("That is a cap for this download alone — neither traffic mode stands for it.");
@@ -3328,18 +3374,22 @@ function updatePart(sec, part) {
     }
   }
 
+  const bt = Boolean(st.bittorrent);
   // A torrent has no source URL to show — its info hash is the closest thing,
   // and it is what you paste into a tracker search.
   const uris = sourceUris(st);
   setField(sec, "source",
     st.bittorrent ? st.infoHash || "" : uris[0] || "",
     uris.length > 1 ? uris.join("\n") : "");
+  if (!bt) {
+    const page = sourcePageFor(part.gid);
+    setField(sec, "page", page, page);
+  }
   setField(sec, "dest", destinationOf(st));
   updatePreview(sec, part);
   updateCheckBlock(sec, part);
 
   const files = st.files || [];
-  const bt = Boolean(st.bittorrent);
   const pending = fileSelection.get(part.gid);
   syncTable(sec, "files", files.length > 1 ? files : [], (f) => f.index, (tr, f) => {
     const size = Number(f.length) || 0;
@@ -3379,10 +3429,10 @@ function updatePart(sec, part) {
         pri = document.createElement("select");
         pri.dataset.filePriority = String(f.index);
         pri.setAttribute("aria-label", `Priority for ${(f.path || "").split("/").pop() || "this file"}`);
-        for (const [value, label] of [["high", "High"], ["normal", "Normal"], ["low", "Low"], ["off", "Off"]]) {
+        for (const tier of FILE_PRIORITY_TIERS) {
           const opt = document.createElement("option");
-          opt.value = value;
-          opt.textContent = label;
+          opt.value = tier;
+          opt.textContent = formatFilePriorityLabel(tier);
           pri.appendChild(opt);
         }
         td.appendChild(pri);
@@ -3424,6 +3474,11 @@ function updatePart(sec, part) {
     }
     const trackers = trackerRows(st.bittorrent?.announceList);
     const trackerState = trackerStatus(connected);
+    const trackerNote = sec.querySelector(".detail-tracker-note");
+    if (trackerNote) {
+      const text = formatTrackerSummary(connected, trackers.length);
+      if (trackerNote.textContent !== text) trackerNote.textContent = text;
+    }
     syncTable(sec, "trackers", trackers, (row) => row.url, (tr, row) => {
       cells(tr, [hostOf(row.url) || row.url, String(row.tier), trackerState]);
       tr.children[0].title = row.url;
@@ -3458,7 +3513,7 @@ function updatePart(sec, part) {
       && !["complete", "seeding", "removed"].includes(st.status);
     resume.classList.toggle("hidden", !show);
     if (show) {
-      const text = `Resumed after a restart — ${formatBytes(bytes)} were already on disk.`;
+      const text = formatRestartResumeNote(formatBytes(bytes));
       if (resume.textContent !== text) resume.textContent = text;
     }
   }
@@ -3484,11 +3539,23 @@ function updatePart(sec, part) {
 
   const errEl = sec.querySelector(".detail-error");
   let reason = st.status === "error" ? errorReason(st) : "";
+  const nextStep = st.status === "error" ? recoveryNextStep(st) : "";
+  if (reason && nextStep) reason = `${reason} ${nextStep}`;
   if (reason && Number(st.completedLength) > 0) {
     reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
   }
   if (st.status === "active" && isStalled(st)) {
-    reason = "Stalled — no peers are connected, so nothing is arriving.";
+    reason = [formatTorrentStateMessage(st), formatTorrentNextStep(st)].filter(Boolean).join(" ");
+  } else if (st.status === "active" && isSlowDownload(st)) {
+    reason = "Slow — peers are connected but the speed is very low.";
+  } else if (st.status === "error" && isTorrentDownload(st)) {
+    const next = formatTorrentNextStep(st);
+    if (next && !reason.includes("Retry adds it again")) reason = `${reason} ${next}`;
+  }
+  const bulk = sec.querySelector(".detail-priority-bulk");
+  if (bulk) {
+    const many = (st.files || []).length > 1;
+    bulk.classList.toggle("hidden", !many || !canPickFiles(st));
   }
   errEl.classList.toggle("hidden", !reason);
   if (reason && errEl.textContent !== reason) errEl.textContent = reason;
@@ -3541,6 +3608,13 @@ async function renderDetail() {
   if (titleEl.textContent !== title) {
     titleEl.textContent = title;
     titleEl.title = title;
+  }
+  const badgeEl = document.getElementById("detail-badge");
+  if (badgeEl) {
+    const badge = formatDetailBadge(data.row || data.parts?.[0]?.status || null);
+    badgeEl.textContent = badge;
+    badgeEl.classList.toggle("hidden", !badge);
+    badgeEl.dataset.scan = badge === "Torrent" ? "torrent" : badge === "Video" ? "video" : "http";
   }
 
   const sections = [...body.children];
@@ -3892,6 +3966,7 @@ async function poll(listEl) {
       optionsAsked.delete(gid);
       rowLimits.delete(gid);
       rowChecksums.delete(gid);
+      rowReferrers.delete(gid);
     }
 
     const all = collapseJobs(raw).filter((dl) => !removing.has(dl.gid));
@@ -4116,6 +4191,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
+    videoToolsSummary,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
@@ -4265,6 +4341,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (gid) openDetail(gid);
       return;
     }
+    if (action === "retry-all") {
+      await retryFailed();
+      return;
+    }
+    if (action === "clear-completed") {
+      clearCompleted();
+      return;
+    }
     let changed = false;
     for (const gid of gids) {
       const dl = snapshot.get(gid);
@@ -4376,6 +4460,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     return closed;
   }
 
+  function queueHousekeeping(selectedRows) {
+    let failed = 0;
+    let completed = 0;
+    for (const dl of snapshot.values()) {
+      if (dl.status === "complete") completed += 1;
+      if (dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length)) failed += 1;
+    }
+    const failedSelected = (selectedRows || []).filter(
+      (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
+    ).length;
+    return housekeepingActions({ failed, failedSelected, completed });
+  }
+
   function menuSpecFor(dls) {
     const items = [];
     if (dls.some((d) => d.status === "active" || d.status === "waiting")) {
@@ -4410,6 +4507,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       items.push({ action: "move-end", label: "Move to End" });
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
+    items.push(...queueHousekeeping(dls));
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
     items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
@@ -4667,6 +4765,36 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Detail panel ─────────────────────────────────────────────────────────
   const detailOverlay = document.getElementById("detail-overlay");
 
+  detailOverlay.addEventListener("click", (e) => {
+    const bulkBtn = e.target.closest("[data-bulk-priority]");
+    if (!bulkBtn) return;
+    const sec = bulkBtn.closest(".detail-part");
+    const gid = sec?.dataset.gid;
+    if (!sec || !gid) return;
+    const fileRows = [...sec.querySelectorAll("select[data-file-priority]")].map((sel) => ({
+      index: Number(sel.dataset.filePriority),
+      priority: sel.value,
+      length: Number(sel.dataset.length) || 0,
+      completedLength: Number(sel.dataset.completed) || 0,
+    }));
+    const checked = [...sec.querySelectorAll("input[data-file-index]:checked")]
+      .map((box) => Number(box.dataset.fileIndex));
+    const map = bulkPriorityMap(fileRows, bulkBtn.dataset.bulkPriority, checked);
+    const draft = filePriorityDraft.get(gid) || new Map();
+    for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
+      const key = String(sel.dataset.filePriority);
+      const next = map[key] ?? map[Number(key)];
+      if (!next) continue;
+      sel.value = next;
+      draft.set(Number(sel.dataset.filePriority), next);
+      const box = sec.querySelector(`input[data-file-index="${sel.dataset.filePriority}"]`);
+      if (box) box.checked = next !== "off";
+    }
+    filePriorityDraft.set(gid, draft);
+    fileSelection.set(gid, new Set(selectedIndices(sec)));
+    updateSelectBar(sec);
+  });
+
   detailOverlay.addEventListener("change", (e) => {
     const sel = e.target.closest("select[data-file-priority]");
     if (!sel) return;
@@ -4681,6 +4809,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   detailOverlay.addEventListener("click", async (e) => {
+    const bulkBtn = e.target.closest("[data-bulk-priority]");
+    if (bulkBtn) {
+      const sec = bulkBtn.closest(".detail-part");
+      const value = bulkBtn.dataset.bulkPriority;
+      if (sec && value) {
+        for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
+          sel.value = value;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      return;
+    }
+
     // The row's own cap. Sent before the panel is redrawn, and the buttons go
     // dead in between: a second click while aria2 is still answering the first
     // would leave the two halves of a merged row on different limits.
@@ -5762,6 +5903,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     capturePending = { url, referrer };
     captureUrlEl.textContent = url;
     captureUrlEl.title = url;
+    const captureReferrer = document.getElementById("capture-referrer");
+    if (captureReferrer) {
+      const host = referrer ? hostOf(referrer) : "";
+      captureReferrer.textContent = host ? `From ${host}` : "";
+      captureReferrer.classList.toggle("hidden", !host);
+    }
+    const captureHint = document.getElementById("capture-hint");
+    if (captureHint) captureHint.textContent = formatCaptureFlowHint("extension");
     captureName.value = suggestedName(url, name);
     fillCaptureCategories(url);
     captureDir.value = targetDir(url) || settings.downloadDir || "";
@@ -5875,11 +6024,15 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     if (settings.catchClipboard === false) return;
+    if (source === "clipboard" && looksLikeAPage(url) && settings.catchPageClipboard !== true) return;
     offeredUrl = url;
     const folder = targetDir(url);
-    catchText.textContent = folder
-      ? `Download ${catchLabel(url)} into ${folder}?`
-      : `Download ${catchLabel(url)}?`;
+    const page = looksLikeAPage(url);
+    catchText.textContent = page
+      ? "Read this page for downloadable video and audio?"
+      : folder
+        ? `Download ${catchLabel(url)} into ${folder}?`
+        : `Download ${catchLabel(url)}?`;
     catchBanner.classList.remove("hidden");
     clearTimeout(catchTimer);
     catchTimer = setTimeout(hideCatch, CATCH_MS);
@@ -6009,6 +6162,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   };
   loadLogins();
   listenNotificationClicks();
+  await hydrateFilePriorities();
   pollAndSync();
   Promise.all([loadSettings(), loadVideoTools()]).then(() => {
     renderCategoryNav();
