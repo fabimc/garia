@@ -3032,15 +3032,21 @@ function updateLimitBlock(sec, data) {
     input.value = bytes > 0 ? String(Math.round(bytes / 1024)) : "";
   }
 
-  let note = limitExplanation({
-    bytes,
-    mode: mode || "custom",
-    globalMode: currentMode(),
-    modeLabels: MODE_LABELS,
-    partCount: data.parts.length,
-  });
-  if (bytes > 0) note = `Held to ${formatSpeed(bytes)}. ${note}`;
-  sec.querySelector(".detail-note").textContent = note;
+  const said = [];
+  if (bytes > 0) {
+    // Prefer the specific speed sentence — do not also say "Held to a cap…".
+    said.push(`Held to ${formatSpeed(bytes)}.`);
+    // A cap set back when Light meant something else is still that many bytes.
+    if (!mode) said.push("That is a cap for this download alone — neither traffic mode stands for it.");
+    // The cap is an aria2 option on a download, and a merged row is two of them.
+    if (data.parts.length > 1) said.push("Each half of the merge carries it, so the pair can take twice that.");
+  } else if (currentMode() === "full") {
+    said.push("Takes what the line gives it.");
+  } else {
+    said.push(`Takes what the line gives it, under the overall ${MODE_LABELS[currentMode()]} cap.`);
+  }
+  said.push("The number is for this download, not each socket, and aria2 keeps it in the session.");
+  sec.querySelector(".detail-note").textContent = said.join(" ");
 }
 
 // Only a download still going anywhere can be limited: aria2 takes the option
