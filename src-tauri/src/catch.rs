@@ -66,13 +66,22 @@ pub fn page_url_in(text: &str) -> Option<String> {
 
 /// The first file URL in a clipboard dump. Magnets count; a bare page does not.
 pub fn file_url_in(text: &str) -> Option<String> {
+    file_urls_in(text).into_iter().next()
+}
+
+/// Every distinct file URL in a clipboard dump. A paste of several links
+/// opens the batch review instead of offering only the first one.
+pub fn file_urls_in(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
     for raw in text.split_whitespace() {
         let token = tidy_token(raw);
         if let Some(url) = as_file_url(token) {
-            return Some(url);
+            if !urls.iter().any(|u| u == &url) {
+                urls.push(url);
+            }
         }
     }
-    None
+    urls
 }
 
 fn tidy_token(s: &str) -> &str {
@@ -502,6 +511,23 @@ mod tests {
                 "https://youtube.com/watch?v=1".to_string(),
                 "https://cdn.example/a.zip".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn file_urls_in_keeps_every_file_and_skips_pages() {
+        assert_eq!(
+            file_urls_in(
+                "see https://cdn.example/a.zip and https://cdn.example/b.mp4 https://example.com/about"
+            ),
+            vec![
+                "https://cdn.example/a.zip".to_string(),
+                "https://cdn.example/b.mp4".to_string(),
+            ]
+        );
+        assert_eq!(
+            file_urls_in("https://cdn.example/a.zip https://cdn.example/a.zip"),
+            vec!["https://cdn.example/a.zip".to_string()]
         );
     }
 

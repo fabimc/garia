@@ -40,7 +40,11 @@ import {
   classifyIntakeUrl,
   reviewIntake,
   applyIntakePick,
+  filterIntake,
   intakeReviewHint,
+  formatIntakeMeta,
+  contentKindFromUrl,
+  mimeHintFromExt,
   captureTargetsFromPage,
   formatQueueScan,
   housekeepingActions,
@@ -51,6 +55,12 @@ import {
   formatPlaylistRuleNote,
   formatTorrentNextStep,
   formatTrackerSummary,
+  newPackageId,
+  packageDisplayName,
+  packageSummary,
+  groupDownloadsByPackage,
+  packageActions,
+  formatWaitReason,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -291,13 +301,36 @@ test("bulk intake selects files and leaves pages off", () => {
     ["ftp", false],
     ["ftp-file", true],
   ]);
-  assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).label, "File");
+  assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).label, "Archive");
+  assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).content, "archive");
+  assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).mime, "application/zip");
   assert.match(intakeReviewHint(rows), /3 files start selected/);
   assert.match(intakeReviewHint(rows), /2 other links stay off/);
+  assert.match(intakeReviewHint(rows), /archives/);
   assert.match(
     intakeReviewHint([{ file: true, queued: false }, { file: false, queued: false }]),
     /1 file starts selected\. 1 other link stays off/,
   );
+});
+
+test("intake content kinds and filters name video and archive links", () => {
+  assert.equal(contentKindFromUrl("https://cdn.test/clip.mp4"), "video");
+  assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
+  assert.equal(mimeHintFromExt("mp4"), "video/mp4");
+  const isFile = (url) => /\.(mp4|zip|pdf)(\?|$)/i.test(url);
+  const rows = reviewIntake([
+    "https://cdn.test/clip.mp4",
+    "https://cdn.test/pack.zip",
+    "https://cdn.test/notes.pdf",
+    "https://cdn.test/about",
+  ], { isDirectFile: isFile });
+  assert.deepEqual(rows.map((row) => row.content), ["video", "archive", "document", "page"]);
+  assert.deepEqual(applyIntakePick(rows, "video").map((row) => row.selected), [true, false, false, false]);
+  assert.deepEqual(applyIntakePick(rows, "archive").map((row) => row.selected), [false, true, false, false]);
+  assert.equal(filterIntake(rows, { content: "video" }).length, 1);
+  assert.equal(filterIntake(rows, { host: "cdn.test", fileOnly: true }).length, 3);
+  assert.equal(formatIntakeMeta(rows[0]).mime, "video/mp4");
+  assert.equal(formatIntakeMeta(rows[0]).contentLabel, "Video");
 });
 
 test("a link already in the list stays unticked, including All and Files", () => {
@@ -311,6 +344,53 @@ test("a link already in the list stays unticked, including All and Files", () =>
   assert.deepEqual(applyIntakePick(rows, "files").map((row) => row.selected), [false, true]);
   assert.deepEqual(applyIntakePick(rows, "none").map((row) => row.selected), [false, false]);
   assert.match(intakeReviewHint(rows), /already in the list/);
+});
+
+test("packages group related downloads and offer scoped actions", () => {
+  const id = newPackageId(1);
+  assert.match(id, /^pkg-/);
+  assert.equal(packageDisplayName({ host: "www.cdn.test", count: 4 }), "cdn.test (4)");
+  assert.equal(packageDisplayName({ count: 3 }), "Batch of 3");
+  const downloads = [
+    { gid: "a", status: "active" },
+    { gid: "b", status: "error" },
+    { gid: "c", status: "complete" },
+    { gid: "d", status: "waiting" },
+  ];
+  const map = {
+    a: { id: "p1", name: "cdn.test (3)" },
+    b: { id: "p1", name: "cdn.test (3)" },
+    c: { id: "p1", name: "cdn.test (3)" },
+  };
+  const grouped = groupDownloadsByPackage(downloads, (gid) => map[gid]);
+  assert.equal(grouped.packages.length, 1);
+  assert.equal(grouped.packages[0].items.length, 3);
+  assert.equal(grouped.ungrouped.length, 1);
+  assert.deepEqual(packageSummary(grouped.packages[0].items), {
+    total: 3, active: 1, waiting: 0, paused: 0, error: 1, complete: 1, seeding: 0, merging: 0,
+  });
+  assert.deepEqual(
+    packageActions({
+      samePackage: true,
+      failed: 1,
+      active: 1,
+      waiting: 0,
+      paused: 0,
+      completed: 1,
+      packageSize: 3,
+      selected: 1,
+    }).map((item) => item.action),
+    ["select-package", "pause-package", "retry-package", "clear-package-completed"],
+  );
+  assert.deepEqual(packageActions({ samePackage: false, failed: 2 }), []);
+});
+
+test("wait reasons distinguish queue, schedule, and failure", () => {
+  assert.match(formatWaitReason({ status: "waiting", queueStopped: true }), /Queue is stopped/);
+  assert.match(formatWaitReason({ status: "waiting" }), /free slot/);
+  assert.equal(formatWaitReason({ held: true, holdNote: "starts Fri 9:00" }), "starts Fri 9:00");
+  assert.match(formatWaitReason({ status: "error", errorCode: 24 }), /Login/);
+  assert.match(formatWaitReason({ status: "error", errorCode: 5 }), /speed|cap|traffic/i);
 });
 
 test("the extension collector matches the shared page-capture helper", () => {

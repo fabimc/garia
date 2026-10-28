@@ -224,6 +224,10 @@
                         <div class="nav-group-label">Categories</div>
                     </div>
 
+                    <div class="nav-group hidden" id="package-nav">
+                        <div class="nav-group-label">Packages</div>
+                    </div>
+
                     <div class="nav-group">
                         <div class="nav-group-label">Archive</div>
                         <button class="nav-item" data-filter="complete">
@@ -649,11 +653,30 @@
                             <button type="button" class="playlist-pick" id="batch-files">
                                 Files
                             </button>
+                            <button type="button" class="playlist-pick" id="batch-video">
+                                Video
+                            </button>
+                            <button type="button" class="playlist-pick" id="batch-archive">
+                                Archive
+                            </button>
                             <button type="button" class="playlist-pick" id="batch-none">
                                 None
                             </button>
                         </div>
                         <p id="batch-hint" class="field-hint hidden"></p>
+                        <div class="field batch-package-row">
+                            <label class="modal-label" for="batch-package-name"
+                                >Package <span class="modal-optional">optional</span></label
+                            >
+                            <input
+                                id="batch-package-name"
+                                type="text"
+                                class="field-input"
+                                placeholder="Name this grab so the queue can manage it together"
+                                autocomplete="off"
+                                spellcheck="false"
+                            />
+                        </div>
                         <div
                             id="batch-entries"
                             class="batch-entries"

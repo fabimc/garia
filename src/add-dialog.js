@@ -2,9 +2,12 @@ import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, openOverlay } from "./overlays.js";
 import {
   applyIntakePick,
+  formatIntakeMeta,
   formatMediaOutputName,
   formatPlaylistRuleNote,
   intakeReviewHint,
+  newPackageId,
+  packageDisplayName,
   reviewIntake,
 } from "./parity.js";
 
@@ -46,6 +49,7 @@ export function initAddDialog(api) {
     el,
     alreadyHaveUrl = () => false,
     failed = (what, err) => console.error(what, err),
+    rememberPackage = () => {},
   } = api;
 
   let lastBatchKey = "";
@@ -83,7 +87,9 @@ export function initAddDialog(api) {
   const batchEntries    = document.getElementById("batch-entries");
   const batchCount      = document.getElementById("batch-count");
   const batchHint       = document.getElementById("batch-hint");
+  const batchPackageName = document.getElementById("batch-package-name");
   let batchReferrer = "";
+  let batchPackageEdited = false;
 
   // The dialog is one of five things at a time: asking for a URL, waiting,
   // offering qualities, offering a playlist, or listing an FTP folder.
@@ -205,6 +211,25 @@ export function initAddDialog(api) {
     try { return new URL(url).hostname; } catch { return ""; }
   }
 
+  function defaultBatchPackageName(urls) {
+    const hosts = new Map();
+    for (const url of urls || []) {
+      const host = urlHost(url);
+      if (!host) continue;
+      hosts.set(host, (hosts.get(host) || 0) + 1);
+    }
+    let top = "";
+    let topN = 0;
+    for (const [host, n] of hosts) {
+      if (n > topN) { top = host; topN = n; }
+    }
+    return packageDisplayName({
+      referrer: batchReferrer,
+      host: top,
+      count: (urls || []).length,
+    });
+  }
+
   function renderBatch() {
     const urls = parseDownloadUrls(modalUrlInput.value);
     const show = modalMode === "url" && urls.length > 1;
@@ -221,6 +246,9 @@ export function initAddDialog(api) {
       return;
     }
     lastBatchKey = key;
+    if (batchPackageName && !batchPackageEdited) {
+      batchPackageName.value = defaultBatchPackageName(urls);
+    }
     const kept = new Map();
     for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) {
       kept.set(box.dataset.url, box.checked);
@@ -231,13 +259,16 @@ export function initAddDialog(api) {
     });
     batchEntries.textContent = "";
     for (const row of reviewed) {
+      const meta = formatIntakeMeta(row);
       const label = document.createElement("label");
       label.className = "batch-entry is-link";
+      if (row.content) label.dataset.content = row.content;
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.url = row.url;
       box.dataset.file = row.file ? "true" : "false";
       box.dataset.queued = row.queued ? "true" : "false";
+      box.dataset.content = row.content || "";
       box.checked = kept.has(row.url) ? kept.get(row.url) : row.selected;
       const name = document.createElement("span");
       name.className = "batch-entry-name";
@@ -245,13 +276,24 @@ export function initAddDialog(api) {
       name.title = row.url;
       const kind = document.createElement("span");
       kind.className = row.file ? "batch-kind is-file" : "batch-kind";
+      if (row.content && row.content !== "other" && row.content !== "page") {
+        kind.classList.add(`is-${row.content}`);
+      }
       kind.textContent = row.label;
+      kind.title = meta.mime || row.label;
       const host = document.createElement("span");
       host.className = "batch-entry-host";
-      host.textContent = urlHost(row.url);
+      host.textContent = meta.host || urlHost(row.url);
       const cat = document.createElement("span");
       cat.className = "batch-entry-cat";
-      cat.textContent = row.queued ? "In the list" : (matchCategory(row.url)?.name || "");
+      if (row.queued) {
+        cat.textContent = "In the list";
+      } else if (meta.mime) {
+        cat.textContent = matchCategory(row.url)?.name || meta.mime;
+        cat.title = meta.mime;
+      } else {
+        cat.textContent = matchCategory(row.url)?.name || "";
+      }
       label.append(box, name, kind, host, cat);
       batchEntries.append(label);
     }
@@ -269,6 +311,7 @@ export function initAddDialog(api) {
       url: box.dataset.url,
       file: box.dataset.file === "true",
       queued: box.dataset.queued === "true",
+      content: box.dataset.content || "",
       selected: box.checked,
     })), mode);
     next.forEach((row, i) => { boxes[i].checked = row.selected; });
@@ -321,6 +364,8 @@ export function initAddDialog(api) {
     playlist = null;
     ftpListing = null;
     batchReferrer = extras.referrer || "";
+    batchPackageEdited = false;
+    if (batchPackageName) batchPackageName.value = extras.packageName || "";
     modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
     modalChecksum.value = "";
     modalDir.value      = "";
@@ -348,7 +393,12 @@ export function initAddDialog(api) {
   batchEntries.addEventListener("change", renderBatch);
   document.getElementById("batch-all").addEventListener("click", () => pickBatch("all"));
   document.getElementById("batch-files").addEventListener("click", () => pickBatch("files"));
+  document.getElementById("batch-video").addEventListener("click", () => pickBatch("video"));
+  document.getElementById("batch-archive").addEventListener("click", () => pickBatch("archive"));
   document.getElementById("batch-none").addEventListener("click", () => pickBatch("none"));
+  batchPackageName?.addEventListener("input", () => {
+    batchPackageEdited = batchPackageName.value.trim() !== "";
+  });
   modalChecksum.addEventListener("input", renderChecksum);
   // Emptied, the field goes back to following the URL.
   modalDir.addEventListener("input", () => { dirEdited = modalDir.value.trim() !== ""; });
@@ -457,10 +507,18 @@ export function initAddDialog(api) {
     const at = modalStartAt();
     const queue = holdOnAdd(at);
     modalError.classList.add("hidden");
+    const packageName = (batchPackageName?.value || "").trim()
+      || defaultBatchPackageName(urls);
+    const packageId = urls.length > 1 ? newPackageId() : "";
+    const gids = [];
     try {
       for (const url of urls) {
         const gid = await rpc("aria2.addUri", [[url], addOptions(url, { queue, referrer: batchReferrer })]);
         await holdAdded(gid, at);
+        if (typeof gid === "string") gids.push(gid);
+      }
+      if (packageId && gids.length) {
+        rememberPackage({ id: packageId, name: packageName, gids });
       }
       closeModal();
       await pollAndSync();

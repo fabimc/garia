@@ -854,6 +854,20 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--warning);
 }
 
+.dl-package {
+    flex-shrink: 0;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 0.08rem 0.4rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--muted);
+}
+
 .dl-cap {
     flex-shrink: 0;
     font-size: 0.66rem;
@@ -2192,6 +2206,18 @@ html.in-app .modal.modal-lg {
 }
 .batch-kind.is-file {
     color: var(--text);
+}
+.batch-kind.is-video {
+    color: var(--accent);
+}
+.batch-kind.is-archive {
+    color: var(--text);
+}
+.batch-kind.is-audio {
+    color: var(--muted);
+}
+.batch-package-row {
+    margin: 0;
 }
 .batch-entry:last-child {
     border-bottom: none;

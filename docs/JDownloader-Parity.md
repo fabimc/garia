@@ -20,33 +20,37 @@ Garia already covers a large share of the core download-manager experience that 
 
 That means Garia is already strong on the core “download manager” experience. The remaining work is mostly about the things JDownloader users expect from a batch-oriented, browser-heavy download workflow rather than basic HTTP downloads themselves.
 
-## Where Garia still trails JDownloader
+## Parity work now in the app
+
+Link-grab review, packages, and clearer wait/fail copy for the high-priority gaps are in the app. The bullets are the spec that shipped.
 
 ### 1. Link-grabbing and page-level capture
 
 Priority: high
 
-- Add a first-class “grab links from page / clipboard / file list” workflow that feels closer to JDownloader’s link-capture flow
-- Support capturing large batches of links from a page or text dump without losing the ability to filter or edit them before starting
-- Make link extraction more transparent when a page embeds audio, video, or archive downloads
-- Keep browser-originated captures predictable across the extension, clipboard, and system-level flows
+- A paste or extension dump of several links is reviewed first. Each row is marked Video, Audio, Archive, Document, File, Page, Magnet, or FTP, with a MIME hint when the extension is known.
+- All, Files, Video, Archive, and None sit on that review. Video and Archive only tick that content kind. All and Files still skip a link that is already in the list.
+- A clipboard dump of several file URLs opens the same batch review instead of offering only the first link.
+- Download all links still prefers embedded video and audio, then download-attribute links, then ordinary anchors.
 
 ### 2. Batch workflow and package management
 
 Priority: high
 
-- Add stronger package-level grouping so a single user action can manage many related downloads together
-- Support moving downloads between packages, reordering packages, and handling batch retry / retry-all behaviors more explicitly
-- Add clearer “queued / running / failed / completed” grouping in the same spirit as JDownloader’s heavy batch-oriented view
-- Improve “clear completed”, “remove and keep files”, and “re-run failed imports” row actions so they feel natural at scale
+- Adding a reviewed batch creates a named package so the grab stays together in the queue. The package name defaults from the referrer host or the common site, and can be edited before download.
+- Each packaged row shows the package name beside the scan chip. Packages appear in the sidebar; opening one keeps the usual Downloading / Queued / Failed / Completed section headers.
+- When the selection shares one package, the row menu offers Select Package, Pause Package, Resume Package, Retry Failed in Package, and Clear Completed in Package.
+- Retry All Failed, Clear Completed, remove while keeping files, and status grouping were already on the queue.
 
 ### 3. Link-level metadata and contextual controls
 
 Priority: high
 
-- Surface important metadata per item such as filename, final destination, MIME type, source site, and whether a link is a video or archive
-- Add better per-item controls for save path, file selection, and file naming before a download starts
-- Make it easier to review why a single link was paused, failed, or queued behind a rate limit or schedule
+- Batch rows show content kind, host, category or MIME, and whether the link is already in the list.
+- Failed and waiting rows name the next step more clearly: queue stopped, schedule hold, login needed, checksum mismatch, or speed/rate limit.
+- Single-capture confirm still covers save path and filename before a download starts. Per-row rename inside a batch list is not in this pass.
+
+## Where Garia still trails JDownloader
 
 ### 4. Site login and anti-bot handling
 
@@ -79,6 +83,8 @@ Priority: low to medium
 - Better support for import/export, saved job templates, and “re-run this set of links later” workflows
 - Add deeper rules around queue ordering, one-click reprocessing of failed links, and selection persistence from a downloaded package
 - Extend the app’s batch-execution UX so it feels equally comfortable with dozens or hundreds of links at once
+- Per-item save path and rename inside the batch review list
+- Moving downloads between existing packages from the row menu
 
 ## Recommended implementation order
 
@@ -90,6 +96,6 @@ Priority: low to medium
 
 ## Outcome
 
-Garia already covers the everyday desktop download-manager basics that JDownloader users expect, especially around queueing, browser capture, categories, speed controls, login support, and remote pairing. The biggest remaining gaps are not in basic downloading itself; they are in the “link packaging, batch capture, and automation” workflows that make JDownloader feel like a power-user tool.
+Garia already covers the everyday desktop download-manager basics that JDownloader users expect, especially around queueing, browser capture, categories, speed controls, login support, and remote pairing. Link-grab review, packages, and wait/fail messaging for the first three priorities are in the app. What is left is site-rule depth, recurring automation, media polish, and import/export — listed above.
 
 This document is meant to guide future work and should be revisited as those features are implemented and the product grows.

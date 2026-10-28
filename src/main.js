@@ -41,6 +41,9 @@ import {
   formatTorrentNextStep,
   formatTrackerSummary,
   formatFilePriorityLabel,
+  formatWaitReason,
+  packageActions,
+  packageSummary,
   FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
@@ -928,6 +931,86 @@ function saveJobs() {
   } catch {}
 }
 
+// JD-style packages: a named grab of related gids. aria2 still owns each
+// download; the grouping is only so batch pause/retry/clear can find them.
+const PACKAGES_KEY = "garia:packages";
+
+function loadPackages() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PACKAGES_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((pkg) => pkg && typeof pkg.id === "string" && Array.isArray(pkg.gids))
+      .map((pkg) => ({
+        id: pkg.id,
+        name: String(pkg.name || "Package"),
+        gids: pkg.gids.map(String).filter(Boolean),
+        createdAt: Number(pkg.createdAt) || 0,
+      }))
+      .filter((pkg) => pkg.gids.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+let packages = loadPackages();
+const packageByGid = new Map();
+
+function rebuildPackageIndex() {
+  packageByGid.clear();
+  for (const pkg of packages) {
+    for (const gid of pkg.gids) packageByGid.set(gid, pkg);
+  }
+}
+rebuildPackageIndex();
+
+function savePackages() {
+  try {
+    localStorage.setItem(PACKAGES_KEY, JSON.stringify(packages));
+  } catch { /* private mode */ }
+  rebuildPackageIndex();
+  renderPackageNav?.();
+}
+
+function rememberPackage({ id, name, gids }) {
+  const list = (gids || []).map(String).filter(Boolean);
+  if (!id || list.length < 2) return;
+  packages = packages.filter((pkg) => pkg.id !== id);
+  packages.unshift({
+    id,
+    name: String(name || "Package"),
+    gids: list,
+    createdAt: Date.now(),
+  });
+  // A gid belongs to at most one package.
+  for (const pkg of packages) {
+    if (pkg.id === id) continue;
+    pkg.gids = pkg.gids.filter((gid) => !list.includes(gid));
+  }
+  packages = packages.filter((pkg) => pkg.gids.length > 0);
+  savePackages();
+}
+
+function packageOf(gid) {
+  return packageByGid.get(gid) || null;
+}
+
+function prunePackages(alive) {
+  let changed = false;
+  for (const pkg of packages) {
+    const next = pkg.gids.filter((gid) => alive.has(gid));
+    if (next.length !== pkg.gids.length) {
+      pkg.gids = next;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  packages = packages.filter((pkg) => pkg.gids.length > 0);
+  savePackages();
+}
+
+let renderPackageNav = null;
+
 // Every aria2 gid a row stands for. One for an ordinary download; two for a
 // merged video, whose second half deliberately has no row of its own.
 function gidsFor(gid) {
@@ -1643,6 +1726,7 @@ function createItemEl(dl) {
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
       <span class="dl-scan hidden"></span>
+      <span class="dl-package hidden"></span>
       <span class="dl-verified hidden">Verified</span>
       <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
@@ -1686,14 +1770,18 @@ function updateItemEl(li, dl) {
 
   const category = categoryIdFor(dl);
   const torrent = isTorrent(dl) ? "true" : "false";
+  const pkg = packageOf(dl.gid);
+  const packageId = pkg?.id || "";
   if (li.dataset.status !== dl.status || li.dataset.name !== name ||
-      li.dataset.category !== category || li.dataset.torrent !== torrent) {
+      li.dataset.category !== category || li.dataset.torrent !== torrent ||
+      li.dataset.package !== packageId) {
     filterDirty = true;
   }
   li.dataset.status = dl.status;
   li.dataset.name = name;
   li.dataset.category = category;
   li.dataset.torrent = torrent;
+  li.dataset.package = packageId;
   li.classList.toggle(
     "is-file-draggable",
     (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
@@ -1810,6 +1898,14 @@ function updateItemEl(li, dl) {
   if (scanEl.dataset.scan !== scan.key) scanEl.dataset.scan = scan.key;
   if (scan.label && scanEl.textContent !== scan.label) scanEl.textContent = scan.label;
 
+  const pkgEl = li.querySelector(".dl-package");
+  if (pkgEl) {
+    const pkgName = pkg?.name || "";
+    pkgEl.classList.toggle("hidden", !pkgName);
+    if (pkgName && pkgEl.textContent !== pkgName) pkgEl.textContent = pkgName;
+    pkgEl.title = pkgName ? `Package: ${pkgName}` : "";
+  }
+
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
   const failKind = dl.status === "error"
@@ -1827,6 +1923,15 @@ function updateItemEl(li, dl) {
   statusEl.classList.toggle("is-slow", statusText === "Slow");
   const reason = dl.status === "error" ? errorReason(dl) : "";
   const recovery = dl.status === "error" ? recoveryNextStep(dl) : "";
+  const waitReason = formatWaitReason({
+    status: dl.status,
+    held: Boolean(held),
+    holdNote: held || "",
+    queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
+    errorCode: dl.errorCode,
+    errorMessage: dl.errorMessage,
+    jobError: dl.job?.state === "failed" ? dl.job?.error : "",
+  });
   const seedTip = dl.status === "seeding"
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
@@ -1836,15 +1941,13 @@ function updateItemEl(li, dl) {
   const slowTip = statusText === "Slow"
     ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
     : "";
-  const waitTip = dl.status === "waiting" && !held
-    ? ((schedule.queueStopped === true || settings.queueStopped === true)
-      ? "Queue is stopped — Start Queue to let it run."
-      : "Waiting for a free slot in the queue.")
-    : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
-  statusEl.title = [held, reason, recovery, seedTip, stallTip, slowTip, waitTip, resumeTip].filter(Boolean).join(" ");
+  statusEl.title = [waitReason, reason, recovery, seedTip, stallTip, slowTip, resumeTip]
+    .filter(Boolean)
+    .filter((text, i, all) => all.indexOf(text) === i)
+    .join(" ");
 
   fillCols(li, dl);
 
@@ -2006,8 +2109,11 @@ function applyFilter(listEl) {
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
   // Headers only earn their keep in the combined view; a single-status filter
-  // would just repeat its own name.
-  const showSections = activeFilter === "all" || activeFilter === "torrents";
+  // would just repeat its own name. A package filter still wants them so the
+  // grab reads as queued / running / failed the way JDownloader's packages do.
+  const showSections = activeFilter === "all"
+    || activeFilter === "torrents"
+    || activeFilter.startsWith("pkg:");
   let visible = 0;
   let header = null;
   let inSection = 0;
@@ -2034,11 +2140,14 @@ function applyFilter(listEl) {
     }
     const rowStatus = sidebarViewOf(el.dataset.status);
     const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
-    const statusMatch = catId
-      ? el.dataset.category === catId
-      : activeFilter === "torrents"
-        ? el.dataset.torrent === "true"
-        : activeFilter === "all" || rowStatus === activeFilter;
+    const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
+    const statusMatch = pkgId
+      ? el.dataset.package === pkgId
+      : catId
+        ? el.dataset.category === catId
+        : activeFilter === "torrents"
+          ? el.dataset.torrent === "true"
+          : activeFilter === "all" || rowStatus === activeFilter;
     const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     el.classList.toggle("hidden", !match);
@@ -4015,6 +4124,8 @@ async function poll(listEl) {
       updateItemEl(li, dl);
     }
 
+    prunePackages(seen);
+
     // Drop rows for downloads aria2 no longer reports
     for (const [gid, li] of rowEls) {
       if (seen.has(gid)) continue;
@@ -4120,9 +4231,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     + '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 
   function categoryTitle(value) {
-    if (!value.startsWith("cat:")) return VIEW_TITLES[value] || "Downloads";
-    const id = value.slice(4);
-    return activeCategories().find((c) => c.id === id)?.name || "Downloads";
+    if (value.startsWith("cat:")) {
+      const id = value.slice(4);
+      return activeCategories().find((c) => c.id === id)?.name || "Downloads";
+    }
+    if (value.startsWith("pkg:")) {
+      const id = value.slice(4);
+      return packages.find((pkg) => pkg.id === id)?.name || "Package";
+    }
+    return VIEW_TITLES[value] || "Downloads";
   }
 
   function renderCategoryNav() {
@@ -4152,6 +4269,39 @@ window.addEventListener("DOMContentLoaded", async () => {
       else b.removeAttribute("aria-current");
     }
   }
+
+  const packageNav = document.getElementById("package-nav");
+  const PKG_ICON = SVG_OPEN
+    + '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'
+    + '<polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+
+  renderPackageNav = function renderPackageNavNow() {
+    if (!packageNav) return;
+    const label = packageNav.querySelector(".nav-group-label");
+    packageNav.textContent = "";
+    packageNav.append(label);
+    packageNav.classList.toggle("hidden", packages.length === 0);
+    for (const pkg of packages) {
+      const btn = document.createElement("button");
+      btn.className = "nav-item";
+      btn.dataset.filter = `pkg:${pkg.id}`;
+      btn.innerHTML = `${PKG_ICON}<span class="nav-label"></span><span class="nav-count"></span>`;
+      btn.querySelector("svg")?.classList.add("nav-icon");
+      btn.querySelector(".nav-label").textContent = pkg.name;
+      btn.querySelector(".nav-count").textContent = String(pkg.gids.length);
+      packageNav.append(btn);
+    }
+    if (activeFilter.startsWith("pkg:") && !packages.some((pkg) => `pkg:${pkg.id}` === activeFilter)) {
+      setFilter("all");
+      return;
+    }
+    for (const b of filterBar.querySelectorAll(".nav-item")) {
+      const on = b.dataset.filter === activeFilter;
+      b.classList.toggle("active", on);
+      if (on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    }
+  };
 
   function setFilter(value) {
     activeFilter = value;
@@ -4188,6 +4338,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
     startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
+    rememberPackage,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
@@ -4349,6 +4500,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       clearCompleted();
       return;
     }
+    if (action === "select-package"
+      || action === "pause-package"
+      || action === "resume-package"
+      || action === "retry-package"
+      || action === "clear-package-completed") {
+      await runPackageAction(action);
+      return;
+    }
     let changed = false;
     for (const gid of gids) {
       const dl = snapshot.get(gid);
@@ -4381,6 +4540,44 @@ window.addEventListener("DOMContentLoaded", async () => {
       } else if (dl.status === "paused") {
         await runRowAction(dl.gid, "resume", { poll: false });
         changed = true;
+      }
+    }
+    if (changed) await pollAndSync();
+  }
+
+  function sharedPackageOfSelection() {
+    const ids = [...new Set(selectedDownloads().map((dl) => packageOf(dl.gid)?.id).filter(Boolean))];
+    if (ids.length !== 1) return null;
+    return packages.find((pkg) => pkg.id === ids[0]) || null;
+  }
+
+  async function runPackageAction(action) {
+    const pkg = sharedPackageOfSelection();
+    if (!pkg) return;
+    const members = pkg.gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+    if (action === "select-package") {
+      selected.clear();
+      for (const dl of members) selected.add(dl.gid);
+      selectAnchor = members[0]?.gid || null;
+      paintSelection();
+      return;
+    }
+    if (action === "clear-package-completed") {
+      const done = members.filter((dl) => dl.status === "complete").map((dl) => dl.gid);
+      if (done.length) await removeDownloads(done, false);
+      return;
+    }
+    let changed = false;
+    for (const dl of members) {
+      if (action === "pause-package" && (dl.status === "active" || dl.status === "waiting")) {
+        await runRowAction(dl.gid, "stop", { poll: false });
+        changed = true;
+      } else if (action === "resume-package" && dl.status === "paused") {
+        await runRowAction(dl.gid, "resume", { poll: false });
+        changed = true;
+      } else if (action === "retry-package" && dl.status === "error") {
+        if (dl.job?.webpageUrl) await runRowAction(dl.gid, "reprobe", { url: dl.job.webpageUrl });
+        else { await runRowAction(dl.gid, "retry", { poll: false }); changed = true; }
       }
     }
     if (changed) await pollAndSync();
@@ -4508,6 +4705,28 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
     items.push(...queueHousekeeping(dls));
+    const pkgIds = [...new Set(dls.map((d) => packageOf(d.gid)?.id).filter(Boolean))];
+    if (pkgIds.length === 1) {
+      const pkg = packages.find((row) => row.id === pkgIds[0]);
+      if (pkg) {
+        const members = pkg.gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+        const summary = packageSummary(members);
+        const failed = members.filter(
+          (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
+        ).length;
+        items.push({ separator: true });
+        items.push(...packageActions({
+          samePackage: true,
+          failed,
+          active: summary.active,
+          waiting: summary.waiting,
+          paused: summary.paused,
+          completed: summary.complete,
+          packageSize: members.length,
+          selected: dls.length,
+        }));
+      }
+    }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
     items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
@@ -6166,6 +6385,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   pollAndSync();
   Promise.all([loadSettings(), loadVideoTools()]).then(() => {
     renderCategoryNav();
+    renderPackageNav?.();
     if (!settings.setupSeen) openSetup();
   });
   // Every second while the list can be seen. A window closed to the dock

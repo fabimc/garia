@@ -1996,7 +1996,12 @@ fn dispatch_catch_event(app: &tauri::AppHandle, event: catch::CatchEvent) {
         }
     }
     let _ = app.emit("catch-url", &event);
-    if event.source == "scheme" || event.source == "extension" {
+    // A multi-URL clipboard dump opens the batch review; bring the window
+    // forward the same way an extension batch does.
+    if event.source == "scheme"
+        || event.source == "extension"
+        || event.urls.len() > 1
+    {
         bring_to_front(app);
     }
 }
@@ -2070,7 +2075,24 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
                 continue;
             }
             if watch_files {
-                if let Some(url) = catch::file_url_in(&text) {
+                let files = catch::file_urls_in(&text);
+                if files.len() > 1 {
+                    // A dump of several file links is a LinkGrabber-style
+                    // review, not a one-URL banner offer.
+                    dispatch_catch_event(
+                        &app,
+                        catch::CatchEvent {
+                            url: files[0].clone(),
+                            source: "clipboard".into(),
+                            name: None,
+                            referrer: None,
+                            confirm: false,
+                            urls: files,
+                        },
+                    );
+                    continue;
+                }
+                if let Some(url) = files.into_iter().next() {
                     dispatch_catch(&app, url, "clipboard");
                     continue;
                 }
