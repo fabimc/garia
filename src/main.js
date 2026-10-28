@@ -59,6 +59,8 @@ import {
   templateSummary,
   rememberedQualityRule,
   newPackageId,
+  formatSetupCategoryHint,
+  setupCategoriesPatch,
   FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
@@ -6068,6 +6070,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   const setupOverlay = document.getElementById("setup-overlay");
   const setupDir = document.getElementById("setup-dir");
   const setupVideo = document.getElementById("setup-video");
+  const setupCategories = document.getElementById("setup-categories");
+  const setupCategoriesHint = document.getElementById("setup-categories-hint");
   const setupExtError = document.getElementById("setup-extension-error");
 
   function paintSetup() {
@@ -6075,6 +6079,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     const { text, missing } = videoToolsSummary();
     setupVideo.textContent = text;
     setupVideo.classList.toggle("is-missing", missing);
+    setupCategories.checked = settings.smartFolders === true;
+    setupCategoriesHint.textContent = formatSetupCategoryHint(settings.categories);
   }
 
   function openSetup() {
@@ -6098,6 +6104,25 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("setup-done").addEventListener("click", () => dismissSetup());
   setupOverlay.addEventListener("click", (e) => {
     if (e.target === setupOverlay) dismissSetup();
+  });
+  setupCategories.addEventListener("change", async () => {
+    const enabled = setupCategories.checked;
+    const patch = setupCategoriesPatch({
+      enabled,
+      categories: settings.categories,
+      starters: DEFAULT_CATEGORIES,
+    });
+    try {
+      await saveSettingsPatch(patch);
+      paintSetup();
+      // Settings reaches the sidebar through settings-changed. This save
+      // is in the same window, so the list is told here as well.
+      renderCategoryNav();
+      applyFilter(listEl);
+    } catch (err) {
+      console.error(err);
+      setupCategories.checked = settings.smartFolders === true;
+    }
   });
   document.getElementById("setup-browse").addEventListener("click", async () => {
     const pick = window.__TAURI__?.dialog?.open;

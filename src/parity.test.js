@@ -75,6 +75,8 @@ import {
   normalizeTemplate,
   templateSummary,
   rememberedQualityRule,
+  formatSetupCategoryHint,
+  setupCategoriesPatch,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -604,4 +606,48 @@ test("recovery hints name a next step for common errors", () => {
   assert.match(recoveryNextStep({ status: "error", errorCode: "24" }), /Settings/i);
   assert.match(recoveryNextStep({ status: "error", errorCode: "9" }), /disk/i);
   assert.equal(recoveryNextStep({ status: "active" }), "");
+});
+
+test("the welcome sheet names the starter categories, or the ones already saved", () => {
+  const starter = formatSetupCategoryHint([]);
+  assert.match(starter, /Video, Music, Documents, and Archives to start/);
+  assert.match(starter, /Settings/);
+  assert.match(starter, /download folder/);
+  assert.match(formatSetupCategoryHint(null), /Video, Music, Documents, and Archives/);
+  assert.match(formatSetupCategoryHint([{ name: "Video" }, { name: "Music" }, { name: "Documents" }, { name: "Archives" }]), /to start/);
+  const custom = formatSetupCategoryHint([{ name: "ISOs" }, { name: "Work" }]);
+  assert.match(custom, /ISOs and Work/);
+  assert.equal(/to start/.test(custom), false);
+  assert.match(formatSetupCategoryHint([{ name: "Films" }]), /Films — the folders you set up/);
+});
+
+test("turning categories on seeds starters only when the list is empty", () => {
+  const starters = [{ id: "video", name: "Video", extensions: ["mp4"] }];
+  const keptOff = setupCategoriesPatch({
+    enabled: false,
+    categories: [{ id: "iso", name: "ISOs" }],
+    starters,
+  });
+  assert.equal(keptOff.smartFolders, false);
+  assert.equal(keptOff.categories[0].id, "iso");
+  const seeded = setupCategoriesPatch({ enabled: true, categories: [], starters });
+  assert.equal(seeded.smartFolders, true);
+  assert.equal(seeded.categories[0].name, "Video");
+  assert.deepEqual(seeded.categories[0].extensions, ["mp4"]);
+  assert.notEqual(seeded.categories[0].extensions, starters[0].extensions);
+  const kept = setupCategoriesPatch({
+    enabled: true,
+    categories: [{ id: "iso", name: "ISOs", extensions: ["iso"] }],
+    starters,
+  });
+  assert.equal(kept.smartFolders, true);
+  assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
+});
+
+test("the welcome sheet is where categories are introduced", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(html, /Four things to check before the first download/);
+  assert.match(html, /id="setup-categories"/);
+  assert.match(html, /Sort files into folders by type/);
+  assert.match(html, /id="setup-categories-hint"/);
 });

@@ -23,7 +23,7 @@ The core Motrix experience is already present in a simplified form: add a downlo
 
 ## Parity work now in the app
 
-Browser-capture review, queue scan chips and row housekeeping, media output names, and torrent next steps are in the app. The bullets are the spec that shipped.
+Browser-capture review, queue scan chips and row housekeeping, media output names, torrent next steps, and the welcome sheet's categories are in the app. The bullets are the spec that shipped.
 
 ### 1. Browser capture and download intake
 
@@ -59,14 +59,21 @@ Priority: medium
 - Set every file to High, Normal, Low, or Off from the detail panel. The same labels are on each file. High still downloads before Normal, then Low, because aria2 has no per-file piece priority.
 - The detail header shows Torrent, Video, or HTTP.
 
-## Remaining gaps versus Motrix
-
-### 5. Native product polish
+### 5. First-run categories
 
 Priority: medium
 
-- Menu, tray, and dock verbs were not extended here. Retry Failed and Clear Completed are already on the menu bar and the dock menu.
-- The first-run sheet still covers the download folder, video tools, and the browser extension. It does not introduce categories.
+- The welcome sheet introduces categories beside the download folder. The switch starts off, the same one Settings uses.
+- Video, Music, Documents, and Archives are named. Turning the switch on with nothing saved yet installs those four. Folders already saved are kept, and the sheet names those instead.
+- The choice is saved when the switch moves. Help → Set up Garia again opens the same sheet.
+
+## Remaining gaps versus Motrix
+
+### 6. Native menu and Safari
+
+Priority: medium
+
+- Menu, tray, and dock verbs were not extended. Retry Failed and Clear Completed are already on the menu bar, the tray, and the dock menu.
 - Safari still cannot cancel a download the browser has already started, so takeover there remains click capture, the context menu, and the on-page button.
 
 ## Recommended implementation order
@@ -75,7 +82,7 @@ Priority: medium
 2. Queue actions, batch selection, and row-action polish.
 3. Better media quality selection and ffmpeg/merge messaging.
 4. Torrent status, file-priority, and fail-state clarity.
-5. First-run onboarding and native desktop polish.
+5. First-run categories, then whatever native-menu polish is still worth doing.
 
 ## Implementation notes for the next contributor
 
@@ -87,4 +94,4 @@ Priority: medium
 
 ## Outcome
 
-Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. Capture review, queue chips, media filenames, and torrent next steps are in the app. What is left is first-run and native-menu polish, listed above.
+Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. Capture review, queue chips, media filenames, torrent next steps, and a first-run introduction to categories are in the app. What is left is the Safari takeover limit. Menu, tray, and dock already share Retry Failed and Clear Completed, and no further verbs were added.
