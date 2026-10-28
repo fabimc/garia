@@ -4008,6 +4008,7 @@ pub fn run() {
                     }
                     "new-download" | "open-torrent" | "find"
                     | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
+                    | "retry-failed" | "clear-completed"
                     | "open-folder"
                     | "check-updates" | "licenses" | "help"
                     | "show-sidebar" => {
@@ -4133,6 +4134,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
     let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
     let stop_queue = MenuItemBuilder::with_id("stop-queue", "Stop Queue").build(app)?;
     let start_queue = MenuItemBuilder::with_id("start-queue", "Start Queue").build(app)?;
+    let retry_failed = MenuItemBuilder::with_id("retry-failed", "Retry Failed").build(app)?;
+    let clear_completed = MenuItemBuilder::with_id("clear-completed", "Clear Completed").build(app)?;
 
     let check_updates = MenuItemBuilder::with_id("check-updates", "Check for Updates…")
         .build(app)?;
@@ -4233,6 +4236,9 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
         .separator()
         .item(&stop_queue)
         .item(&start_queue)
+        .separator()
+        .item(&retry_failed)
+        .item(&clear_completed)
         .build()?;
 
     let window_menu = SubmenuBuilder::new(app, "Window")
@@ -4285,6 +4291,8 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     let resume_all = MenuItemBuilder::with_id("resume-all", "Resume All").build(app)?;
     let stop_queue = MenuItemBuilder::with_id("stop-queue", "Stop Queue").build(app)?;
     let start_queue = MenuItemBuilder::with_id("start-queue", "Start Queue").build(app)?;
+    let retry_failed = MenuItemBuilder::with_id("retry-failed", "Retry Failed").build(app)?;
+    let clear_completed = MenuItemBuilder::with_id("clear-completed", "Clear Completed").build(app)?;
     let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder").build(app)?;
     let show = MenuItemBuilder::with_id("show-window", "Show Garia").build(app)?;
 
@@ -4297,6 +4305,9 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&stop_queue)
         .item(&start_queue)
         .separator()
+        .item(&retry_failed)
+        .item(&clear_completed)
+        .separator()
         .item(&open_folder)
         .separator()
         .item(&show)
@@ -4306,14 +4317,19 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     // tile is every opaque pixel, so the extra rendered as a white
     // square. This file is just the shovel, black on clear.
     let icon = tauri::include_image!("icons/tray-template.png");
-    TrayIconBuilder::with_id("status")
+    let tray = TrayIconBuilder::with_id("status")
         .menu(&menu)
         .tooltip("Garia")
-        .icon(icon)
-        .icon_as_template(true)
+        .icon(icon);
+    // A template icon is a macOS menu-bar convention. On Linux it paints the
+    // shovel as a solid block, so the colour icon is what the tray shows.
+    #[cfg(target_os = "macos")]
+    let tray = tray.icon_as_template(true);
+    tray
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
-            id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue" | "open-folder") => {
+            id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
+                | "retry-failed" | "clear-completed" | "open-folder") => {
                 bring_to_front(app);
                 let _ = app.emit("menu", id);
             }

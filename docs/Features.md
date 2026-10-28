@@ -28,7 +28,10 @@
 - When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
 - Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, an HTTP proxy, and both switches above
-- Torrents you can take part of: tick the files inside one, and see when a finished torrent is still seeding — with rules for when it stops, or a button
+- Torrents you can take part of: tick the files inside one, set each file to High, Normal, Low, or Off, and see seeds, leechers, tracker status, and health. A torrent with nowhere to fetch from says Stalled. The Torrents filter is every magnet and `.torrent`
+- Seed until a share ratio or a time — saved, applied to torrents added after the change, and shown on the torrent itself. Stop seeding is still a button
+- Move a queued download to the top or the end, copy its path, remove it and keep the file, retry every failure, or clear completed rows. Download menu, the dock, and the tray carry Retry Failed and Clear Completed
+- A cap on one download, in KB/s, separate from Full, Medium, and Light. It stays with that download across a relaunch
 - Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
 - An HTTP proxy: host, port, and an optional login — HTTP, HTTPS, and FTP, not BitTorrent peers
 - Checksum verification: paste a hash beside the URL and aria2 checks the file as it arrives — before it starts, while it runs, or against one already on disk

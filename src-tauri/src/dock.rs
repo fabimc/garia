@@ -55,6 +55,16 @@ define_class!(
         fn open_folder(&self, _sender: Option<&AnyObject>) {
             fire("open-folder");
         }
+
+        #[unsafe(method(retryFailed:))]
+        fn retry_failed(&self, _sender: Option<&AnyObject>) {
+            fire("retry-failed");
+        }
+
+        #[unsafe(method(clearCompleted:))]
+        fn clear_completed(&self, _sender: Option<&AnyObject>) {
+            fire("clear-completed");
+        }
     }
 
     unsafe impl NSObjectProtocol for DockTarget {}
@@ -148,6 +158,9 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add_item(mtm, &menu, &target, "Stop Queue", sel!(stopQueue:));
     add_item(mtm, &menu, &target, "Start Queue", sel!(startQueue:));
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    add_item(mtm, &menu, &target, "Retry Failed", sel!(retryFailed:));
+    add_item(mtm, &menu, &target, "Clear Completed", sel!(clearCompleted:));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add_item(mtm, &menu, &target, "Open Download Folder", sel!(openFolder:));
 

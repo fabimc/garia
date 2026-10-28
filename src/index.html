@@ -101,6 +101,32 @@
                             <span class="nav-label">All Downloads</span>
                             <span class="nav-count hidden" data-count="all"></span>
                         </button>
+                        <button class="nav-item" data-filter="torrents">
+                            <svg
+                                class="nav-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.75"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M12 3v3" />
+                                <path d="M12 18v3" />
+                                <path d="m4.9 6.4 2.2 2.1" />
+                                <path d="m16.9 15.5 2.2 2.1" />
+                                <path d="M3 12h3" />
+                                <path d="M18 12h3" />
+                                <path d="m4.9 17.6 2.2-2.1" />
+                                <path d="m16.9 8.5 2.2-2.1" />
+                            </svg>
+                            <span class="nav-label">Torrents</span>
+                            <span class="nav-count hidden" data-count="torrents"></span>
+                        </button>
                         <button class="nav-item" data-filter="active">
                             <svg
                                 class="nav-icon"
@@ -1136,9 +1162,12 @@
                             selects all. Double-click or Enter opens
                             detail. Space pauses. ⌘C copies the URL. ⌘⌫
                             removes. ⌥↑ / ⌥↓ reorder a queued row — hold
-                            Shift for either end. ⌘F finds. ⌘? opens this
-                            sheet. Esc closes menus. Right-click for the
-                            rest.
+                            Shift for either end. Right-click also moves a
+                            selection to the top or the end, copies the file
+                            path, or removes the row and keeps the file.
+                            Download → Retry Failed and Clear Completed
+                            cover the whole list. ⌘F finds. ⌘? opens this
+                            sheet. Esc closes menus.
                         </dd>
                         <dt>Video downloads</dt>
                         <dd>
@@ -1156,6 +1185,14 @@
                             Paste a hash beside the URL; aria2 checks as
                             bytes arrive.
                             <a href="https://github.com/fabimc/garia/blob/master/docs/Checksums.md" target="_blank" rel="noreferrer">Docs</a>
+                        </dd>
+                        <dt>Torrents</dt>
+                        <dd>
+                            The Torrents filter is every magnet and
+                            <code>.torrent</code>. Open a row for tracker
+                            status, peer health, per-file priority, and
+                            Seed until. A row that says Stalled has the
+                            metadata and no peers.
                         </dd>
                         <dt>Schedule</dt>
                         <dd>
