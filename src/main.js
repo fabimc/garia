@@ -1332,6 +1332,34 @@ function alreadyHaveUrl(url) {
 
 // aria2 numbers the common failures and only sometimes writes a message, so
 // the row would otherwise say "Failed" and stop there.
+const ERROR_REASONS = {
+  1: "Unknown error",
+  2: "Timed out",
+  3: "Not found on the server (404)",
+  4: "Server returned 404 too many times",
+  5: "Too slow — aria2 gave up",
+  6: "Network problem",
+  8: "Server does not support resuming",
+  9: "Not enough disk space",
+  10: "Piece length differs from the control file",
+  11: "Already downloading this file",
+  12: "Already downloading this torrent",
+  13: "File already exists",
+  14: "Could not rename the file",
+  15: "Could not open the file",
+  16: "Could not create the file",
+  17: "Disk read/write error",
+  18: "Could not create the folder",
+  19: "Could not resolve the host name",
+  22: "Bad response from the server",
+  23: "Too many redirects",
+  24: "Login required",
+  26: "Torrent file is corrupt",
+  27: "Bad magnet link",
+  29: "Server is overloaded — try again later",
+  32: "What arrived doesn't match the checksum",
+};
+
 function errorReason(dl) {
   // aria2 says "Authorization failed", which is true and leads nowhere. This
   // is the one failure with a fix inside the app, so the row names it.
@@ -1358,8 +1386,14 @@ function errorReason(dl) {
   return reason;
 }
 
+// The few words a row's status cell has room for. errorReason is the tooltip.
 function errorLabel(dl) {
-  return failureLabel(dl);
+  if (Number(dl.errorCode) === 24) return "Needs a login";
+  // aria2 gives a 403, like most HTTP statuses, no code of its own. The
+  // number is only at the end of its message.
+  const status = /status=(\d+)$/.exec(dl.errorMessage || "")?.[1];
+  if (status) return `Server answered ${status}`;
+  return errorReason(dl);
 }
 
 // Each row's primary verb lives on the icon (pause, resume, reveal). The
@@ -1745,7 +1779,7 @@ function updateItemEl(li, dl) {
   let statusText = "";
   if (held) statusText = "Scheduled";
   else if (dl.status === "complete") statusText = "Complete";
-  else if (dl.status === "error") statusText = errorLabel({ ...dl, job: dl.job });
+  else if (dl.status === "error") statusText = errorLabel(dl);
   else if (dl.status === "seeding") {
     const totalUp = Number(dl.totalLength) || 0;
     const shared = Number(dl.uploadLength) || 0;
@@ -2792,7 +2826,6 @@ function buildPart(part) {
   sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
   if (!bt) sec.appendChild(buildField("page", "Source page"));
   sec.appendChild(buildField("dest", "Saving to"));
-  if (!bt) sec.appendChild(buildField("page", "Source page"));
 
   // Always built, usually hidden: whether a partial file is worth opening
   // changes on almost every tick, and rebuilding the panel under the pointer
@@ -3320,14 +3353,10 @@ function updatePart(sec, part) {
     st.bittorrent ? st.infoHash || "" : uris[0] || "",
     uris.length > 1 ? uris.join("\n") : "");
   if (!bt) {
-    const row = snapshot.get(part.gid);
-    const page = row?.job?.webpageUrl || rowReferrers.get(part.gid) || "";
+    const page = sourcePageFor(part.gid);
     setField(sec, "page", page, page);
   }
   setField(sec, "dest", destinationOf(st));
-  if (!bt) {
-    setField(sec, "page", sourcePageFor(part.gid));
-  }
   updatePreview(sec, part);
   updateCheckBlock(sec, part);
 
