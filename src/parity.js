@@ -419,6 +419,10 @@ export function formatFilePriorityLabel(priority) {
   return labels[tier] || "Normal";
 }
 
+// The four choices a torrent file can be given. Off is a choice, not the
+// absence of one: it is how a file stays out of the download.
+export const FILE_PRIORITY_TIERS = ["high", "normal", "low", "off"];
+
 export const priorityDisplay = formatFilePriorityLabel;
 
 // Active, peers connected, but barely moving — not stalled (zero peers).
@@ -491,3 +495,196 @@ export function recoveryNextStep(dl) {
   return "Use Retry on the row or Download → Retry Failed.";
 }
 
+// Bulk intake. A pasted page, or "download all links", mixes files with
+// ordinary pages. Files start selected. Pages do not, because adding a page
+// as a URL saves its HTML.
+
+export function classifyIntakeUrl(url, isDirectFile = () => false) {
+  const raw = String(url ?? "").trim();
+  if (/^magnet:/i.test(raw)) return { kind: "magnet", label: "Magnet", file: true };
+  if (/^ftps?:\/\//i.test(raw)) {
+    return isDirectFile(raw)
+      ? { kind: "ftp-file", label: "FTP file", file: true }
+      : { kind: "ftp", label: "FTP folder", file: false };
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return isDirectFile(raw)
+      ? { kind: "file", label: "File", file: true }
+      : { kind: "page", label: "Page", file: false };
+  }
+  return { kind: "other", label: "Link", file: false };
+}
+
+export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
+  const seen = new Set();
+  const rows = [];
+  for (const url of urls || []) {
+    const raw = String(url ?? "").trim();
+    if (!raw || seen.has(raw)) continue;
+    seen.add(raw);
+    const kind = classifyIntakeUrl(raw, isDirectFile);
+    const queued = Boolean(alreadyHave?.(raw));
+    rows.push({
+      url: raw,
+      ...kind,
+      queued,
+      selected: !queued && kind.file,
+    });
+  }
+  return rows;
+}
+
+// "All" and "Files" skip anything already in the list. A manual tick can
+// still put one back; the shortcuts should not.
+export function applyIntakePick(rows, mode) {
+  return (rows || []).map((row) => {
+    if (row.queued) return { ...row, selected: false };
+    if (mode === "none") return { ...row, selected: false };
+    if (mode === "all") return { ...row, selected: true };
+    if (mode === "files") return { ...row, selected: Boolean(row.file) };
+    return { ...row };
+  });
+}
+
+export function intakeReviewHint(rows) {
+  const list = rows || [];
+  if (!list.length) return "";
+  const files = list.filter((row) => row.file && !row.queued).length;
+  const others = list.filter((row) => !row.file && !row.queued).length;
+  const queued = list.filter((row) => row.queued).length;
+  const parts = [];
+  if (files && others) {
+    const fileBit = files === 1 ? "1 file starts selected" : `${files} files start selected`;
+    const otherBit = others === 1
+      ? "1 other link stays off until you tick it"
+      : `${others} other links stay off until you tick them`;
+    parts.push(`${fileBit}. ${otherBit}.`);
+  } else if (others) {
+    parts.push("None of these name a file yet. Tick the ones you want before they start.");
+  } else if (files) {
+    parts.push("Every link already names a file. Untick any you do not want.");
+  }
+  if (queued) parts.push(`${queued} already in the list.`);
+  return parts.join(" ");
+}
+
+// What a page can hand over. Embedded media is listed first so a long run of
+// navigation links does not bury the file that was actually on screen. The
+// page itself is left out, and blob: or data: URLs are not downloads.
+export function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } = {}) {
+  const page = String(pageUrl || "").split("#")[0];
+  const seen = new Set();
+  const out = [];
+  const push = (value) => {
+    const url = String(value ?? "").trim();
+    if (!url || url.startsWith("blob:") || url.startsWith("data:")) return;
+    if (!(url.startsWith("magnet:") || /^https?:\/\//i.test(url) || /^ftps?:\/\//i.test(url))) return;
+    if (page && url.split("#")[0] === page) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  for (const src of media) push(src);
+  for (const href of links) push(href);
+  return out;
+}
+
+// A stable word for the row, beside the percentage. The status cell changes
+// every second; this one does not, so Active, Queued, and Done can be scanned
+// without reading the bar.
+export function formatQueueScan(status, { stalled = false, slow = false, scheduled = false } = {}) {
+  if (scheduled) return { key: "scheduled", label: "Scheduled" };
+  if (status === "error") return { key: "failed", label: "Failed" };
+  if (status === "complete") return { key: "done", label: "Done" };
+  if (status === "seeding") return { key: "seeding", label: "Seeding" };
+  if (status === "paused") return { key: "paused", label: "Paused" };
+  if (status === "waiting") return { key: "queued", label: "Queued" };
+  if (status === "merging") return { key: "merging", label: "Merging" };
+  if (status === "removed") return { key: "removed", label: "Removed" };
+  if (status === "active" && stalled) return { key: "stalled", label: "Stalled" };
+  if (status === "active" && slow) return { key: "slow", label: "Slow" };
+  if (status === "active") return { key: "active", label: "Active" };
+  return { key: "", label: "" };
+}
+
+// Housekeeping that is about the whole queue, not only the rows under the
+// pointer. Retry All stays hidden when the selection already is the only
+// failure — Retry covers that.
+export function housekeepingActions({ failed = 0, failedSelected = 0, completed = 0 } = {}) {
+  const items = [];
+  const failedN = Math.max(0, Number(failed) || 0);
+  const selectedN = Math.max(0, Number(failedSelected) || 0);
+  const doneN = Math.max(0, Number(completed) || 0);
+  if (failedN > 1 || (failedN > 0 && selectedN < failedN)) {
+    items.push({ action: "retry-all", label: "Retry All Failed" });
+  }
+  if (doneN > 0) items.push({ action: "clear-completed", label: "Clear Completed" });
+  return items;
+}
+
+export function formatRestartResumeNote(sizeLabel) {
+  const size = String(sizeLabel || "").trim();
+  if (!size) return "";
+  return `Resumed after a restart — ${size} were already on disk.`;
+}
+
+export function formatMediaOutputName({ title = "", ext = "" } = {}) {
+  const base = String(title || "").trim() || "video";
+  const kind = String(ext || "").replace(/^\./, "").trim();
+  return kind ? `${base}.${kind}` : base;
+}
+
+// Split video and audio cannot become one file without ffmpeg. Said in the
+// picker, where the missing qualities would otherwise just not be listed.
+export function formatUnsupportedMerge({ canMerge = true, bestHeight = 0 } = {}) {
+  if (canMerge) return "";
+  const best = Number(bestHeight) || 0;
+  const tail = best > 0 ? ` — up to ${best}p` : "";
+  return (
+    `Higher qualities here${tail} arrive as separate video and audio, ` +
+    "and the ffmpeg that merges them isn't running — see Settings."
+  );
+}
+
+export function formatUnplayableMediaNote() {
+  return "Nothing on this page can be downloaded as a plain file — it's a live or segmented stream.";
+}
+
+export function formatPlaylistRuleNote(ruleId) {
+  const id = String(ruleId || "");
+  if (id === "best") return "Each video downloads at the tallest quality it has.";
+  if (id === "audio") return "Sound only — the picture is left out.";
+  const cap = Number(id);
+  if (cap > 0) {
+    return (
+      `Each video downloads at the best quality up to ${cap}p. ` +
+      "One with nothing that small still downloads, at its smallest."
+    );
+  }
+  return "";
+}
+
+// What to do next, for a torrent whose status is not the whole story.
+// Seeding and the queue already have their own sentences.
+export function formatTorrentNextStep(dl) {
+  if (!dl || !isTorrentDownload(dl)) return "";
+  if (dl.status === "error") {
+    return "Retry adds it again when a magnet or URL is still on the row.";
+  }
+  if (dl.status === "active" && isStalled(dl)) {
+    return "Leave it running, or pause and resume to ask the trackers again.";
+  }
+  return "";
+}
+
+// aria2 does not say which tracker answered. A connected peer is still the
+// only evidence the announce list is doing anything.
+export function formatTrackerSummary(peerCount, trackerCount) {
+  const n = Math.max(0, Number(trackerCount) || 0);
+  if (!n) return "No trackers were announced.";
+  const state = trackerStatus(peerCount);
+  if (state === "Working") {
+    return `${n} tracker${n === 1 ? "" : "s"} · a peer is connected, so the list is reaching someone.`;
+  }
+  return `${n} tracker${n === 1 ? "" : "s"} · none have a peer connected yet.`;
+}

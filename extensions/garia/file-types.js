@@ -43,6 +43,26 @@ function basename(path) {
   return name === "." || name === ".." ? "" : name;
 }
 
+// Keep in step with captureTargetsFromPage in src/parity.js. Media is listed
+// first so a page of navigation does not bury the file that was on screen.
+function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } = {}) {
+  const page = String(pageUrl || "").split("#")[0];
+  const seen = new Set();
+  const out = [];
+  const push = (value) => {
+    const url = String(value ?? "").trim();
+    if (!url || url.startsWith("blob:") || url.startsWith("data:")) return;
+    if (!(url.startsWith("magnet:") || /^https?:\/\//i.test(url) || /^ftps?:\/\//i.test(url))) return;
+    if (page && url.split("#")[0] === page) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  for (const src of media) push(src);
+  for (const href of links) push(href);
+  return out;
+}
+
 if (typeof globalThis !== "undefined") {
   globalThis.GARIA_FILE_EXTS = FILE_EXTS;
   globalThis.gariaExtensionOf = extensionOf;
@@ -50,4 +70,5 @@ if (typeof globalThis !== "undefined") {
   globalThis.gariaIsHttpUrl = isHttpUrl;
   globalThis.gariaBasenameFromUrl = basenameFromUrl;
   globalThis.gariaBasename = basename;
+  globalThis.gariaCaptureTargets = captureTargetsFromPage;
 }

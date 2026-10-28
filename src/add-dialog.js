@@ -1,5 +1,12 @@
 import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, openOverlay } from "./overlays.js";
+import {
+  applyIntakePick,
+  formatMediaOutputName,
+  formatPlaylistRuleNote,
+  intakeReviewHint,
+  reviewIntake,
+} from "./parity.js";
 
 export function initAddDialog(api) {
   const {
@@ -64,15 +71,18 @@ export function initAddDialog(api) {
   const videoPanel    = document.getElementById("video-panel");
   const videoChoices  = document.getElementById("video-choices");
   const videoNote     = document.getElementById("video-note");
+  const videoOut      = document.getElementById("video-out");
 
   const playlistPanel   = document.getElementById("playlist-panel");
   const playlistRule    = document.getElementById("playlist-rule");
   const playlistEntries = document.getElementById("playlist-entries");
   const playlistCount   = document.getElementById("playlist-count");
   const playlistNote    = document.getElementById("playlist-note");
+  const playlistRuleNote = document.getElementById("playlist-rule-note");
   const batchPanel      = document.getElementById("batch-panel");
   const batchEntries    = document.getElementById("batch-entries");
   const batchCount      = document.getElementById("batch-count");
+  const batchHint       = document.getElementById("batch-hint");
   let batchReferrer = "";
 
   // The dialog is one of five things at a time: asking for a URL, waiting,
@@ -187,7 +197,7 @@ export function initAddDialog(api) {
 
   // A batch adds each ticked URL as-is, so a page would land as its HTML.
   // Only links that already name a file start ticked.
-  function namesAFile(url) {
+  function directFile(url) {
     return isFtpUrl(url) ? looksLikeFtpFile(url) : !looksLikeAPage(url);
   }
 
@@ -201,6 +211,7 @@ export function initAddDialog(api) {
     batchPanel.classList.toggle("hidden", !show);
     if (!show) {
       lastBatchKey = "";
+      if (batchHint) batchHint.classList.add("hidden");
       if (modalMode === "url") modalOk.textContent = "OK";
       return;
     }
@@ -214,28 +225,53 @@ export function initAddDialog(api) {
     for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) {
       kept.set(box.dataset.url, box.checked);
     }
+    const reviewed = reviewIntake(urls, {
+      isDirectFile: directFile,
+      alreadyHave: alreadyHaveUrl,
+    });
     batchEntries.textContent = "";
-    for (const url of urls) {
+    for (const row of reviewed) {
       const label = document.createElement("label");
       label.className = "batch-entry is-link";
       const box = document.createElement("input");
       box.type = "checkbox";
-      box.dataset.url = url;
-      const queued = alreadyHaveUrl(url);
-      box.checked = kept.has(url) ? kept.get(url) : !queued && namesAFile(url);
+      box.dataset.url = row.url;
+      box.dataset.file = row.file ? "true" : "false";
+      box.dataset.queued = row.queued ? "true" : "false";
+      box.checked = kept.has(row.url) ? kept.get(row.url) : row.selected;
       const name = document.createElement("span");
       name.className = "batch-entry-name";
-      name.textContent = catchLabel(url);
-      name.title = url;
+      name.textContent = catchLabel(row.url);
+      name.title = row.url;
+      const kind = document.createElement("span");
+      kind.className = row.file ? "batch-kind is-file" : "batch-kind";
+      kind.textContent = row.label;
       const host = document.createElement("span");
       host.className = "batch-entry-host";
-      host.textContent = urlHost(url);
+      host.textContent = urlHost(row.url);
       const cat = document.createElement("span");
       cat.className = "batch-entry-cat";
-      cat.textContent = queued ? "In the list" : (matchCategory(url)?.name || "");
-      label.append(box, name, host, cat);
+      cat.textContent = row.queued ? "In the list" : (matchCategory(row.url)?.name || "");
+      label.append(box, name, kind, host, cat);
       batchEntries.append(label);
     }
+    if (batchHint) {
+      const hint = intakeReviewHint(reviewed);
+      batchHint.textContent = hint;
+      batchHint.classList.toggle("hidden", !hint);
+    }
+    paintBatchCounts();
+  }
+
+  function pickBatch(mode) {
+    const boxes = [...batchEntries.querySelectorAll("input[type=checkbox]")];
+    const next = applyIntakePick(boxes.map((box) => ({
+      url: box.dataset.url,
+      file: box.dataset.file === "true",
+      queued: box.dataset.queued === "true",
+      selected: box.checked,
+    })), mode);
+    next.forEach((row, i) => { boxes[i].checked = row.selected; });
     paintBatchCounts();
   }
 
@@ -310,14 +346,9 @@ export function initAddDialog(api) {
 
   modalUrlInput.addEventListener("input", () => { renderModalLogin(); renderChecksum(); });
   batchEntries.addEventListener("change", renderBatch);
-  document.getElementById("batch-all").addEventListener("click", () => {
-    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = true;
-    renderBatch();
-  });
-  document.getElementById("batch-none").addEventListener("click", () => {
-    for (const box of batchEntries.querySelectorAll("input[type=checkbox]")) box.checked = false;
-    renderBatch();
-  });
+  document.getElementById("batch-all").addEventListener("click", () => pickBatch("all"));
+  document.getElementById("batch-files").addEventListener("click", () => pickBatch("files"));
+  document.getElementById("batch-none").addEventListener("click", () => pickBatch("none"));
   modalChecksum.addEventListener("input", renderChecksum);
   // Emptied, the field goes back to following the URL.
   modalDir.addEventListener("input", () => { dirEdited = modalDir.value.trim() !== ""; });
@@ -542,6 +573,7 @@ export function initAddDialog(api) {
         `<span class="video-choice-size"></span>`;
       btn.querySelector(".video-choice-label").textContent = c.label;
       btn.querySelector(".video-choice-detail").textContent = c.detail;
+      btn.dataset.ext = c.ext || "";
       // An estimate is still worth showing — it's the difference between a
       // 40 MB clip and a 4 GB one — but it shouldn't read as a promise.
       btn.querySelector(".video-choice-size").textContent = c.bytes ? formatBytes(c.bytes) : "";
@@ -553,11 +585,22 @@ export function initAddDialog(api) {
     const note = [missing, tools?.text].filter(Boolean).join(" ");
     videoNote.textContent = note;
     videoNote.classList.toggle("hidden", !note);
+    paintVideoOut();
 
     modalPlain.classList.toggle("hidden", choices.length > 0);
     setModalMode("video");
     // After the mode, which hands the button back its default state.
     modalOk.disabled = choices.length === 0;
+  }
+
+  function paintVideoOut() {
+    if (!videoOut) return;
+    const choice = probed?.choices?.[probed.selected];
+    const name = choice
+      ? formatMediaOutputName({ title: safeName(probed.info?.title), ext: choice.ext })
+      : "";
+    videoOut.textContent = name ? `Saves as ${name}` : "";
+    videoOut.classList.toggle("hidden", !name);
   }
 
   videoChoices.addEventListener("click", (e) => {
@@ -567,6 +610,7 @@ export function initAddDialog(api) {
     for (const el of videoChoices.querySelectorAll(".video-choice")) {
       el.setAttribute("aria-checked", String(el === btn));
     }
+    paintVideoOut();
   });
 
   // ── The playlist picker ─────────────────────────────────────────────────
@@ -599,6 +643,7 @@ export function initAddDialog(api) {
       : "";
     playlistNote.textContent = note;
     playlistNote.classList.toggle("hidden", !note);
+    paintPlaylistRule();
 
     renderPlaylistEntries();
     setModalMode("playlist");
@@ -630,6 +675,13 @@ export function initAddDialog(api) {
     renderPlaylistCount();
   }
 
+  function paintPlaylistRule() {
+    if (!playlistRuleNote) return;
+    const text = formatPlaylistRuleNote(playlistRule.value);
+    playlistRuleNote.textContent = text;
+    playlistRuleNote.classList.toggle("hidden", !text);
+  }
+
   function renderPlaylistCount() {
     const picked = playlist.checked.size;
     const total = playlist.info.entries.length;
@@ -655,6 +707,7 @@ export function initAddDialog(api) {
     }
     renderPlaylistCount();
   }
+  playlistRule.addEventListener("change", paintPlaylistRule);
   document.getElementById("playlist-all").addEventListener("click", () => setAllChecked(true));
   document.getElementById("playlist-none").addEventListener("click", () => setAllChecked(false));
 

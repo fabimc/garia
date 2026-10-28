@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 import {
   bulkPriorityMap,
   desiredIndices,
@@ -34,6 +36,21 @@ import {
   formatTorrentStateMessage,
   formatDetailBadge,
   formatFilePriorityLabel,
+  FILE_PRIORITY_TIERS,
+  classifyIntakeUrl,
+  reviewIntake,
+  applyIntakePick,
+  intakeReviewHint,
+  captureTargetsFromPage,
+  formatQueueScan,
+  housekeepingActions,
+  formatRestartResumeNote,
+  formatMediaOutputName,
+  formatUnsupportedMerge,
+  formatUnplayableMediaNote,
+  formatPlaylistRuleNote,
+  formatTorrentNextStep,
+  formatTrackerSummary,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -254,6 +271,135 @@ test("detail badges distinguish torrent, video, and http", () => {
 test("file priority labels match the tier names in the UI", () => {
   assert.equal(formatFilePriorityLabel("high"), "High");
   assert.equal(formatFilePriorityLabel(false), "Normal");
+  assert.deepEqual(FILE_PRIORITY_TIERS.map(formatFilePriorityLabel), ["High", "Normal", "Low", "Off"]);
+});
+
+test("bulk intake selects files and leaves pages off", () => {
+  const isFile = (url) => /\.(zip|iso)(\?|$)/i.test(url);
+  const rows = reviewIntake([
+    "https://ex.test/a.zip",
+    "https://ex.test/read",
+    "magnet:?xt=urn:btih:abc",
+    "https://ex.test/a.zip",
+    "ftp://files.test/pub/",
+    "ftp://files.test/disk.iso",
+  ], { isDirectFile: isFile });
+  assert.deepEqual(rows.map((row) => [row.kind, row.selected]), [
+    ["file", true],
+    ["page", false],
+    ["magnet", true],
+    ["ftp", false],
+    ["ftp-file", true],
+  ]);
+  assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).label, "File");
+  assert.match(intakeReviewHint(rows), /3 files start selected/);
+  assert.match(intakeReviewHint(rows), /2 other links stay off/);
+  assert.match(
+    intakeReviewHint([{ file: true, queued: false }, { file: false, queued: false }]),
+    /1 file starts selected\. 1 other link stays off/,
+  );
+});
+
+test("a link already in the list stays unticked, including All and Files", () => {
+  const rows = reviewIntake(
+    ["https://ex.test/a.zip", "https://ex.test/b.zip"],
+    { isDirectFile: () => true, alreadyHave: (url) => url.endsWith("a.zip") },
+  );
+  assert.equal(rows[0].selected, false);
+  assert.equal(rows[0].queued, true);
+  assert.deepEqual(applyIntakePick(rows, "all").map((row) => row.selected), [false, true]);
+  assert.deepEqual(applyIntakePick(rows, "files").map((row) => row.selected), [false, true]);
+  assert.deepEqual(applyIntakePick(rows, "none").map((row) => row.selected), [false, false]);
+  assert.match(intakeReviewHint(rows), /already in the list/);
+});
+
+test("the extension collector matches the shared page-capture helper", () => {
+  const source = readFileSync(new URL("../extensions/garia/file-types.js", import.meta.url), "utf8");
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  const sample = {
+    pageUrl: "https://ex.test/watch#part",
+    links: ["https://ex.test/watch", "https://ex.test/next", "blob:https://ex.test/x"],
+    media: ["https://cdn.test/clip.mp4", "https://ex.test/next"],
+  };
+  assert.equal(
+    JSON.stringify(sandbox.gariaCaptureTargets(sample)),
+    JSON.stringify(captureTargetsFromPage(sample)),
+  );
+});
+
+test("page capture lists embedded media before links and drops the page itself", () => {
+  const urls = captureTargetsFromPage({
+    pageUrl: "https://ex.test/watch",
+    links: [
+      "https://ex.test/watch",
+      "https://ex.test/watch#top",
+      "https://ex.test/next",
+      "blob:https://ex.test/clip",
+      "magnet:?xt=urn:btih:abc",
+    ],
+    media: ["https://cdn.test/clip.mp4", "https://ex.test/next"],
+  });
+  assert.deepEqual(urls, [
+    "https://cdn.test/clip.mp4",
+    "https://ex.test/next",
+    "magnet:?xt=urn:btih:abc",
+  ]);
+});
+
+test("queue scan words stay stable across progress", () => {
+  assert.deepEqual(formatQueueScan("active"), { key: "active", label: "Active" });
+  assert.equal(formatQueueScan("waiting").label, "Queued");
+  assert.equal(formatQueueScan("complete").label, "Done");
+  assert.equal(formatQueueScan("error").label, "Failed");
+  assert.equal(formatQueueScan("active", { stalled: true }).label, "Stalled");
+  assert.equal(formatQueueScan("active", { slow: true }).label, "Slow");
+  assert.equal(formatQueueScan("active", { scheduled: true }).label, "Scheduled");
+});
+
+test("housekeeping offers retry-all and clear-completed only when they do something", () => {
+  assert.deepEqual(housekeepingActions({ failed: 1, failedSelected: 1, completed: 0 }), []);
+  assert.deepEqual(
+    housekeepingActions({ failed: 1, failedSelected: 0, completed: 2 }).map((item) => item.action),
+    ["retry-all", "clear-completed"],
+  );
+  assert.equal(housekeepingActions({ failed: 3, failedSelected: 3 })[0].label, "Retry All Failed");
+});
+
+test("a restart says how much was already on disk", () => {
+  assert.equal(formatRestartResumeNote(""), "");
+  assert.match(formatRestartResumeNote("12.0 MB"), /Resumed after a restart — 12.0 MB/);
+});
+
+test("media output names and merge gaps say what the file will be", () => {
+  assert.equal(formatMediaOutputName({ title: "Talk", ext: "mkv" }), "Talk.mkv");
+  assert.equal(formatMediaOutputName({ title: "", ext: "" }), "video");
+  assert.equal(formatUnsupportedMerge({ canMerge: true, bestHeight: 1080 }), "");
+  assert.match(formatUnsupportedMerge({ canMerge: false, bestHeight: 2160 }), /2160p/);
+  assert.match(formatUnsupportedMerge({ canMerge: false, bestHeight: 2160 }), /ffmpeg/i);
+  assert.match(formatUnplayableMediaNote(), /live or segmented/);
+  assert.match(formatPlaylistRuleNote("best"), /tallest/);
+  assert.match(formatPlaylistRuleNote("720"), /720p/);
+  assert.match(formatPlaylistRuleNote("audio"), /Sound only/);
+  assert.equal(formatPlaylistRuleNote(""), "");
+});
+
+test("a stalled or failed torrent says what to do next", () => {
+  const stalled = {
+    bittorrent: {},
+    status: "active",
+    totalLength: "100",
+    completedLength: "10",
+    downloadSpeed: "0",
+    connections: "0",
+  };
+  assert.match(formatTorrentNextStep(stalled), /pause and resume/i);
+  assert.match(formatTorrentNextStep({ bittorrent: {}, status: "error" }), /Retry/);
+  assert.equal(formatTorrentNextStep({ status: "error" }), "");
+  assert.match(formatTrackerSummary(0, 2), /none have a peer/);
+  assert.match(formatTrackerSummary(3, 1), /reaching someone/);
+  assert.match(formatTrackerSummary(0, 0), /No trackers/);
 });
 
 test("slow is active with peers but almost no speed", () => {
