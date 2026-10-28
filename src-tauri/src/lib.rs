@@ -14,6 +14,7 @@ use tauri::{Emitter, Manager};
 mod catch;
 #[cfg(target_os = "macos")]
 mod dock;
+mod file_priorities;
 mod ftp;
 mod logins;
 mod schedule;
@@ -561,6 +562,11 @@ struct LoginsState {
     file: PathBuf,
     netrc: PathBuf,
     current: Mutex<Vec<logins::Login>>,
+}
+
+struct FilePrioritiesState {
+    file: PathBuf,
+    current: Mutex<file_priorities::PriorityMap>,
 }
 
 fn default_download_dir() -> PathBuf {
@@ -1428,6 +1434,28 @@ fn get_logins(state: tauri::State<LoginsState>) -> Vec<logins::LoginView> {
         .lock()
         .map(|current| logins::views(&current))
         .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_file_priorities(state: tauri::State<FilePrioritiesState>) -> file_priorities::PriorityMap {
+    state
+        .current
+        .lock()
+        .map(|current| current.clone())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_file_priorities(
+    state: tauri::State<FilePrioritiesState>,
+    priorities: file_priorities::PriorityMap,
+) -> Result<(), String> {
+    file_priorities::write(&state.file, &priorities)?;
+    *state
+        .current
+        .lock()
+        .map_err(|_| "file priority store is in an unknown state".to_string())? = priorities;
+    Ok(())
 }
 
 /// Add a site or change one. A `None` password is "leave the one that's
@@ -3823,6 +3851,8 @@ pub fn run() {
             get_logins,
             save_login,
             delete_login,
+            get_file_priorities,
+            save_file_priorities,
             set_badge,
             take_pending_catch,
             take_pending_torrents,
@@ -3869,7 +3899,9 @@ pub fn run() {
 
             let logins_file = dir.join("logins.json");
             let netrc_file = dir.join("netrc");
+            let file_priorities_file = dir.join("file-priorities.json");
             let saved_logins = logins::read(&logins_file);
+            let saved_file_priorities = file_priorities::read(&file_priorities_file);
             // The netrc is derived, so it is rebuilt at every launch rather
             // than trusted: a store edited by hand, or one written by a build
             // that stored passwords differently, still ends up with an aria2
@@ -3923,6 +3955,10 @@ pub fn run() {
                 file: logins_file,
                 netrc: netrc_file,
                 current: Mutex::new(saved_logins),
+            });
+            app.manage(FilePrioritiesState {
+                file: file_priorities_file,
+                current: Mutex::new(saved_file_priorities),
             });
 
             // The bundled zipapp. Missing it is not fatal — it is the second
