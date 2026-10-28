@@ -3,16 +3,22 @@ import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
 import {
   desiredIndices,
+  failureCategoryLabel,
+  failureKind,
   indicesDiffer,
   isStalled,
   isTorrentDownload,
   leechersOf,
+  parseChecksum,
   parseKilobytes,
+  pickByRule,
   placeInQueue,
   prioritiesNeedAdvance,
   sameOrder,
+  scheduleHoldNote,
   seedUntilLabel,
   selectedIndicesOf,
+  splitChecksum,
   torrentHealth,
   trackerRows,
   trackerStatus,
@@ -533,85 +539,8 @@ async function advanceFilePriorities(downloads) {
 // `complete` already means on a download that was given a checksum, and the
 // only thing to remember is that it had one.
 //
-// The seven digests and their lengths are aria2's, not a convention borrowed
-// from elsewhere — it rejects a --checksum outright when the digit count and
-// the named algorithm disagree. Which is also what lets a bare hash name its
-// own algorithm: there is exactly one that could have produced it.
-const CHECKSUM_ALGOS = {
-  8: "adler32", 32: "md5", 40: "sha-1", 56: "sha-224",
-  64: "sha-256", 96: "sha-384", 128: "sha-512",
-};
-
-const ALGO_LABELS = {
-  adler32: "Adler-32", md5: "MD5", "sha-1": "SHA-1", "sha-224": "SHA-224",
-  "sha-256": "SHA-256", "sha-384": "SHA-384", "sha-512": "SHA-512",
-};
-
-function algoDigits(algo) {
-  return Number(Object.keys(CHECKSUM_ALGOS).find((n) => CHECKSUM_ALGOS[n] === algo)) || 0;
-}
-
-function normalizeAlgo(text) {
-  const t = text.toLowerCase().replace(/-/g, "");
-  return t === "adler32" || t === "md5" ? t : `sha-${t.slice(3)}`;
-}
-
-// What is actually in the clipboard when someone copies a hash: the digest on
-// its own, a `sha256:` prefix in front of it, the whole `<hash>  <filename>`
-// line out of a SHASUMS file, or certutil's two-digit groups. All four end up
-// as the one string aria2 takes. Returns null for an empty field, an object
-// with `error` for something unusable, and the parsed hash otherwise — the
-// three answers the hint under the field has to tell apart.
-function parseChecksum(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return null;
-
-  // An algorithm the user named beats the one the length implies, so that a
-  // disagreement between the two is caught here rather than by aria2 refusing
-  // the download a moment later.
-  const named = raw.match(/\b(adler-?32|md5|sha-?(?:224|256|384|512|1))\b[\s:=]*/i);
-  const claimed = named ? normalizeAlgo(named[1]) : "";
-  const rest = named ? raw.slice(named.index + named[0].length) : raw;
-
-  const hex = (t) => /^[0-9a-f]+$/i.test(t);
-  const tokens = rest.split(/[\s,]+/).filter(Boolean);
-  let digest = tokens.find((t) => hex(t) && CHECKSUM_ALGOS[t.length]);
-  // Joining the pieces is only safe when every one of them is hex — otherwise
-  // the filename on a SHASUMS line would be swallowed into the digest.
-  if (!digest && tokens.length > 1 && tokens.every(hex)) {
-    const joined = tokens.join("");
-    if (CHECKSUM_ALGOS[joined.length]) digest = joined;
-  }
-  if (!digest) {
-    // Someone who named the algorithm has told us how long the digest should
-    // be, so the count is the useful thing to say back rather than the list.
-    const attempt = tokens.find(hex);
-    if (claimed && attempt) {
-      return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${attempt.length}.` };
-    }
-    return { error: "That isn't a hash garia can read. It takes 32, 40, 56, 64, 96 or 128 hex digits — on their own, or after something like sha256=." };
-  }
-
-  digest = digest.toLowerCase();
-  const implied = CHECKSUM_ALGOS[digest.length];
-  if (claimed && claimed !== implied) {
-    return { error: `A ${ALGO_LABELS[claimed]} hash is ${algoDigits(claimed)} hex digits long, and that one is ${digest.length}.` };
-  }
-  const algo = claimed || implied;
-  return { algo, digest, spec: `${algo}=${digest}`, label: ALGO_LABELS[algo] };
-}
-
 function checksumOption(parsed) {
   return parsed?.spec ? { checksum: parsed.spec } : {};
-}
-
-// The option as aria2 hands it back, taken apart for showing.
-function splitChecksum(spec) {
-  const text = String(spec || "");
-  const at = text.indexOf("=");
-  if (at < 1) return null;
-  const algo = text.slice(0, at).toLowerCase();
-  return { algo, digest: text.slice(at + 1), label: ALGO_LABELS[algo] || algo.toUpperCase(), spec: text };
 }
 
 // A hash is a claim about one file, and neither a torrent nor a magnet is one:
@@ -883,27 +812,6 @@ const QUALITY_RULES = [
   { id: "480",   label: "Up to 480p",     detail: "" },
   { id: "audio", label: "Audio only",     detail: "Sound, no picture" },
 ];
-
-// The rule applied to one entry's choices. `buildChoices` has already put the
-// tallest first, so the first one inside the cap is the best one inside it —
-// and a video whose every quality is over the cap still downloads, at its
-// smallest, because refusing to fetch a 720p-only video under a 480p rule
-// would be a silent hole in the list rather than a decision.
-function pickByRule(choices, rule) {
-  if (!choices.length) return null;
-  const audio = choices.find((c) => c.label === "Audio");
-  if (rule === "audio") return audio || choices[choices.length - 1];
-
-  const pictures = choices.filter((c) => c !== audio);
-  if (!pictures.length) return choices[0];
-  if (rule === "best") return pictures[0];
-
-  const cap = Number(rule);
-  return (
-    pictures.find((c) => (parseInt(c.label, 10) || 0) <= cap) ||
-    pictures[pictures.length - 1]
-  );
-}
 
 // What's on the page but out of reach, said plainly rather than left as a
 // quality that mysteriously isn't listed.
@@ -1413,11 +1321,17 @@ function errorReason(dl) {
   // aria2 says "Authorization failed", which is true and leads nowhere. This
   // is the one failure with a fix inside the app, so the row names it.
   if (Number(dl.errorCode) === 24) return "Needs a login — add one in Settings";
+  if (dl.status === "error" && dl.job?.state === "failed" && dl.job?.error) {
+    const tag = failureCategoryLabel(failureKind({ jobError: dl.job.error }));
+    return tag ? `${tag}: ${dl.job.error}` : dl.job.error;
+  }
+  const kind = failureKind({ errorCode: dl.errorCode, errorMessage: dl.errorMessage });
+  const tag = failureCategoryLabel(kind);
   const message = (dl.errorMessage || "").trim();
-  if (message) return message;
+  if (message) return tag ? `${tag}: ${message}` : message;
   const code = Number(dl.errorCode);
-  if (code) return ERROR_REASONS[code] || `Failed with error ${code}`;
-  return "Download failed";
+  const fallback = code ? (ERROR_REASONS[code] || `Failed with error ${code}`) : "Download failed";
+  return tag ? `${tag}: ${fallback}` : fallback;
 }
 
 // The few words a row's status cell has room for. errorReason is the tooltip.
@@ -1817,8 +1731,16 @@ function updateItemEl(li, dl) {
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
   statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
   statusEl.classList.toggle("is-error", dl.status === "error");
+  statusEl.classList.toggle("is-checksum", failKind === "checksum");
   statusEl.classList.toggle("is-seeding", dl.status === "seeding");
   statusEl.classList.toggle("is-stalled", statusText === "Stalled");
+  const failKind = dl.status === "error"
+    ? failureKind({
+      errorCode: dl.errorCode,
+      errorMessage: dl.errorMessage,
+      jobError: dl.job?.state === "failed" ? dl.job?.error : "",
+    })
+    : "";
   const reason = dl.status === "error" ? errorReason(dl) : "";
   const seedTip = dl.status === "seeding"
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
@@ -2055,7 +1977,7 @@ function applyFilter(listEl) {
       sub = "Start aria2 and garia will reconnect on its own";
     } else {
       title = "No downloads yet";
-      sub = `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modGlyph()}N`;
+      sub = `Drag a URL or .torrent file anywhere, copy a file link, hit ${modGlyph()}N, or install the browser extension to catch links and video pages`;
     }
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
@@ -2169,6 +2091,7 @@ function rowLimit(gid) {
 // as complete unless the hash matched, so a completed row with a checksum on
 // it is a verified row, and nothing else has to be recorded.
 const rowChecksums = new Map();
+const rowReferrers = new Map();
 
 // One question per download, asked once for the life of the run. The cap and
 // the checksum come out of the same getOption, which is why they are learned
@@ -2185,11 +2108,13 @@ function learnOptions(raw) {
     // Defaults only: a download garia has just added already knows its own.
     if (!rowLimits.has(dl.gid)) rowLimits.set(dl.gid, 0);
     if (!rowChecksums.has(dl.gid)) rowChecksums.set(dl.gid, "");
+    if (!rowReferrers.has(dl.gid)) rowReferrers.set(dl.gid, "");
     rpc("aria2.getOption", [dl.gid])
       .then((opt) => {
         const bytes = parseLimit(opt?.["max-download-limit"]);
         if (bytes > 0) rowLimits.set(dl.gid, bytes);
         if (opt?.checksum) rowChecksums.set(dl.gid, String(opt.checksum));
+        if (opt?.referer) rowReferrers.set(dl.gid, String(opt.referer));
       })
       .catch(() => { /* finished, or forgotten, between the poll and the ask */ });
   }
@@ -2296,12 +2221,14 @@ function isHeld(gid) {
 // about a paused row: a held download and a hand-paused one are both `paused`
 // to aria2, and this is the whole of the difference the user can see.
 function heldNote(gid) {
-  if (!isHeld(gid)) return "";
   const at = startAt(gid);
-  if (at) return `starts ${clockOf(at)}`;
-  if (schedule.queueStopped) return "Queue stopped";
-  if (schedule.enabled && !schedule.open) return `starts ${clockLabel(schedule.start)}`;
-  return "held";
+  return scheduleHoldNote({
+    held: isHeld(gid),
+    startAtLabel: at ? clockOf(at) : "",
+    queueStopped: schedule.queueStopped,
+    scheduleBlocked: schedule.enabled && !schedule.open,
+    scheduleStartLabel: schedule.enabled && !schedule.open ? clockLabel(schedule.start) : "",
+  });
 }
 
 const QUEUE_STOP_NOTE = "Running and queued downloads pause, and nothing new starts. Seeding continues.";
@@ -2823,6 +2750,7 @@ function buildPart(part) {
   sec.appendChild(facts);
 
   sec.appendChild(buildField("source", bt ? "Info hash" : "Source"));
+  if (!bt) sec.appendChild(buildField("page", "Source page"));
   sec.appendChild(buildField("dest", "Saving to"));
 
   // Always built, usually hidden: whether a partial file is worth opening
@@ -3328,18 +3256,23 @@ function updatePart(sec, part) {
     }
   }
 
+  const bt = Boolean(st.bittorrent);
   // A torrent has no source URL to show — its info hash is the closest thing,
   // and it is what you paste into a tracker search.
   const uris = sourceUris(st);
   setField(sec, "source",
     st.bittorrent ? st.infoHash || "" : uris[0] || "",
     uris.length > 1 ? uris.join("\n") : "");
+  if (!bt) {
+    const row = snapshot.get(part.gid);
+    const page = row?.job?.webpageUrl || rowReferrers.get(part.gid) || "";
+    setField(sec, "page", page, page);
+  }
   setField(sec, "dest", destinationOf(st));
   updatePreview(sec, part);
   updateCheckBlock(sec, part);
 
   const files = st.files || [];
-  const bt = Boolean(st.bittorrent);
   const pending = fileSelection.get(part.gid);
   syncTable(sec, "files", files.length > 1 ? files : [], (f) => f.index, (tr, f) => {
     const size = Number(f.length) || 0;
@@ -3892,6 +3825,7 @@ async function poll(listEl) {
       optionsAsked.delete(gid);
       rowLimits.delete(gid);
       rowChecksums.delete(gid);
+      rowReferrers.delete(gid);
     }
 
     const all = collapseJobs(raw).filter((dl) => !removing.has(dl.gid));
@@ -4116,6 +4050,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
+    videoToolsSummary,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
@@ -5762,6 +5697,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     capturePending = { url, referrer };
     captureUrlEl.textContent = url;
     captureUrlEl.title = url;
+    const captureReferrer = document.getElementById("capture-referrer");
+    if (captureReferrer) {
+      const host = referrer ? hostOf(referrer) : "";
+      captureReferrer.textContent = host ? `From ${host}` : "";
+      captureReferrer.classList.toggle("hidden", !host);
+    }
     captureName.value = suggestedName(url, name);
     fillCaptureCategories(url);
     captureDir.value = targetDir(url) || settings.downloadDir || "";

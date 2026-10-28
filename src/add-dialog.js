@@ -16,6 +16,7 @@ export function initAddDialog(api) {
     parseChecksum,
     checksumOption,
     getVideoTools,
+    videoToolsSummary,
     looksLikeAPage,
     isFtpUrl,
     looksLikeFtpFile,
@@ -547,7 +548,9 @@ export function initAddDialog(api) {
       videoChoices.appendChild(btn);
     });
 
-    const note = missingNote(info, choices, getVideoTools().ffmpeg);
+    const missing = missingNote(info, choices, getVideoTools().ffmpeg);
+    const tools = typeof videoToolsSummary === "function" ? videoToolsSummary() : null;
+    const note = [missing, tools?.text].filter(Boolean).join(" ");
     videoNote.textContent = note;
     videoNote.classList.toggle("hidden", !note);
 
