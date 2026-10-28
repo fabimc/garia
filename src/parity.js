@@ -171,14 +171,6 @@ export function leechersOf({ connections = 0, seeders = 0, peers = [] } = {}) {
   return Math.max(0, (Number(connections) || 0) - (Number(seeders) || 0));
 }
 
-export function priorityDisplay(value) {
-  const tier = normalizePriority(value);
-  if (tier === "off") return "Off";
-  if (tier === "high") return "High";
-  if (tier === "low") return "Low";
-  return "Normal";
-}
-
 // Why a paused row is waiting — queue stopped, schedule window, or a start time.
 export function scheduleHoldNote({
   held = false,
@@ -302,3 +294,129 @@ export function pickByRule(choices, rule) {
     pictures[pictures.length - 1]
   );
 }
+
+// XDM-style copy for empty states, media capture, limits, and failure recovery
+// (P3–P5 in docs/XDM-Parity-Plan.md). Shared so list, detail, and settings agree.
+
+export function formatEmptyQueueState({
+  filter = "all",
+  hasAnyDownloads = false,
+  connError = false,
+  modNHint = "⌘N",
+} = {}) {
+  if (connError) {
+    return {
+      title: "Can't reach aria2",
+      sub: "Start aria2 and garia will reconnect on its own",
+    };
+  }
+  if (hasAnyDownloads) {
+    if (String(filter).startsWith("cat:")) {
+      return {
+        title: "Nothing in this category",
+        sub: "Downloads that land in this folder show up here",
+      };
+    }
+    if (filter === "torrents") {
+      return { title: "No torrents", sub: "Magnets and .torrent files show up here" };
+    }
+    return {
+      title: "Nothing matches this view",
+      sub: "Try a different filter or clear the search field",
+    };
+  }
+  return {
+    title: "No downloads yet",
+    sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}, or install the browser extension to catch links and video pages`,
+  };
+}
+
+export function formatRecoverableNextStep(errorCode) {
+  const code = Number(errorCode);
+  if (code === 24) return "Add a login in Settings, then Retry.";
+  if (code === 32) return "Check the checksum or remove the row and download again.";
+  if (code === 29) return "Wait and use Retry when the server is less busy.";
+  if (code === 19) return "Check your network or DNS, then Retry.";
+  if (code === 17) return "Free disk space or pick another folder, then Retry.";
+  return "Retry re-queues the download with the same options.";
+}
+
+export function formatIntegrityFailureReason(errorCode) {
+  const code = Number(errorCode);
+  if (code === 32) return "Checksum mismatch — the file on disk does not match what was promised.";
+  if (code === 26) return "The torrent metainfo is corrupt.";
+  return "";
+}
+
+export function formatFfmpegMergeLine({ hasFfmpeg = false, ffmpegSource = "" } = {}) {
+  if (!hasFfmpeg) {
+    return "No ffmpeg — the bundled one is missing, so only single-file qualities are offered.";
+  }
+  if (ffmpegSource === "system") {
+    return "Merging uses your own ffmpeg; the copy garia ships did not run.";
+  }
+  return "Merging uses the ffmpeg garia ships, so split video-and-audio qualities are available.";
+}
+
+export function formatCaptureFlowHint(source) {
+  if (source === "clipboard") {
+    return "Link copied — confirm in Add Download or start from the banner.";
+  }
+  if (source === "extension") {
+    return "Sent from the browser — review the URL and folder before adding.";
+  }
+  return "Paste a URL, drop a file, or capture from the browser extension.";
+}
+
+export function formatMediaQualityLabel({ height = 0, ext = "", formatId = "" } = {}) {
+  const h = Number(height);
+  const res = h > 0 ? `${h}p` : "unknown resolution";
+  const kind = String(ext || formatId || "stream").trim() || "stream";
+  return `${res} · ${kind}`;
+}
+
+export function formatSpeedLimitScope({ perDownloadBytes = 0, modeBytes = 0, mode = "full" } = {}) {
+  const cap = Number(perDownloadBytes) || 0;
+  const modeCap = Number(modeBytes) || 0;
+  if (cap > 0) {
+    return `This download has its own cap (${cap} B/s), overriding the traffic mode.`;
+  }
+  if (mode && mode !== "full" && modeCap > 0) {
+    return `Traffic mode “${mode}” limits all active downloads (${modeCap} B/s).`;
+  }
+  return "No per-download cap — the app-wide traffic mode applies.";
+}
+
+export function formatTorrentStateMessage(dl) {
+  if (!dl) return "";
+  if (dl.status === "seeding") return "Seeding — sharing completed pieces with the swarm.";
+  if (dl.status === "active" && isStalled(dl)) {
+    return "Stalled — no peers connected, so nothing is arriving.";
+  }
+  if (dl.status === "active" && dl.seeder === "true") return "Uploading to the swarm.";
+  if (dl.status === "waiting") return "Queued — will start when a slot opens.";
+  if (dl.status === "paused") return "Paused — resume when you are ready.";
+  if (dl.status === "error") return "Failed — read the message below and Retry if offered.";
+  return "";
+}
+
+export function formatChecksumStatus({ hasChecksum = false, verified = false } = {}) {
+  if (!hasChecksum) return "No checksum was set for this download.";
+  if (verified) return "Checksum matched — the file is verified.";
+  return "Checksum pending or failed — see the row status.";
+}
+
+export function formatDetailBadge(dl) {
+  if (!dl) return "";
+  if (isTorrentDownload(dl)) return "Torrent";
+  if (dl.job) return "Video";
+  return "HTTP";
+}
+
+export function formatFilePriorityLabel(priority) {
+  const tier = normalizePriority(priority);
+  const labels = { high: "High", normal: "Normal", low: "Low", off: "Off" };
+  return labels[tier] || "Normal";
+}
+
+export const priorityDisplay = formatFilePriorityLabel;
