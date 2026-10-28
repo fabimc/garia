@@ -51,6 +51,7 @@ let settings = {
   categories: [],
   notifyOnComplete: true,
   catchClipboard: true,
+  catchPageClipboard: false,
   confirmCapture: true,
   inOrder: false,
   cookieFile: "",
@@ -213,6 +214,7 @@ const settingsNotify = document.getElementById("settings-notify");
 const settingsAutostart = document.getElementById("settings-autostart");
 const settingsSmart = document.getElementById("settings-smart-folders");
 const settingsCatch = document.getElementById("settings-catch");
+const settingsCatchPage = document.getElementById("settings-catch-page");
 const settingsConfirmCapture = document.getElementById("settings-confirm-capture");
 const settingsInOrder = document.getElementById("settings-in-order");
 const settingsCookies = document.getElementById("settings-cookies");
@@ -360,6 +362,7 @@ function fillForm() {
   settingsSmart.checked = settings.smartFolders === true;
   renderCategories();
   settingsCatch.checked = settings.catchClipboard !== false;
+  if (settingsCatchPage) settingsCatchPage.checked = settings.catchPageClipboard === true;
   settingsConfirmCapture.checked = settings.confirmCapture !== false;
   settingsInOrder.checked = settings.inOrder === true;
   settingsCookies.value = settings.cookieFile || "";
@@ -404,6 +407,7 @@ function formSettings() {
     })(),
     notifyOnComplete: settingsNotify.checked,
     catchClipboard: settingsCatch.checked,
+    catchPageClipboard: settingsCatchPage?.checked === true,
     confirmCapture: settingsConfirmCapture.checked,
     inOrder: settingsInOrder.checked,
     cookieFile: settingsCookies.value.trim(),
@@ -426,7 +430,7 @@ function settingsDiffer(a, b) {
   const keys = [
     "downloadDir", "maxConcurrentDownloads", "mediumLimit", "lightLimit",
     "seedRatio", "seedTimeMinutes", "smartFolders", "notifyOnComplete",
-    "catchClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
+    "catchClipboard", "catchPageClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
     "proxyEnabled", "proxyHost", "proxyPort", "proxyUser", "proxyNoProxy",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
     "queueStopped", "doneAction",
@@ -902,7 +906,7 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   showPane(item.dataset.pane);
 });
 
-for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsConfirmCapture, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
+for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
   input.addEventListener("change", persistSettings);
 }
 for (const input of document.querySelectorAll('input[name="done-action"]')) {
