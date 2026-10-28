@@ -1725,6 +1725,17 @@ html.in-app .modal.modal-lg {
 .setup-value.is-missing {
     color: var(--danger);
 }
+.setup-body .field-check {
+    font-size: 0.84rem;
+}
+html.in-app #setup-overlay .modal-header,
+html.in-app #setup-overlay .modal-footer {
+    flex-shrink: 0;
+}
+html.in-app #setup-overlay .setup-body {
+    overflow: auto;
+    min-height: 0;
+}
 .setup-body .bookmarklet {
     margin-top: 0.2rem;
 }

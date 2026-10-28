@@ -1220,6 +1220,50 @@ export function rememberedQualityRule(stored, fallback = "best") {
   return Number.isFinite(cap) && cap > 0 ? String(cap) : fallback;
 }
 
+// The welcome sheet introduces the same four folders Settings starts with.
+// An empty list is those four. A list the user already saved is named as
+// they left it, so "Set up Garia again" does not describe folders they renamed.
+const STARTER_CATEGORY_NAMES = ["Video", "Music", "Documents", "Archives"];
+
+function categoryNames(categories) {
+  return (Array.isArray(categories) ? categories : [])
+    .map((cat) => String(cat?.name ?? "").trim())
+    .filter(Boolean);
+}
+
+function sameNameList(a, b) {
+  return a.length === b.length && a.every((name, i) => name === b[i]);
+}
+
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+export function formatSetupCategoryHint(categories) {
+  const custom = categoryNames(categories);
+  const names = custom.length ? custom : STARTER_CATEGORY_NAMES;
+  const listed = joinNames(names);
+  const intro = sameNameList(names, STARTER_CATEGORY_NAMES)
+    ? `${listed} to start — rename them, add a site, or make your own in Settings.`
+    : `${listed} — the folders you set up. Change them in Settings.`;
+  return `${intro} Everything else stays in the download folder.`;
+}
+
+// Off keeps whatever was saved. On with an empty list installs the starters
+// the caller already uses for Settings, copied so that list is not shared.
+export function setupCategoriesPatch({ enabled = false, categories, starters } = {}) {
+  const list = Array.isArray(categories) ? categories : [];
+  if (!enabled) return { smartFolders: false, categories: list };
+  if (list.length) return { smartFolders: true, categories: list };
+  const seed = (Array.isArray(starters) ? starters : []).map((cat) => ({
+    ...cat,
+    extensions: Array.isArray(cat?.extensions) ? [...cat.extensions] : [],
+  }));
+  return { smartFolders: true, categories: seed };
+}
+
 export function packageMenuExtras({
   samePackage = false,
   hasPackages = false,
