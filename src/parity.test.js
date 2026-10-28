@@ -61,11 +61,14 @@ test("selected indices ignore files aria2 has skipped", () => {
   const files = [
     { index: 2, selected: "true" },
     { index: 1, selected: "false" },
-    { index: 3, selected: "true" },
+    { index: 3, selected: true },
+    { index: 4, selected: false },
   ];
   assert.deepEqual(selectedIndicesOf(files), [2, 3]);
   assert.equal(indicesDiffer([2, 3], [2, 3]), false);
   assert.equal(indicesDiffer([1], [2, 3]), true);
+  assert.equal(prioritiesNeedAdvance([{ priority: "normal" }]), false);
+  assert.equal(prioritiesNeedAdvance([{ priority: false }]), false);
 });
 
 test("health is judged from the peers aria2 has actually reached", () => {
