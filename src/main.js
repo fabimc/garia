@@ -41,6 +41,24 @@ import {
   formatTorrentNextStep,
   formatTrackerSummary,
   formatFilePriorityLabel,
+  formatWaitReason,
+  packageActions,
+  packageMenuExtras,
+  packageSummary,
+  packageExportPayload,
+  packageExportText,
+  parseLinkListText,
+  siteRuleFor,
+  applySiteRuleOptions,
+  formatSiteRuleSummary,
+  moveGidsToPackage,
+  normalizeGrabJob,
+  grabJobDue,
+  grabJobSummary,
+  normalizeTemplate,
+  templateSummary,
+  rememberedQualityRule,
+  newPackageId,
   FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
@@ -440,8 +458,10 @@ function parseDownloadUrls(text) {
 // download already had, so it isn't routed through here — a retry lands where
 // the first attempt was going to, even if the rules have changed since.
 function addOptions(url, extras = {}) {
-  const dir = extras.dir || targetDir(url);
-  const options = dir ? { dir } : {};
+  const rule = extras.skipSiteRule ? null : siteRuleFor(url, siteRules);
+  const ruleDir = rule?.defaultDir || "";
+  const dir = extras.dir || ruleDir || targetDir(url);
+  let options = dir ? { dir } : {};
   const name = String(extras.name || "").replace(/^.*[/\\]/, "").trim();
   if (name && name !== "." && name !== "..") options.out = name;
   if (extras.referrer) options.referer = extras.referrer;
@@ -455,6 +475,10 @@ function addOptions(url, extras = {}) {
   // Headers for a site with a login. A password is not here and never will
   // be: aria2 reads that out of its own netrc, per host, per request.
   Object.assign(options, loginOptions(url));
+  // Site rules layer referrer, extra headers, default folder, and always-queue
+  // on top of the login — credentials stay in the login/netrc path.
+  options = applySiteRuleOptions(options, rule);
+  if (extras.queue || extras.forceQueue) options.pause = "true";
   return options;
 }
 
@@ -927,6 +951,166 @@ function saveJobs() {
     localStorage.setItem(JOBS_KEY, JSON.stringify([...jobs]));
   } catch {}
 }
+
+// JD-style packages: a named grab of related gids. aria2 still owns each
+// download; the grouping is only so batch pause/retry/clear can find them.
+const PACKAGES_KEY = "garia:packages";
+
+function loadPackages() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PACKAGES_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((pkg) => pkg && typeof pkg.id === "string" && Array.isArray(pkg.gids))
+      .map((pkg) => ({
+        id: pkg.id,
+        name: String(pkg.name || "Package"),
+        gids: pkg.gids.map(String).filter(Boolean),
+        createdAt: Number(pkg.createdAt) || 0,
+      }))
+      .filter((pkg) => pkg.gids.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+let packages = loadPackages();
+const packageByGid = new Map();
+
+function rebuildPackageIndex() {
+  packageByGid.clear();
+  for (const pkg of packages) {
+    for (const gid of pkg.gids) packageByGid.set(gid, pkg);
+  }
+}
+rebuildPackageIndex();
+
+function savePackages() {
+  try {
+    localStorage.setItem(PACKAGES_KEY, JSON.stringify(packages));
+  } catch { /* private mode */ }
+  rebuildPackageIndex();
+  renderPackageNav?.();
+}
+
+function rememberPackage({ id, name, gids }) {
+  const list = (gids || []).map(String).filter(Boolean);
+  if (!id || list.length < 2) return;
+  packages = packages.filter((pkg) => pkg.id !== id);
+  packages.unshift({
+    id,
+    name: String(name || "Package"),
+    gids: list,
+    createdAt: Date.now(),
+  });
+  // A gid belongs to at most one package.
+  for (const pkg of packages) {
+    if (pkg.id === id) continue;
+    pkg.gids = pkg.gids.filter((gid) => !list.includes(gid));
+  }
+  packages = packages.filter((pkg) => pkg.gids.length > 0);
+  savePackages();
+}
+
+function packageOf(gid) {
+  return packageByGid.get(gid) || null;
+}
+
+function prunePackages(alive) {
+  let changed = false;
+  for (const pkg of packages) {
+    const next = pkg.gids.filter((gid) => alive.has(gid));
+    if (next.length !== pkg.gids.length) {
+      pkg.gids = next;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  packages = packages.filter((pkg) => pkg.gids.length > 0);
+  savePackages();
+}
+
+let renderPackageNav = null;
+
+const SITE_RULES_KEY = "garia:site-rules";
+const GRAB_JOBS_KEY = "garia:grab-jobs";
+const TEMPLATES_KEY = "garia:templates";
+const QUALITY_RULE_KEY = "garia:quality-rule";
+
+function loadSiteRules() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SITE_RULES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((rule) => rule && rule.host) : [];
+  } catch {
+    return [];
+  }
+}
+
+let siteRules = loadSiteRules();
+
+function saveSiteRules(next = siteRules) {
+  siteRules = Array.isArray(next) ? next : [];
+  try { localStorage.setItem(SITE_RULES_KEY, JSON.stringify(siteRules)); } catch { /* private mode */ }
+}
+
+function loadGrabJobs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GRAB_JOBS_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map(normalizeGrabJob) : [];
+  } catch {
+    return [];
+  }
+}
+
+let grabJobs = loadGrabJobs();
+
+function saveGrabJobs(next = grabJobs) {
+  grabJobs = (Array.isArray(next) ? next : []).map(normalizeGrabJob);
+  try { localStorage.setItem(GRAB_JOBS_KEY, JSON.stringify(grabJobs)); } catch { /* private mode */ }
+}
+
+function loadTemplates() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TEMPLATES_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map(normalizeTemplate) : [];
+  } catch {
+    return [];
+  }
+}
+
+let linkTemplates = loadTemplates();
+
+function saveTemplates(next = linkTemplates) {
+  linkTemplates = (Array.isArray(next) ? next : []).map(normalizeTemplate);
+  try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(linkTemplates)); } catch { /* private mode */ }
+}
+
+function loadQualityRule() {
+  try { return rememberedQualityRule(localStorage.getItem(QUALITY_RULE_KEY) || ""); }
+  catch { return "best"; }
+}
+
+function saveQualityRule(rule) {
+  const value = rememberedQualityRule(rule);
+  try { localStorage.setItem(QUALITY_RULE_KEY, value); } catch { /* private mode */ }
+  return value;
+}
+
+window.__gariaParityState = {
+  get siteRules() { return siteRules; },
+  setSiteRules: saveSiteRules,
+  get grabJobs() { return grabJobs; },
+  setGrabJobs: saveGrabJobs,
+  get templates() { return linkTemplates; },
+  setTemplates: saveTemplates,
+  formatSiteRuleSummary,
+  grabJobSummary,
+  templateSummary,
+  normalizeGrabJob,
+  normalizeTemplate,
+  newPackageId,
+  parseLinkListText,
+};
 
 // Every aria2 gid a row stands for. One for an ordinary download; two for a
 // merged video, whose second half deliberately has no row of its own.
@@ -1643,6 +1827,7 @@ function createItemEl(dl) {
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
       <span class="dl-scan hidden"></span>
+      <span class="dl-package hidden"></span>
       <span class="dl-verified hidden">Verified</span>
       <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
@@ -1686,14 +1871,18 @@ function updateItemEl(li, dl) {
 
   const category = categoryIdFor(dl);
   const torrent = isTorrent(dl) ? "true" : "false";
+  const pkg = packageOf(dl.gid);
+  const packageId = pkg?.id || "";
   if (li.dataset.status !== dl.status || li.dataset.name !== name ||
-      li.dataset.category !== category || li.dataset.torrent !== torrent) {
+      li.dataset.category !== category || li.dataset.torrent !== torrent ||
+      li.dataset.package !== packageId) {
     filterDirty = true;
   }
   li.dataset.status = dl.status;
   li.dataset.name = name;
   li.dataset.category = category;
   li.dataset.torrent = torrent;
+  li.dataset.package = packageId;
   li.classList.toggle(
     "is-file-draggable",
     (dl.status === "complete" || dl.status === "seeding") && Boolean(rowPath(dl)),
@@ -1810,6 +1999,14 @@ function updateItemEl(li, dl) {
   if (scanEl.dataset.scan !== scan.key) scanEl.dataset.scan = scan.key;
   if (scan.label && scanEl.textContent !== scan.label) scanEl.textContent = scan.label;
 
+  const pkgEl = li.querySelector(".dl-package");
+  if (pkgEl) {
+    const pkgName = pkg?.name || "";
+    pkgEl.classList.toggle("hidden", !pkgName);
+    if (pkgName && pkgEl.textContent !== pkgName) pkgEl.textContent = pkgName;
+    pkgEl.title = pkgName ? `Package: ${pkgName}` : "";
+  }
+
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
   const failKind = dl.status === "error"
@@ -1826,7 +2023,15 @@ function updateItemEl(li, dl) {
   statusEl.classList.toggle("is-stalled", statusText === "Stalled");
   statusEl.classList.toggle("is-slow", statusText === "Slow");
   const reason = dl.status === "error" ? errorReason(dl) : "";
-  const recovery = dl.status === "error" ? recoveryNextStep(dl) : "";
+  const waitReason = formatWaitReason({
+    status: dl.status,
+    held: Boolean(held),
+    holdNote: held || "",
+    queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
+    errorCode: dl.errorCode,
+    errorMessage: dl.errorMessage,
+    jobError: dl.job?.state === "failed" ? dl.job?.error : "",
+  });
   const seedTip = dl.status === "seeding"
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
@@ -1836,15 +2041,14 @@ function updateItemEl(li, dl) {
   const slowTip = statusText === "Slow"
     ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
     : "";
-  const waitTip = dl.status === "waiting" && !held
-    ? ((schedule.queueStopped === true || settings.queueStopped === true)
-      ? "Queue is stopped — Start Queue to let it run."
-      : "Waiting for a free slot in the queue.")
-    : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
-  statusEl.title = [held, reason, recovery, seedTip, stallTip, slowTip, waitTip, resumeTip].filter(Boolean).join(" ");
+  // waitReason already carries the recovery next step for tagged failures.
+  statusEl.title = [waitReason, reason, seedTip, stallTip, slowTip, resumeTip]
+    .filter(Boolean)
+    .filter((text, i, all) => all.indexOf(text) === i)
+    .join(" ");
 
   fillCols(li, dl);
 
@@ -2006,8 +2210,11 @@ function applyFilter(listEl) {
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
   // Headers only earn their keep in the combined view; a single-status filter
-  // would just repeat its own name.
-  const showSections = activeFilter === "all" || activeFilter === "torrents";
+  // would just repeat its own name. A package filter still wants them so the
+  // grab reads as queued / running / failed the way JDownloader's packages do.
+  const showSections = activeFilter === "all"
+    || activeFilter === "torrents"
+    || activeFilter.startsWith("pkg:");
   let visible = 0;
   let header = null;
   let inSection = 0;
@@ -2034,11 +2241,14 @@ function applyFilter(listEl) {
     }
     const rowStatus = sidebarViewOf(el.dataset.status);
     const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
-    const statusMatch = catId
-      ? el.dataset.category === catId
-      : activeFilter === "torrents"
-        ? el.dataset.torrent === "true"
-        : activeFilter === "all" || rowStatus === activeFilter;
+    const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
+    const statusMatch = pkgId
+      ? el.dataset.package === pkgId
+      : catId
+        ? el.dataset.category === catId
+        : activeFilter === "torrents"
+          ? el.dataset.torrent === "true"
+          : activeFilter === "all" || rowStatus === activeFilter;
     const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     el.classList.toggle("hidden", !match);
@@ -4015,6 +4225,8 @@ async function poll(listEl) {
       updateItemEl(li, dl);
     }
 
+    prunePackages(seen);
+
     // Drop rows for downloads aria2 no longer reports
     for (const [gid, li] of rowEls) {
       if (seen.has(gid)) continue;
@@ -4120,9 +4332,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     + '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 
   function categoryTitle(value) {
-    if (!value.startsWith("cat:")) return VIEW_TITLES[value] || "Downloads";
-    const id = value.slice(4);
-    return activeCategories().find((c) => c.id === id)?.name || "Downloads";
+    if (value.startsWith("cat:")) {
+      const id = value.slice(4);
+      return activeCategories().find((c) => c.id === id)?.name || "Downloads";
+    }
+    if (value.startsWith("pkg:")) {
+      const id = value.slice(4);
+      return packages.find((pkg) => pkg.id === id)?.name || "Package";
+    }
+    return VIEW_TITLES[value] || "Downloads";
   }
 
   function renderCategoryNav() {
@@ -4152,6 +4370,39 @@ window.addEventListener("DOMContentLoaded", async () => {
       else b.removeAttribute("aria-current");
     }
   }
+
+  const packageNav = document.getElementById("package-nav");
+  const PKG_ICON = SVG_OPEN
+    + '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'
+    + '<polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+
+  renderPackageNav = function renderPackageNavNow() {
+    if (!packageNav) return;
+    const label = packageNav.querySelector(".nav-group-label");
+    packageNav.textContent = "";
+    packageNav.append(label);
+    packageNav.classList.toggle("hidden", packages.length === 0);
+    for (const pkg of packages) {
+      const btn = document.createElement("button");
+      btn.className = "nav-item";
+      btn.dataset.filter = `pkg:${pkg.id}`;
+      btn.innerHTML = `${PKG_ICON}<span class="nav-label"></span><span class="nav-count"></span>`;
+      btn.querySelector("svg")?.classList.add("nav-icon");
+      btn.querySelector(".nav-label").textContent = pkg.name;
+      btn.querySelector(".nav-count").textContent = String(pkg.gids.length);
+      packageNav.append(btn);
+    }
+    if (activeFilter.startsWith("pkg:") && !packages.some((pkg) => `pkg:${pkg.id}` === activeFilter)) {
+      setFilter("all");
+      return;
+    }
+    for (const b of filterBar.querySelectorAll(".nav-item")) {
+      const on = b.dataset.filter === activeFilter;
+      b.classList.toggle("active", on);
+      if (on) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    }
+  };
 
   function setFilter(value) {
     activeFilter = value;
@@ -4188,6 +4439,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
     startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
+    rememberPackage,
+    siteRuleFor: (url) => siteRuleFor(url, siteRules),
+    loadQualityRule,
+    saveQualityRule,
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
@@ -4195,6 +4450,29 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
 
+  document.getElementById("link-list-input")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      let urls = parseLinkListText(text);
+      let packageName = file.name.replace(/\.[^.]+$/, "");
+      if (!urls.length && /\.json$/i.test(file.name)) {
+        const parsed = JSON.parse(text);
+        const rows = Array.isArray(parsed) ? parsed : parsed?.urls;
+        urls = (rows || []).map((row) => (typeof row === "string" ? row : row?.url)).filter(Boolean);
+        if (parsed?.name) packageName = String(parsed.name);
+      }
+      if (!urls.length) {
+        showNotice("That file did not contain any download links", { error: false });
+        return;
+      }
+      openModal(urls, { packageName });
+    } catch (err) {
+      failed(`Couldn't read “${file.name}”`, err);
+    }
+  });
 
   // Per-row buttons and section "View all" links. A plain click selects;
   // the name, a double-click, or Enter opens the panel — a list, not a
@@ -4349,6 +4627,19 @@ window.addEventListener("DOMContentLoaded", async () => {
       clearCompleted();
       return;
     }
+    if (action === "select-package"
+      || action === "pause-package"
+      || action === "resume-package"
+      || action === "retry-package"
+      || action === "clear-package-completed"
+      || action === "move-package"
+      || action === "ungroup-package"
+      || action === "copy-package-urls"
+      || action === "save-package-template"
+      || action === "new-package") {
+      await runPackageAction(action);
+      return;
+    }
     let changed = false;
     for (const gid of gids) {
       const dl = snapshot.get(gid);
@@ -4384,6 +4675,116 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     }
     if (changed) await pollAndSync();
+  }
+
+  function sharedPackageOfSelection() {
+    const ids = [...new Set(selectedDownloads().map((dl) => packageOf(dl.gid)?.id).filter(Boolean))];
+    if (ids.length !== 1) return null;
+    return packages.find((pkg) => pkg.id === ids[0]) || null;
+  }
+
+  async function runPackageAction(action) {
+    const pkg = sharedPackageOfSelection();
+    const gids = [...selected];
+
+    if (action === "new-package") {
+      if (gids.length < 2) return;
+      const name = window.prompt("Package name", packageDisplayNameSafe(gids.length));
+      if (name == null) return;
+      packages = moveGidsToPackage(packages, gids, "new", { name: name.trim() || "Package" });
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "move-package") {
+      const choices = packages.map((row, i) => `${i + 1}. ${row.name}`).join("\n");
+      const answer = window.prompt(
+        `Move to package number, or type a new name:\n${choices || "(no packages yet)"}`,
+        pkg?.name || "Package",
+      );
+      if (answer == null || !answer.trim()) return;
+      const asIndex = Number(answer.trim());
+      let targetId = "new";
+      let name = answer.trim();
+      if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= packages.length) {
+        targetId = packages[asIndex - 1].id;
+        name = packages[asIndex - 1].name;
+      }
+      packages = moveGidsToPackage(packages, gids, targetId, { name });
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "ungroup-package") {
+      packages = moveGidsToPackage(packages, gids, null);
+      savePackages();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (!pkg) return;
+    const members = pkg.gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+
+    if (action === "copy-package-urls") {
+      const urls = members.map(sourceUrl).filter(Boolean);
+      if (urls.length) await copyText(urls.join("\n"));
+      return;
+    }
+
+    if (action === "save-package-template") {
+      const urls = members.map((dl) => {
+        const url = sourceUrl(dl);
+        if (!url) return null;
+        return { url, out: fileName(dl) };
+      }).filter(Boolean);
+      if (!urls.length) return;
+      const template = normalizeTemplate({
+        id: newPackageId(),
+        name: pkg.name,
+        urls,
+        createdAt: Date.now(),
+      });
+      linkTemplates = [template, ...linkTemplates.filter((row) => row.id !== template.id)];
+      saveTemplates();
+      showNotice(`Saved template “${template.name}”`, { error: false });
+      return;
+    }
+
+    if (action === "select-package") {
+      selected.clear();
+      for (const dl of members) selected.add(dl.gid);
+      selectAnchor = members[0]?.gid || null;
+      paintSelection();
+      return;
+    }
+    if (action === "clear-package-completed") {
+      const done = members.filter((dl) => dl.status === "complete").map((dl) => dl.gid);
+      if (done.length) await removeDownloads(done, false);
+      return;
+    }
+    let changed = false;
+    for (const dl of members) {
+      if (action === "pause-package" && (dl.status === "active" || dl.status === "waiting")) {
+        await runRowAction(dl.gid, "stop", { poll: false });
+        changed = true;
+      } else if (action === "resume-package" && dl.status === "paused") {
+        await runRowAction(dl.gid, "resume", { poll: false });
+        changed = true;
+      } else if (action === "retry-package" && dl.status === "error") {
+        if (dl.job?.webpageUrl) await runRowAction(dl.gid, "reprobe", { url: dl.job.webpageUrl });
+        else { await runRowAction(dl.gid, "retry", { poll: false }); changed = true; }
+      }
+    }
+    if (changed) await pollAndSync();
+  }
+
+  function packageDisplayNameSafe(count) {
+    return count > 1 ? `Batch of ${count}` : "Package";
   }
 
   listEl.addEventListener("click", async (e) => {
@@ -4508,6 +4909,37 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
     items.push(...queueHousekeeping(dls));
+    const pkgIds = [...new Set(dls.map((d) => packageOf(d.gid)?.id).filter(Boolean))];
+    if (pkgIds.length === 1) {
+      const pkg = packages.find((row) => row.id === pkgIds[0]);
+      if (pkg) {
+        const members = pkg.gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+        const summary = packageSummary(members);
+        const failed = members.filter(
+          (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
+        ).length;
+        items.push({ separator: true });
+        items.push(...packageActions({
+          samePackage: true,
+          failed,
+          active: summary.active,
+          waiting: summary.waiting,
+          paused: summary.paused,
+          completed: summary.complete,
+          packageSize: members.length,
+          selected: dls.length,
+        }));
+      }
+    }
+    const extras = packageMenuExtras({
+      samePackage: pkgIds.length === 1,
+      hasPackages: packages.length > 0,
+      selected: dls.length,
+    });
+    if (extras.length) {
+      items.push({ separator: true });
+      items.push(...extras);
+    }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
     items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
@@ -5577,6 +6009,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (id === "new-download") openModal();
       if (id === "settings") openSettings();
       if (id === "open-torrent") document.getElementById("torrent-file-input").click();
+      if (id === "import-links") {
+        const input = document.getElementById("link-list-input");
+        if (input) { input.value = ""; input.click(); }
+      }
       if (id === "find") { nameSearch.focus(); nameSearch.select(); }
       if (id === "pause-all") pauseAll();
       if (id === "resume-all") resumeAll();
@@ -5822,11 +6258,32 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    // A saved link list (.txt / .json template) opens the batch review.
+    const listFile = files.find((f) => /\.(txt|json|crawljob)$/i.test(f.name));
+    if (listFile) {
+      try {
+        const text = await listFile.text();
+        let urls = parseLinkListText(text);
+        if (!urls.length && /\.json$/i.test(listFile.name)) {
+          const parsed = JSON.parse(text);
+          const rows = Array.isArray(parsed) ? parsed : parsed?.urls;
+          urls = (rows || []).map((row) => (typeof row === "string" ? row : row?.url)).filter(Boolean);
+        }
+        if (urls.length) {
+          openModal(urls, { packageName: listFile.name.replace(/\.[^.]+$/, "") });
+          return;
+        }
+      } catch (err) {
+        failed(`Couldn't read “${listFile.name}”`, err);
+        return;
+      }
+    }
+
     const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
     const urls = parseDownloadUrls(text);
     if (!urls.length) {
       if (files.length) {
-        showNotice("Only .torrent files can be dropped here — for anything else, drop its link",
+        showNotice("Drop a .torrent, a link, or a saved link list (.txt / .json)",
           { error: false });
       }
       return;
@@ -6039,12 +6496,75 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!document.hasFocus()) notifyCatch(url);
   }
 
+  function refreshParityStores() {
+    siteRules = loadSiteRules();
+    grabJobs = loadGrabJobs();
+    linkTemplates = loadTemplates();
+  }
+
+  let grabOffer = null;
+  async function tickGrabJobs() {
+    refreshParityStores();
+    if (grabOffer || overlayOpen() || !document.getElementById("modal-overlay")?.classList.contains("hidden")) {
+      // Still offer due jobs once the modal is free.
+    }
+    const now = new Date();
+    let changed = false;
+    for (const job of grabJobs) {
+      if (!grabJobDue(job, { now })) continue;
+      job.lastRunAt = now.getTime();
+      changed = true;
+      if (!grabOffer) {
+        grabOffer = {
+          name: job.name,
+          urls: [...job.urls],
+          packageName: job.packageName || job.name,
+        };
+      }
+    }
+    if (changed) saveGrabJobs(grabJobs);
+    if (grabOffer && document.getElementById("modal-overlay")?.classList.contains("hidden")) {
+      const offer = grabOffer;
+      grabOffer = null;
+      openModal(offer.urls, { packageName: offer.packageName, referrer: "" });
+      showNotice(`Recurring grab “${offer.name}” is ready to review`, { error: false });
+    }
+  }
+
   const prevAfterPoll = afterPoll;
   afterPoll = () => {
     prevAfterPoll();
     if (offeredUrl && alreadyHaveUrl(offeredUrl)) hideCatch();
     if (capturePending?.url && alreadyHaveUrl(capturePending.url)) closeCapture();
+    tickGrabJobs().catch((err) => console.error(err));
   };
+
+  function runQueuedTemplate() {
+    let raw = "";
+    try { raw = localStorage.getItem("garia:run-template") || ""; } catch { return; }
+    if (!raw) return;
+    try { localStorage.removeItem("garia:run-template"); } catch { /* ignore */ }
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch { return; }
+    refreshParityStores();
+    const template = linkTemplates.find((row) => row.id === payload?.id);
+    if (!template?.urls?.length) return;
+    const urls = template.urls.map((row) => (typeof row === "string" ? row : row.url)).filter(Boolean);
+    if (!urls.length) return;
+    openModal(urls, { packageName: template.name });
+    showNotice(`Template “${template.name}” is ready to review`, { error: false });
+  }
+
+  window.addEventListener("storage", (e) => {
+    if (!e.key || [SITE_RULES_KEY, GRAB_JOBS_KEY, TEMPLATES_KEY, QUALITY_RULE_KEY, "garia:run-template"].includes(e.key)) {
+      refreshParityStores();
+      if (e.key === "garia:run-template") runQueuedTemplate();
+    }
+  });
+  window.addEventListener("focus", () => {
+    refreshParityStores();
+    runQueuedTemplate();
+  });
 
   document.getElementById("catch-add").addEventListener("click", () => {
     if (offeredUrl) ingestUrl(offeredUrl);
@@ -6166,6 +6686,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   pollAndSync();
   Promise.all([loadSettings(), loadVideoTools()]).then(() => {
     renderCategoryNav();
+    renderPackageNav?.();
     if (!settings.setupSeen) openSetup();
   });
   // Every second while the list can be seen. A window closed to the dock

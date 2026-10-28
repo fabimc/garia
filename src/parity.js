@@ -317,6 +317,12 @@ export function formatEmptyQueueState({
         sub: "Downloads that land in this folder show up here",
       };
     }
+    if (String(filter).startsWith("pkg:")) {
+      return {
+        title: "Nothing left in this package",
+        sub: "Finished or removed downloads drop out of the package list",
+      };
+    }
     if (filter === "torrents") {
       return { title: "No torrents", sub: "Magnets and .torrent files show up here" };
     }
@@ -497,22 +503,140 @@ export function recoveryNextStep(dl) {
 
 // Bulk intake. A pasted page, or "download all links", mixes files with
 // ordinary pages. Files start selected. Pages do not, because adding a page
-// as a URL saves its HTML.
+// as a URL saves its HTML. Content kinds (video, archive, …) are the JD-style
+// labels on top of File/Page so a dump can be filtered before it starts.
+
+const CONTENT_EXTS = {
+  video: new Set(["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ts"]),
+  audio: new Set(["mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac"]),
+  document: new Set([
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+    "rtf", "txt", "csv", "epub", "mobi", "djvu",
+  ]),
+  archive: new Set([
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
+    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "xip",
+  ]),
+};
+
+const MIME_BY_EXT = {
+  mp4: "video/mp4", mkv: "video/x-matroska", webm: "video/webm", avi: "video/x-msvideo",
+  mov: "video/quicktime", mp3: "audio/mpeg", flac: "audio/flac", wav: "audio/wav",
+  m4a: "audio/mp4", ogg: "audio/ogg", pdf: "application/pdf", zip: "application/zip",
+  rar: "application/vnd.rar", "7z": "application/x-7z-compressed", tar: "application/x-tar",
+  gz: "application/gzip", iso: "application/x-iso9660-image", dmg: "application/x-apple-diskimage",
+  exe: "application/vnd.microsoft.portable-executable", torrent: "application/x-bittorrent",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+  txt: "text/plain", csv: "text/csv", json: "application/json", xml: "application/xml",
+};
+
+const CONTENT_LABELS = {
+  video: "Video",
+  audio: "Audio",
+  archive: "Archive",
+  document: "Document",
+  magnet: "Magnet",
+  torrent: "Torrent",
+  page: "Page",
+  other: "File",
+};
+
+export function extensionOfUrl(url) {
+  const path = String(url || "").split(/[?#]/, 1)[0];
+  const name = path.split("/").pop() || "";
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+export function mimeHintFromExt(ext) {
+  const key = String(ext || "").toLowerCase();
+  if (!key) return "";
+  return MIME_BY_EXT[key] || (CONTENT_EXTS.video.has(key) ? `video/${key}`
+    : CONTENT_EXTS.audio.has(key) ? `audio/${key}`
+      : CONTENT_EXTS.archive.has(key) ? `application/${key}`
+        : CONTENT_EXTS.document.has(key) ? `application/${key}`
+          : "");
+}
+
+export function contentKindFromUrl(url) {
+  const raw = String(url ?? "").trim();
+  if (/^magnet:/i.test(raw)) return "magnet";
+  const ext = extensionOfUrl(raw);
+  if (ext === "torrent") return "torrent";
+  if (CONTENT_EXTS.video.has(ext)) return "video";
+  if (CONTENT_EXTS.audio.has(ext)) return "audio";
+  if (CONTENT_EXTS.archive.has(ext)) return "archive";
+  if (CONTENT_EXTS.document.has(ext)) return "document";
+  return "other";
+}
+
+export function contentKindLabel(content) {
+  return CONTENT_LABELS[content] || CONTENT_LABELS.other;
+}
 
 export function classifyIntakeUrl(url, isDirectFile = () => false) {
   const raw = String(url ?? "").trim();
-  if (/^magnet:/i.test(raw)) return { kind: "magnet", label: "Magnet", file: true };
+  if (/^magnet:/i.test(raw)) {
+    return {
+      kind: "magnet",
+      label: "Magnet",
+      file: true,
+      content: "magnet",
+      contentLabel: "Magnet",
+      mime: "",
+      ext: "",
+    };
+  }
   if (/^ftps?:\/\//i.test(raw)) {
-    return isDirectFile(raw)
-      ? { kind: "ftp-file", label: "FTP file", file: true }
-      : { kind: "ftp", label: "FTP folder", file: false };
+    const file = isDirectFile(raw);
+    const content = file ? contentKindFromUrl(raw) : "other";
+    const ext = file ? extensionOfUrl(raw) : "";
+    return {
+      kind: file ? "ftp-file" : "ftp",
+      label: file ? (contentKindLabel(content) === "File" ? "FTP file" : contentKindLabel(content)) : "FTP folder",
+      file,
+      content: file ? content : "other",
+      contentLabel: file ? contentKindLabel(content) : "Folder",
+      mime: file ? mimeHintFromExt(ext) : "",
+      ext,
+    };
   }
   if (/^https?:\/\//i.test(raw)) {
-    return isDirectFile(raw)
-      ? { kind: "file", label: "File", file: true }
-      : { kind: "page", label: "Page", file: false };
+    const file = isDirectFile(raw);
+    if (!file) {
+      return {
+        kind: "page",
+        label: "Page",
+        file: false,
+        content: "page",
+        contentLabel: "Page",
+        mime: "text/html",
+        ext: "",
+      };
+    }
+    const content = contentKindFromUrl(raw);
+    const ext = extensionOfUrl(raw);
+    const contentLabel = contentKindLabel(content);
+    return {
+      kind: "file",
+      label: contentLabel === "File" ? "File" : contentLabel,
+      file: true,
+      content,
+      contentLabel,
+      mime: mimeHintFromExt(ext),
+      ext,
+    };
   }
-  return { kind: "other", label: "Link", file: false };
+  return {
+    kind: "other",
+    label: "Link",
+    file: false,
+    content: "other",
+    contentLabel: "Link",
+    mime: "",
+    ext: "",
+  };
 }
 
 export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
@@ -535,15 +659,52 @@ export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
 }
 
 // "All" and "Files" skip anything already in the list. A manual tick can
-// still put one back; the shortcuts should not.
+// still put one back; the shortcuts should not. Video / Archive / Audio only
+// tick that content kind — pages stay off.
 export function applyIntakePick(rows, mode) {
   return (rows || []).map((row) => {
     if (row.queued) return { ...row, selected: false };
     if (mode === "none") return { ...row, selected: false };
     if (mode === "all") return { ...row, selected: true };
     if (mode === "files") return { ...row, selected: Boolean(row.file) };
+    if (mode === "video" || mode === "archive" || mode === "audio" || mode === "document") {
+      return { ...row, selected: row.content === mode };
+    }
     return { ...row };
   });
+}
+
+export function filterIntake(rows, {
+  content = "",
+  host = "",
+  selectedOnly = false,
+  fileOnly = false,
+} = {}) {
+  const wantHost = String(host || "").trim().toLowerCase();
+  const wantContent = String(content || "").trim().toLowerCase();
+  return (rows || []).filter((row) => {
+    if (selectedOnly && !row.selected) return false;
+    if (fileOnly && !row.file) return false;
+    if (wantContent && row.content !== wantContent) return false;
+    if (wantHost) {
+      let rowHost = "";
+      try { rowHost = new URL(row.url).hostname.toLowerCase(); } catch { /* ignore */ }
+      if (!rowHost.includes(wantHost)) return false;
+    }
+    return true;
+  });
+}
+
+export function formatIntakeMeta(row) {
+  if (!row) return { kindLabel: "", contentLabel: "", mime: "", host: "" };
+  let host = "";
+  try { host = new URL(row.url).hostname; } catch { /* ignore */ }
+  return {
+    kindLabel: row.label || "",
+    contentLabel: row.contentLabel || contentKindLabel(row.content),
+    mime: row.mime || mimeHintFromExt(row.ext) || "",
+    host,
+  };
 }
 
 export function intakeReviewHint(rows) {
@@ -552,6 +713,8 @@ export function intakeReviewHint(rows) {
   const files = list.filter((row) => row.file && !row.queued).length;
   const others = list.filter((row) => !row.file && !row.queued).length;
   const queued = list.filter((row) => row.queued).length;
+  const videos = list.filter((row) => row.content === "video" && !row.queued).length;
+  const archives = list.filter((row) => row.content === "archive" && !row.queued).length;
   const parts = [];
   if (files && others) {
     const fileBit = files === 1 ? "1 file starts selected" : `${files} files start selected`;
@@ -564,8 +727,143 @@ export function intakeReviewHint(rows) {
   } else if (files) {
     parts.push("Every link already names a file. Untick any you do not want.");
   }
+  if (videos || archives) {
+    const bits = [];
+    if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
+    if (archives) bits.push(archives === 1 ? "1 archive" : `${archives} archives`);
+    parts.push(`In this dump: ${bits.join(", ")}.`);
+  }
   if (queued) parts.push(`${queued} already in the list.`);
   return parts.join(" ");
+}
+
+// A batch of related links becomes one package so pause/retry/clear can act
+// on the set later. aria2 still owns each gid; the package is app-side only.
+
+export function newPackageId(now = Date.now()) {
+  const stamp = Number(now) || Date.now();
+  return `pkg-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function packageDisplayName({ referrer = "", host = "", count = 0 } = {}) {
+  let fromRef = "";
+  try { fromRef = referrer ? new URL(referrer).hostname : ""; } catch { /* ignore */ }
+  const site = String(fromRef || host || "").replace(/^www\./i, "").trim();
+  const n = Math.max(0, Number(count) || 0);
+  if (site && n > 1) return `${site} (${n})`;
+  if (site) return site;
+  if (n > 1) return `Batch of ${n}`;
+  return "Package";
+}
+
+export function packageSummary(items) {
+  const rows = items || [];
+  const summary = {
+    total: rows.length,
+    active: 0,
+    waiting: 0,
+    paused: 0,
+    error: 0,
+    complete: 0,
+    seeding: 0,
+    merging: 0,
+  };
+  for (const dl of rows) {
+    const status = dl?.status;
+    if (status && summary[status] !== undefined) summary[status] += 1;
+  }
+  return summary;
+}
+
+export function groupDownloadsByPackage(downloads, packageOfGid) {
+  const buckets = new Map();
+  const ungrouped = [];
+  for (const dl of downloads || []) {
+    const pkg = packageOfGid?.(dl?.gid);
+    if (!pkg?.id) {
+      ungrouped.push(dl);
+      continue;
+    }
+    let bucket = buckets.get(pkg.id);
+    if (!bucket) {
+      bucket = { id: pkg.id, name: pkg.name || "Package", items: [] };
+      buckets.set(pkg.id, bucket);
+    }
+    bucket.items.push(dl);
+  }
+  return { packages: [...buckets.values()], ungrouped };
+}
+
+// Package-scoped menu verbs. Only offered when the selection shares one
+// package, so a mixed selection does not invent a group.
+export function packageActions({
+  samePackage = false,
+  failed = 0,
+  active = 0,
+  waiting = 0,
+  paused = 0,
+  completed = 0,
+  packageSize = 0,
+  selected = 0,
+} = {}) {
+  if (!samePackage) return [];
+  const items = [];
+  const size = Math.max(0, Number(packageSize) || 0);
+  const picked = Math.max(0, Number(selected) || 0);
+  if (size > picked) items.push({ action: "select-package", label: "Select Package" });
+  if ((Number(active) || 0) + (Number(waiting) || 0) > 0) {
+    items.push({ action: "pause-package", label: "Pause Package" });
+  }
+  if ((Number(paused) || 0) > 0) {
+    items.push({ action: "resume-package", label: "Resume Package" });
+  }
+  if ((Number(failed) || 0) > 0) {
+    items.push({ action: "retry-package", label: "Retry Failed in Package" });
+  }
+  if ((Number(completed) || 0) > 0) {
+    items.push({ action: "clear-package-completed", label: "Clear Completed in Package" });
+  }
+  return items;
+}
+
+// Why a single link is waiting, failed, or blocked — for the row tooltip and
+// the detail panel, so a schedule hold and a rate limit read differently.
+export function formatWaitReason({
+  status = "",
+  held = false,
+  holdNote = "",
+  queueStopped = false,
+  scheduleBlocked = false,
+  scheduleStartLabel = "",
+  errorCode = 0,
+  errorMessage = "",
+  jobError = "",
+} = {}) {
+  if (held) {
+    if (holdNote) return holdNote;
+    return scheduleHoldNote({
+      held: true,
+      queueStopped,
+      scheduleBlocked,
+      scheduleStartLabel,
+    }) || "held";
+  }
+  if (status === "waiting") {
+    if (queueStopped) return "Queue is stopped — Start Queue to let it run.";
+    return "Waiting for a free slot in the queue.";
+  }
+  if (status === "error") {
+    if (Number(errorCode) === 5 || /speed|rate.?limit|throttl/i.test(String(errorMessage || ""))) {
+      return "Held behind a speed or rate limit — raise the cap or traffic mode, then retry.";
+    }
+    const kind = failureKind({ errorCode, errorMessage, jobError });
+    const tag = failureCategoryLabel(kind);
+    const next = recoveryNextStep({ status: "error", errorCode, errorMessage })
+      || formatRecoverableNextStep(errorCode);
+    if (tag && next) return `${tag}: ${next}`;
+    return next || tag || "Failed — use Retry if the link still works.";
+  }
+  return "";
 }
 
 // What a page can hand over. Embedded media is listed first so a long run of
@@ -687,4 +985,257 @@ export function formatTrackerSummary(peerCount, trackerCount) {
     return `${n} tracker${n === 1 ? "" : "s"} · a peer is connected, so the list is reaching someone.`;
   }
   return `${n} tracker${n === 1 ? "" : "s"} · none have a peer connected yet.`;
+}
+
+// ── JDownloader parity items 4–7 ─────────────────────────────────────────
+// Site rules sit beside logins: credentials stay in netrc/headers; these
+// only shape how a URL is added. Grab jobs and templates share one shape so
+// a saved link set can be re-run by hand or on a schedule.
+
+function hostOfUrl(url) {
+  try {
+    return new URL(String(url || "").trim()).hostname.replace(/\.+$/, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+export function normalizeSiteHost(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withScheme).hostname.replace(/\.+$/, "").toLowerCase();
+  } catch {
+    return raw.replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
+  }
+}
+
+export function siteRuleFor(url, rules = []) {
+  const host = hostOfUrl(url);
+  if (!host) return null;
+  const list = Array.isArray(rules) ? rules : [];
+  const exact = list.find((rule) => normalizeSiteHost(rule?.host) === host);
+  if (exact) return exact;
+  return list.find((rule) => {
+    const wanted = normalizeSiteHost(rule?.host);
+    return wanted && (host === wanted || host.endsWith(`.${wanted}`));
+  }) || null;
+}
+
+export function applySiteRuleOptions(baseOptions = {}, rule = null) {
+  if (!rule) return { ...baseOptions };
+  const options = { ...baseOptions };
+  const referrer = String(rule.referrer || "").trim();
+  if (referrer && !options.referer) options.referer = referrer;
+  const dir = String(rule.defaultDir || "").trim();
+  if (dir && !options.dir) options.dir = dir;
+  if (rule.alwaysQueue) options.pause = "true";
+  const extra = (rule.extraHeaders || [])
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  if (extra.length) {
+    const existing = Array.isArray(options.header) ? options.header : [];
+    options.header = [...existing, ...extra];
+  }
+  return options;
+}
+
+export function formatSiteRuleSummary(rule) {
+  if (!rule) return "";
+  const bits = [];
+  if (rule.referrer) bits.push("referrer");
+  const headers = (rule.extraHeaders || []).filter(Boolean).length;
+  if (headers) bits.push(headers === 1 ? "1 header" : `${headers} headers`);
+  if (rule.defaultDir) bits.push("folder");
+  if (rule.alwaysQueue) bits.push("queue");
+  if (rule.qualityRule) bits.push(`quality ${rule.qualityRule}`);
+  if (rule.packagePrefix) bits.push("package name");
+  return bits.length ? bits.join(" · ") : "No overrides yet";
+}
+
+export function moveGidsToPackage(packageList, gids, targetId, { name = "", now = Date.now() } = {}) {
+  const moving = [...new Set((gids || []).map(String).filter(Boolean))];
+  let packages = (packageList || [])
+    .map((pkg) => ({
+      id: pkg.id,
+      name: pkg.name || "Package",
+      gids: (pkg.gids || []).map(String),
+      createdAt: Number(pkg.createdAt) || 0,
+    }))
+    .filter((pkg) => pkg.id);
+
+  for (const pkg of packages) {
+    pkg.gids = pkg.gids.filter((gid) => !moving.includes(gid));
+  }
+
+  if (targetId === null || targetId === "") {
+    return packages.filter((pkg) => pkg.gids.length > 0);
+  }
+
+  let target = packages.find((pkg) => pkg.id === targetId);
+  if (!target) {
+    target = {
+      id: targetId === "new" ? newPackageId(now) : String(targetId),
+      name: String(name || "Package"),
+      gids: [],
+      createdAt: Number(now) || Date.now(),
+    };
+    packages = [target, ...packages];
+  } else if (name) {
+    target.name = String(name);
+  }
+  target.gids = [...new Set([...target.gids, ...moving])];
+  return packages.filter((pkg) => pkg.gids.length > 0);
+}
+
+export function packageExportPayload({ name = "", urls = [], createdAt = Date.now() } = {}) {
+  const entries = (urls || []).map((row) => {
+    if (typeof row === "string") return { url: row };
+    const url = String(row?.url || "").trim();
+    if (!url) return null;
+    const out = String(row.out || "").trim();
+    const dir = String(row.dir || "").trim();
+    return {
+      url,
+      ...(out ? { out } : {}),
+      ...(dir ? { dir } : {}),
+    };
+  }).filter(Boolean);
+  return {
+    version: 1,
+    name: String(name || "Package"),
+    urls: entries,
+    createdAt: Number(createdAt) || Date.now(),
+  };
+}
+
+export function packageExportText(payload) {
+  const rows = payload?.urls || [];
+  return rows.map((row) => (typeof row === "string" ? row : row.url)).filter(Boolean).join("\n");
+}
+
+export function parseLinkListText(text) {
+  const seen = new Set();
+  const urls = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const token = line.split(/\s+/)[0];
+    if (!(token.startsWith("magnet:") || /^https?:\/\//i.test(token) || /^ftps?:\/\//i.test(token))) {
+      continue;
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    urls.push(token);
+  }
+  return urls;
+}
+
+export function normalizeGrabJob(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newPackageId()),
+    name: String(raw.name || "Grab").trim() || "Grab",
+    urls,
+    enabled: raw.enabled !== false,
+    every: raw.every === "weekly" ? "weekly" : "daily",
+    atMinute: Math.max(0, Math.min(24 * 60 - 1, Number(raw.atMinute) || 0)),
+    weekday: Math.max(0, Math.min(6, Number(raw.weekday) || 0)),
+    packageName: String(raw.packageName || "").trim(),
+    lastRunAt: Number(raw.lastRunAt) || 0,
+  };
+}
+
+export function grabJobSummary(job) {
+  const row = normalizeGrabJob(job);
+  const n = row.urls.length;
+  const links = n === 1 ? "1 link" : `${n} links`;
+  const hh = String(Math.floor(row.atMinute / 60)).padStart(2, "0");
+  const mm = String(row.atMinute % 60).padStart(2, "0");
+  const when = row.every === "weekly"
+    ? `weekly · ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][row.weekday]} ${hh}:${mm}`
+    : `daily · ${hh}:${mm}`;
+  const state = row.enabled ? when : `paused · ${when}`;
+  return `${links} · ${state}`;
+}
+
+export function grabJobDue(job, { now = new Date(), lastRunAt } = {}) {
+  const row = normalizeGrabJob(job);
+  if (!row.enabled || !row.urls.length) return false;
+  const stamp = lastRunAt == null ? row.lastRunAt : Number(lastRunAt) || 0;
+  const current = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(current.getTime())) return false;
+  if (row.every === "weekly" && current.getDay() !== row.weekday) return false;
+  const minute = current.getHours() * 60 + current.getMinutes();
+  if (minute < row.atMinute) return false;
+  if (!stamp) return true;
+  const last = new Date(stamp);
+  if (Number.isNaN(last.getTime())) return true;
+  if (row.every === "daily") {
+    return last.toDateString() !== current.toDateString();
+  }
+  // Weekly: due once the most recent weekday+time has passed without a run.
+  const due = new Date(current);
+  due.setSeconds(0, 0);
+  due.setHours(Math.floor(row.atMinute / 60), row.atMinute % 60, 0, 0);
+  while (due.getDay() !== row.weekday) due.setDate(due.getDate() - 1);
+  return last.getTime() < due.getTime();
+}
+
+export function normalizeTemplate(raw = {}) {
+  const urls = Array.isArray(raw.urls)
+    ? raw.urls.map((row) => {
+      if (typeof row === "string") return { url: row };
+      const url = String(row?.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        ...(row.out ? { out: String(row.out) } : {}),
+        ...(row.dir ? { dir: String(row.dir) } : {}),
+      };
+    }).filter(Boolean)
+    : [];
+  return {
+    id: String(raw.id || newPackageId()),
+    name: String(raw.name || "Template").trim() || "Template",
+    urls,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+export function templateSummary(template) {
+  const row = normalizeTemplate(template);
+  const n = row.urls.length;
+  return n === 1 ? "1 saved link" : `${n} saved links`;
+}
+
+export function rememberedQualityRule(stored, fallback = "best") {
+  const value = String(stored || "").trim();
+  if (!value) return fallback;
+  if (value === "best" || value === "audio") return value;
+  const cap = Number(value);
+  return Number.isFinite(cap) && cap > 0 ? String(cap) : fallback;
+}
+
+export function packageMenuExtras({
+  samePackage = false,
+  hasPackages = false,
+  selected = 0,
+} = {}) {
+  const items = [];
+  const n = Math.max(0, Number(selected) || 0);
+  if (n > 0 && (samePackage || hasPackages)) {
+    items.push({ action: "move-package", label: "Move to Package…" });
+  }
+  if (samePackage) {
+    items.push({ action: "ungroup-package", label: "Remove from Package" });
+    items.push({ action: "copy-package-urls", label: "Copy Package URLs" });
+    items.push({ action: "save-package-template", label: "Save as Template" });
+  } else if (n > 1) {
+    items.push({ action: "new-package", label: "New Package from Selection" });
+  }
+  return items;
 }

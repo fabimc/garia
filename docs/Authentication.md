@@ -6,7 +6,7 @@ A file behind a sign-in needs one of three things, and Garia keeps them in three
 
 **A header** is a literal aria2 has to put on the request, so it *is* an option on the download, and it does land in the session file — which is how a resume after a quit still gets through, and also means a bearer token in one is written to disk. The dialog says so rather than pretending otherwise.
 
-**A cookie jar** is a path to a `cookies.txt` exported from the browser. Nothing is copied: the file stays where it is, and aria2 matches its cookies to hosts itself.
+**A cookie jar** is a path to a `cookies.txt` exported from the browser. Nothing is copied: the file stays where it is, and aria2 matches its cookies to hosts itself. Video page probes (yt-dlp) read the same file when it is set, so a logged-in watch page can be listed without a separate cookie path.
 
 Two things netrc will not do, both found by trying them. It has no quoting at all — `password "two words"` is read as the literal `"two` — so a password with whitespace in it cannot go in one; Garia sends that one as an `Authorization:` header instead and says which of the two it did. And aria2 ignores a netrc that anyone but its owner can read, silently, with no auth header on the wire.
 
