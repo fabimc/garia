@@ -450,7 +450,8 @@ export function prioritySummary(files) {
   if (pending.some((p) => p === "low") && !pending.some((p) => p === "normal")) {
     return { label: "Low only", title: "Only Low-priority files are still waiting." };
   }
-  if (pending.every((p) => p === "off")) return null;
+  // Default Normal-only queues are not a custom priority layout.
+  if (pending.every((p) => p === "normal") || pending.every((p) => p === "off")) return null;
   return { label: "Custom files", title: "This torrent uses custom per-file priorities." };
 }
 

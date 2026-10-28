@@ -275,9 +275,13 @@ test("priority summary names the tier still waiting", () => {
     { index: 1, length: 10, completedLength: 10, priority: "high" },
     { index: 2, length: 10, completedLength: 0, priority: "normal" },
   ];
-  assert.equal(prioritySummary(files)?.label, "Custom files");
+  // Only default Normal left pending — not a custom layout.
+  assert.equal(prioritySummary(files), null);
   files[0].completedLength = 0;
   assert.equal(prioritySummary(files)?.label, "High first");
+  // Mix of Normal and Low (no High) is custom.
+  files[0].priority = "low";
+  assert.equal(prioritySummary(files)?.label, "Custom files");
 });
 
 test("bulk priority maps every file or only checked ones", () => {

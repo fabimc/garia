@@ -6,13 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 pub type PriorityMap = HashMap<String, HashMap<String, String>>;
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(transparent)]
-struct File(#[serde(default)] PriorityMap);
 
 pub fn read(path: &Path) -> PriorityMap {
     let raw = match fs::read_to_string(path) {

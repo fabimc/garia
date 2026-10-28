@@ -1819,7 +1819,9 @@ function updateItemEl(li, dl) {
     ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
     : "";
   const waitTip = dl.status === "waiting" && !held
-    ? (schedule.queueStopped ? "Queue is stopped — Start Queue to let it run." : "Waiting for a free slot in the queue.")
+    ? ((schedule.queueStopped === true || settings.queueStopped === true)
+      ? "Queue is stopped — Start Queue to let it run."
+      : "Waiting for a free slot in the queue.")
     : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? `${formatBytes(dl.completedLength)} were already on disk when this session started.`
