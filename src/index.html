@@ -646,10 +646,14 @@
                             <button type="button" class="playlist-pick" id="batch-all">
                                 All
                             </button>
+                            <button type="button" class="playlist-pick" id="batch-files">
+                                Files
+                            </button>
                             <button type="button" class="playlist-pick" id="batch-none">
                                 None
                             </button>
                         </div>
+                        <p id="batch-hint" class="field-hint hidden"></p>
                         <div
                             id="batch-entries"
                             class="batch-entries"
@@ -774,6 +778,7 @@
                             role="radiogroup"
                             aria-label="Quality"
                         ></div>
+                        <p id="video-out" class="field-hint hidden"></p>
                         <p id="video-note" class="field-hint hidden"></p>
                     </div>
 
@@ -805,6 +810,7 @@
                             id="playlist-rule"
                             class="field-input"
                         ></select>
+                        <p id="playlist-rule-note" class="field-hint hidden"></p>
                         <div class="playlist-bar">
                             <span
                                 id="playlist-count"
@@ -914,6 +920,7 @@
                 <div class="modal-body stack">
                     <p id="capture-url" class="field-hint capture-url"></p>
                     <p id="capture-referrer" class="field-hint hidden"></p>
+                    <p id="capture-hint" class="field-hint"></p>
                     <div class="field">
                         <label class="modal-label" for="capture-name">Name</label>
                         <input
@@ -1044,7 +1051,10 @@
         >
             <div class="modal modal-lg">
                 <div class="modal-header">
-                    <h2 id="detail-title" class="detail-title">Details</h2>
+                    <div class="detail-heading">
+                        <h2 id="detail-title" class="detail-title">Details</h2>
+                        <span id="detail-badge" class="dl-scan hidden"></span>
+                    </div>
                     <button
                         class="modal-close"
                         id="detail-close"

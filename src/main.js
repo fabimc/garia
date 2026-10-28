@@ -29,9 +29,19 @@ import {
   formatEmptyQueueState,
   formatRecoverableNextStep,
   formatFfmpegMergeLine,
+  formatCaptureFlowHint,
   formatTorrentStateMessage,
   formatDetailBadge,
   formatIntegrityFailureReason,
+  formatQueueScan,
+  housekeepingActions,
+  formatRestartResumeNote,
+  formatUnsupportedMerge,
+  formatUnplayableMediaNote,
+  formatTorrentNextStep,
+  formatTrackerSummary,
+  formatFilePriorityLabel,
+  FILE_PRIORITY_TIERS,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -863,14 +873,10 @@ function missingNote(info, choices, canMerge) {
   const videos = info.formats.filter((f) => f.kind === "video");
   if (!canMerge && videos.length) {
     const best = Math.max(...videos.map((f) => f.height || 0));
-    notes.push(
-      `Higher qualities here${best ? ` — up to ${best}p` : ""} arrive as separate ` +
-      "video and audio, and the ffmpeg that merges them isn't running — see Settings.",
-    );
+    const merge = formatUnsupportedMerge({ canMerge: false, bestHeight: best });
+    if (merge) notes.push(merge);
   }
-  if (!choices.length) {
-    notes.push("Nothing on this page can be downloaded as a plain file — it's a live or segmented stream.");
-  }
+  if (!choices.length) notes.push(formatUnplayableMediaNote());
   return notes.join(" ");
 }
 
@@ -1636,6 +1642,7 @@ function createItemEl(dl) {
     </div>
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
+      <span class="dl-scan hidden"></span>
       <span class="dl-verified hidden">Verified</span>
       <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
@@ -1793,6 +1800,16 @@ function updateItemEl(li, dl) {
   else if (showBar) statusText = `${pct}%`;
   else statusText = statusLabel(dl.status);
 
+  const scan = formatQueueScan(dl.status, {
+    stalled: isStalled(dl),
+    slow: isSlowDownload(dl),
+    scheduled: Boolean(held),
+  });
+  const scanEl = li.querySelector(".dl-scan");
+  scanEl.classList.toggle("hidden", !scan.label);
+  if (scanEl.dataset.scan !== scan.key) scanEl.dataset.scan = scan.key;
+  if (scan.label && scanEl.textContent !== scan.label) scanEl.textContent = scan.label;
+
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
   const failKind = dl.status === "error"
@@ -1814,7 +1831,7 @@ function updateItemEl(li, dl) {
     ? `${seedingMeta(dl).join(" · ")}. ${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. Torrents already running keep the rule they started with.`
     : "";
   const stallTip = statusText === "Stalled"
-    ? "No peers are connected, so nothing is arriving."
+    ? [formatTorrentStateMessage(dl), formatTorrentNextStep(dl)].filter(Boolean).join(" ")
     : "";
   const slowTip = statusText === "Slow"
     ? "Peers are connected but the speed is very low — the swarm may be weak or the cap is tight."
@@ -1825,7 +1842,7 @@ function updateItemEl(li, dl) {
       : "Waiting for a free slot in the queue.")
     : "";
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
-    ? `${formatBytes(dl.completedLength)} were already on disk when this session started.`
+    ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
   statusEl.title = [held, reason, recovery, seedTip, stallTip, slowTip, waitTip, resumeTip].filter(Boolean).join(" ");
 
@@ -2849,6 +2866,17 @@ function buildPart(part) {
   // The tick column pushes the name along one, and the name is the only column
   // in these tables that isn't a measurement.
   if (bt) filesTable.dataset.pick = "true";
+  if (bt) {
+    const bulk = el("div", "playlist-bar detail-priority-bulk");
+    bulk.appendChild(el("span", "playlist-count", "Set every file"));
+    for (const tier of FILE_PRIORITY_TIERS) {
+      const btn = el("button", "playlist-pick", formatFilePriorityLabel(tier));
+      btn.type = "button";
+      btn.dataset.bulkPriority = tier;
+      bulk.appendChild(btn);
+    }
+    sec.appendChild(bulk);
+  }
   sec.appendChild(filesTable);
   if (bt) {
     const bulk = el("div", "detail-file-bulk");
@@ -2874,6 +2902,7 @@ function buildPart(part) {
     sec.appendChild(bar);
     sec.appendChild(buildSeedBlock(part.gid));
     sec.appendChild(buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]));
+    sec.appendChild(el("p", "detail-note detail-tracker-note"));
   }
   const folder = el("div", "detail-folder hidden");
   const change = el("button", "btn-secondary detail-folder-change", "Change folder");
@@ -3400,10 +3429,10 @@ function updatePart(sec, part) {
         pri = document.createElement("select");
         pri.dataset.filePriority = String(f.index);
         pri.setAttribute("aria-label", `Priority for ${(f.path || "").split("/").pop() || "this file"}`);
-        for (const [value, label] of [["high", "High"], ["normal", "Normal"], ["low", "Low"], ["off", "Off"]]) {
+        for (const tier of FILE_PRIORITY_TIERS) {
           const opt = document.createElement("option");
-          opt.value = value;
-          opt.textContent = label;
+          opt.value = tier;
+          opt.textContent = formatFilePriorityLabel(tier);
           pri.appendChild(opt);
         }
         td.appendChild(pri);
@@ -3445,6 +3474,11 @@ function updatePart(sec, part) {
     }
     const trackers = trackerRows(st.bittorrent?.announceList);
     const trackerState = trackerStatus(connected);
+    const trackerNote = sec.querySelector(".detail-tracker-note");
+    if (trackerNote) {
+      const text = formatTrackerSummary(connected, trackers.length);
+      if (trackerNote.textContent !== text) trackerNote.textContent = text;
+    }
     syncTable(sec, "trackers", trackers, (row) => row.url, (tr, row) => {
       cells(tr, [hostOf(row.url) || row.url, String(row.tier), trackerState]);
       tr.children[0].title = row.url;
@@ -3479,7 +3513,7 @@ function updatePart(sec, part) {
       && !["complete", "seeding", "removed"].includes(st.status);
     resume.classList.toggle("hidden", !show);
     if (show) {
-      const text = `Resumed after a restart — ${formatBytes(bytes)} were already on disk.`;
+      const text = formatRestartResumeNote(formatBytes(bytes));
       if (resume.textContent !== text) resume.textContent = text;
     }
   }
@@ -3511,9 +3545,17 @@ function updatePart(sec, part) {
     reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
   }
   if (st.status === "active" && isStalled(st)) {
-    reason = formatTorrentStateMessage(st);
+    reason = [formatTorrentStateMessage(st), formatTorrentNextStep(st)].filter(Boolean).join(" ");
   } else if (st.status === "active" && isSlowDownload(st)) {
     reason = "Slow — peers are connected but the speed is very low.";
+  } else if (st.status === "error" && isTorrentDownload(st)) {
+    const next = formatTorrentNextStep(st);
+    if (next && !reason.includes("Retry adds it again")) reason = `${reason} ${next}`;
+  }
+  const bulk = sec.querySelector(".detail-priority-bulk");
+  if (bulk) {
+    const many = (st.files || []).length > 1;
+    bulk.classList.toggle("hidden", !many || !canPickFiles(st));
   }
   errEl.classList.toggle("hidden", !reason);
   if (reason && errEl.textContent !== reason) errEl.textContent = reason;
@@ -3566,6 +3608,13 @@ async function renderDetail() {
   if (titleEl.textContent !== title) {
     titleEl.textContent = title;
     titleEl.title = title;
+  }
+  const badgeEl = document.getElementById("detail-badge");
+  if (badgeEl) {
+    const badge = formatDetailBadge(data.row || data.parts?.[0]?.status || null);
+    badgeEl.textContent = badge;
+    badgeEl.classList.toggle("hidden", !badge);
+    badgeEl.dataset.scan = badge === "Torrent" ? "torrent" : badge === "Video" ? "video" : "http";
   }
 
   const sections = [...body.children];
@@ -4292,6 +4341,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (gid) openDetail(gid);
       return;
     }
+    if (action === "retry-all") {
+      await retryFailed();
+      return;
+    }
+    if (action === "clear-completed") {
+      clearCompleted();
+      return;
+    }
     let changed = false;
     for (const gid of gids) {
       const dl = snapshot.get(gid);
@@ -4403,6 +4460,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     return closed;
   }
 
+  function queueHousekeeping(selectedRows) {
+    let failed = 0;
+    let completed = 0;
+    for (const dl of snapshot.values()) {
+      if (dl.status === "complete") completed += 1;
+      if (dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length)) failed += 1;
+    }
+    const failedSelected = (selectedRows || []).filter(
+      (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
+    ).length;
+    return housekeepingActions({ failed, failedSelected, completed });
+  }
+
   function menuSpecFor(dls) {
     const items = [];
     if (dls.some((d) => d.status === "active" || d.status === "waiting")) {
@@ -4437,6 +4507,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       items.push({ action: "move-end", label: "Move to End" });
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
+    items.push(...queueHousekeeping(dls));
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
     items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
@@ -4738,6 +4809,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   detailOverlay.addEventListener("click", async (e) => {
+    const bulkBtn = e.target.closest("[data-bulk-priority]");
+    if (bulkBtn) {
+      const sec = bulkBtn.closest(".detail-part");
+      const value = bulkBtn.dataset.bulkPriority;
+      if (sec && value) {
+        for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
+          sel.value = value;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      return;
+    }
+
     // The row's own cap. Sent before the panel is redrawn, and the buttons go
     // dead in between: a second click while aria2 is still answering the first
     // would leave the two halves of a merged row on different limits.
@@ -5825,6 +5909,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       captureReferrer.textContent = host ? `From ${host}` : "";
       captureReferrer.classList.toggle("hidden", !host);
     }
+    const captureHint = document.getElementById("capture-hint");
+    if (captureHint) captureHint.textContent = formatCaptureFlowHint("extension");
     captureName.value = suggestedName(url, name);
     fillCaptureCategories(url);
     captureDir.value = targetDir(url) || settings.downloadDir || "";

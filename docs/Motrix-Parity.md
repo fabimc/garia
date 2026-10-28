@@ -21,53 +21,53 @@ Garia already covers a substantial portion of the core Motrix workflow:
 
 The core Motrix experience is already present in a simplified form: add a download, track progress, catch it from browsers, and let the queue keep working while the app is hidden.
 
-## Remaining gaps versus Motrix
+## Parity work now in the app
 
-The gaps are not in core downloading; they are in the polish, breadth, and power-user experience around browser capture, queue operations, and media selection.
+Browser-capture review, queue scan chips and row housekeeping, media output names, and torrent next steps are in the app. The bullets are the spec that shipped.
 
 ### 1. Browser capture and download intake
 
 Priority: high
 
-- Improve the browser-capture flow so it feels as frictionless as Motrix's "download from page or selected link" UX.
-- Tighten detection for downloadable links and embedded media so capture is more reliable on more websites.
-- Keep the browser-extension workflow consistent across Chrome, Firefox, Edge, Brave, and Safari.
-- Make bulk intake from pages and copied links easier to review before starting downloads.
+- The capture sheet says the link came from the browser and asks for a look at the URL and folder before it starts.
+- A paste or an extension dump of several links is reviewed first. Each row is marked File, Page, Magnet, FTP file, or FTP folder. Files start selected. Pages and folders stay off until they are ticked, so a page is not saved as HTML.
+- All, Files, and None sit on that review. All and Files skip a link that is already in the list.
+- Download all links also picks up embedded video and audio, and links with a download attribute. The same content script does this in Chrome, Firefox, Edge, Brave, and Safari.
 
 ### 2. Queue and row actions
 
 Priority: high
 
-- Add more explicit queue organization actions, including move-to-top / move-to-end and clearer batch operations.
-- Expose consistent row actions for retry, retry all, remove with/without files, and housekeeping tasks.
-- Make active, queued, and completed states easier to scan without needing deep list knowledge.
-- Improve the recovery story when a failed item is retryable and when a restart resumes queued work.
+- Move to top, move to end, pause, resume, retry, remove while keeping files, and delete were already on the row. Retry All Failed and Clear Completed are there too, when the queue has something for them to do.
+- Each row carries a scan chip — Active, Queued, Paused, Seeding, Done, Failed, Stalled, Slow, Merging, or Scheduled — so the state is readable without the progress text.
+- A failed row still names the next step. A download that continued after a restart says how much was already on disk, in the row and in the detail panel.
 
 ### 3. File and media quality controls
 
 Priority: medium
 
-- Improve media-quality selection in the video-download workflow so it feels more like a first-class Motrix experience.
-- Surface more understandable output naming and format choices for videos and audio downloads.
-- Keep the ffmpeg/merge flow explicit when the requested combination is unsupported.
-- Improve playlist and best-available behavior without making the flow harder to follow.
+- The quality picker names the file it will save, including the container the merge will use.
+- A playlist says what Best available, a resolution cap, or Audio only will do. A video with nothing inside the cap still downloads, at its smallest.
+- When ffmpeg is not running, the picker says which higher qualities are separate video and audio and cannot be merged.
 
 ### 4. Torrent and fail-state UX
 
 Priority: medium
 
-- Add clearer torrent health, tracker-state, and stalled/seeding messaging for users who are not reading the underlying aria2 output.
-- Make per-file priority and bulk file decisions more obvious in both the row and the detail panel.
-- Improve how failed or stalled torrent states explain the next action to the user.
-- Keep the seed policy and queue behavior consistent through relaunches.
+- A stalled torrent says nothing is arriving, and that pause and resume asks the trackers again. A failed torrent says Retry adds it again when a magnet or URL is still on the row.
+- The tracker line says how many were announced and whether any peer is connected. aria2 still does not say which tracker answered.
+- Set every file to High, Normal, Low, or Off from the detail panel. The same labels are on each file. High still downloads before Normal, then Low, because aria2 has no per-file piece priority.
+- The detail header shows Torrent, Video, or HTTP.
+
+## Remaining gaps versus Motrix
 
 ### 5. Native product polish
 
 Priority: medium
 
-- Continue polishing menu, tray, and dock verbs so the app feels as native and discoverable as a desktop download manager should.
-- Improve empty states, notices, and detail-panel summaries so users understand what is happening at a glance.
-- Tighten the onboarding and first-run experience so new users can discover the browser capture, categories, and video workflow quickly.
+- Menu, tray, and dock verbs were not extended here. Retry Failed and Clear Completed are already on the menu bar and the dock menu.
+- The first-run sheet still covers the download folder, video tools, and the browser extension. It does not introduce categories.
+- Safari still cannot cancel a download the browser has already started, so takeover there remains click capture, the context menu, and the on-page button.
 
 ## Recommended implementation order
 
@@ -87,4 +87,4 @@ Priority: medium
 
 ## Outcome
 
-Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. The remaining work is mostly in polish, power-user UX, and deeper parity around browser capture, queue workflow, and media output quality.
+Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. Capture review, queue chips, media filenames, and torrent next steps are in the app. What is left is first-run and native-menu polish, listed above.

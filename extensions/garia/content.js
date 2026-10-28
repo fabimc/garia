@@ -63,20 +63,23 @@ document.addEventListener("click", (event) => {
 }, true);
 
 function collectPageLinks() {
-  const page = location.href.split("#")[0];
-  const seen = new Set();
-  const urls = [];
+  const links = [];
   for (const a of document.querySelectorAll("a[href]")) {
-    let href;
-    try { href = new URL(a.href, document.baseURI).href; } catch { continue; }
-    if (!(href.startsWith("magnet:") || /^https?:/i.test(href))) continue;
-    const bare = href.split("#")[0];
-    if (bare === page) continue;
-    if (seen.has(href)) continue;
-    seen.add(href);
-    urls.push(href);
+    try { links.push(new URL(a.href, document.baseURI).href); } catch { /* skip */ }
   }
-  return urls;
+  const media = [];
+  const nodes = document.querySelectorAll(
+    "video[src], audio[src], video source[src], audio source[src], a[download][href]",
+  );
+  for (const node of nodes) {
+    const raw = node.currentSrc || node.getAttribute("src") || node.href || "";
+    if (!raw) continue;
+    try { media.push(new URL(raw, document.baseURI).href); } catch { /* skip */ }
+  }
+  if (typeof gariaCaptureTargets === "function") {
+    return gariaCaptureTargets({ pageUrl: location.href, links, media });
+  }
+  return links;
 }
 
 if (window === window.top) {
