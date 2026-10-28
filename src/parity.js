@@ -990,7 +990,7 @@ export function formatTrackerSummary(peerCount, trackerCount) {
 // ── JDownloader parity items 4–7 ─────────────────────────────────────────
 // Site rules sit beside logins: credentials stay in netrc/headers; these
 // only shape how a URL is added. Grab jobs and templates share one shape so
-// a saved link set can be re-run by hand or on a clock.
+// a saved link set can be re-run by hand or on a schedule.
 
 function hostOfUrl(url) {
   try {
