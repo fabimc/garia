@@ -48,6 +48,7 @@ Want to learn more?
  * [JDownloader parity review](JDownloader-Parity.md)
  * [Motrix parity review](Motrix-Parity.md)
  * [Folx parity review](Folx-Parity.md)
+ * [Persepolis parity review](Persepolis-Parity.md)
  * [XDM parity plan](XDM-Parity-Plan.md)
  * [Browser capture](Browser-Capture.md)
  * [Publishing the browser extension](Publishing-the-Extension.md)
