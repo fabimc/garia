@@ -15,6 +15,14 @@ import {
   torrentHealth,
   trackerRows,
   trackerStatus,
+  formatEmptyQueueState,
+  formatRecoverableNextStep,
+  formatFfmpegMergeLine,
+  formatCaptureFlowHint,
+  formatMediaQualityLabel,
+  formatTorrentStateMessage,
+  formatDetailBadge,
+  formatFilePriorityLabel,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -139,4 +147,56 @@ test("a custom cap is kilobytes per second, and a blank field clears it", () => 
   assert.equal(parseKilobytes("0"), 0);
   assert.equal(parseKilobytes("-1"), null);
   assert.equal(parseKilobytes("fast"), null);
+});
+
+test("empty queue copy follows filter and connection state", () => {
+  const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
+  assert.equal(fresh.title, "No downloads yet");
+  assert.match(fresh.sub, /⌘N/);
+  assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
+  assert.equal(formatEmptyQueueState({ connError: true }).title, "Can't reach aria2");
+});
+
+test("recoverable failures name a next step", () => {
+  assert.match(formatRecoverableNextStep(24), /Settings/i);
+  assert.match(formatRecoverableNextStep(32), /checksum/i);
+  assert.match(formatRecoverableNextStep(0), /Retry/i);
+});
+
+test("ffmpeg merge line reflects bundled vs missing", () => {
+  assert.match(formatFfmpegMergeLine({ hasFfmpeg: false }), /missing/i);
+  assert.match(formatFfmpegMergeLine({ hasFfmpeg: true, ffmpegSource: "bundled" }), /ships/i);
+});
+
+test("capture hints name the source", () => {
+  assert.match(formatCaptureFlowHint("clipboard"), /copied/i);
+  assert.match(formatCaptureFlowHint("extension"), /browser/i);
+});
+
+test("media quality labels combine resolution and format", () => {
+  assert.equal(formatMediaQualityLabel({ height: 1080, ext: "mp4" }), "1080p · mp4");
+});
+
+test("torrent state messages cover stall and queue", () => {
+  const stalled = {
+    bittorrent: {},
+    status: "active",
+    totalLength: "100",
+    completedLength: "10",
+    downloadSpeed: "0",
+    connections: "0",
+  };
+  assert.match(formatTorrentStateMessage(stalled), /Stalled/i);
+  assert.match(formatTorrentStateMessage({ status: "waiting" }), /Queued/i);
+});
+
+test("detail badges distinguish torrent, video, and http", () => {
+  assert.equal(formatDetailBadge({ bittorrent: {} }), "Torrent");
+  assert.equal(formatDetailBadge({ job: {} }), "Video");
+  assert.equal(formatDetailBadge({ gid: "1" }), "HTTP");
+});
+
+test("file priority labels match the tier names in the UI", () => {
+  assert.equal(formatFilePriorityLabel("high"), "High");
+  assert.equal(formatFilePriorityLabel(false), "Normal");
 });
