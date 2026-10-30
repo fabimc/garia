@@ -43,9 +43,44 @@ function basename(path) {
   return name === "." || name === ".." ? "" : name;
 }
 
-// Keep in step with captureTargetsFromPage in src/parity.js. Media is listed
-// first so a page of navigation does not bury the file that was on screen.
-function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } = {}) {
+// Keep in step with collectEmbeddedMediaUrls + captureTargetsFromPage in
+// src/parity.js. Meta and players come before ordinary navigation links.
+function collectEmbeddedMediaUrls({
+  media = [],
+  metaVideos = [],
+  downloadHrefs = [],
+  srcsetUrls = [],
+  streamUrls = [],
+} = {}) {
+  const seen = new Set();
+  const out = [];
+  const push = (value) => {
+    const url = String(value ?? "").trim();
+    if (!url || url.startsWith("blob:") || url.startsWith("data:")) return;
+    if (!(url.startsWith("magnet:") || /^https?:\/\//i.test(url) || /^ftps?:\/\//i.test(url))) {
+      return;
+    }
+    if (seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  for (const src of metaVideos) push(src);
+  for (const src of media) push(src);
+  for (const src of streamUrls) push(src);
+  for (const src of downloadHrefs) push(src);
+  for (const src of srcsetUrls) push(src);
+  return out;
+}
+
+function captureTargetsFromPage({
+  pageUrl = "",
+  links = [],
+  media = [],
+  metaVideos = [],
+  downloadHrefs = [],
+  srcsetUrls = [],
+  streamUrls = [],
+} = {}) {
   const page = String(pageUrl || "").split("#")[0];
   const seen = new Set();
   const out = [];
@@ -58,7 +93,9 @@ function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } = {}) {
     seen.add(url);
     out.push(url);
   };
-  for (const src of media) push(src);
+  for (const src of collectEmbeddedMediaUrls({
+    media, metaVideos, downloadHrefs, srcsetUrls, streamUrls,
+  })) push(src);
   for (const href of links) push(href);
   return out;
 }

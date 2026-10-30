@@ -77,6 +77,13 @@ import {
   schedulePersistHint,
   queueBulkExtras,
   newDestinationId,
+  torrentFileFilter,
+  torrentBulkPriorityActions,
+  normalizeBulkPriorityAction,
+  formatTorrentHealthNote,
+  formatQualityChoiceDetail,
+  formatMediaRowExplain,
+  desktopHousekeepingItems,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -840,12 +847,15 @@ function buildChoices(info, canMerge) {
     const key = choiceKey(label, f.ext);
     if (seen.has(key)) continue;
     seen.add(key);
+    const kind = "complete";
     choices.push({
       label,
-      detail: [f.ext.toUpperCase(), "one file", f.note].filter(Boolean).join(" · "),
+      kind,
+      detail: formatQualityChoiceDetail({ kind, ext: f.ext, note: f.note }),
       bytes: f.filesize,
       formats: [f],
       ext: f.ext,
+      height: f.height || 0,
     });
   }
 
@@ -860,12 +870,15 @@ function buildChoices(info, canMerge) {
         audios.find((a) => containerOf(a.ext) === containerOf(v.ext)) || audios[0];
       seen.add(key);
       const ext = mergedExt(v.ext, audio.ext);
+      const kind = "merge";
       choices.push({
         label,
-        detail: `${ext.toUpperCase()} · video + audio, merged`,
+        kind,
+        detail: formatQualityChoiceDetail({ kind, ext }),
         bytes: (v.filesize || 0) + (audio.filesize || 0),
         formats: [v, audio],
         ext,
+        height: v.height || 0,
       });
     }
   }
@@ -880,13 +893,19 @@ function buildChoices(info, canMerge) {
 
   if (audios.length) {
     const a = audios[0];
+    const kind = "audio";
     choices.push({
       label: "Audio",
-      detail: [a.ext.toUpperCase(), a.bitrate ? `${Math.round(a.bitrate)} kbps` : "", "sound only"]
-        .filter(Boolean).join(" · "),
+      kind,
+      detail: formatQualityChoiceDetail({
+        kind,
+        ext: a.ext,
+        bitrate: a.bitrate,
+      }),
       bytes: a.filesize,
       formats: [a],
       ext: a.ext,
+      height: 0,
     });
   }
 
@@ -2371,6 +2390,33 @@ function applyFilter(listEl) {
   onFilterApplied();
 }
 
+function renderHousekeeping(tally) {
+  const host = document.getElementById("stat-housekeeping");
+  if (!host) return;
+  const items = desktopHousekeepingItems({
+    failed: tally.error || 0,
+    failedSelected: 0,
+    completed: tally.complete || 0,
+  });
+  const key = items.map((item) => item.action).join("|");
+  if (host.dataset.actions !== key) {
+    host.dataset.actions = key;
+    host.textContent = "";
+    for (const item of items) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "status-housekeeping-btn";
+      btn.dataset.action = item.action;
+      btn.textContent = item.label;
+      btn.title = item.action === "retry-all"
+        ? "Same as Download → Retry Failed"
+        : "Same as Download → Clear Completed";
+      host.appendChild(btn);
+    }
+  }
+  host.classList.toggle("hidden", items.length === 0);
+}
+
 function renderCounts(tally) {
   for (const el of document.querySelectorAll(".nav-count")) {
     const n = tally[el.dataset.count] || 0;
@@ -2387,6 +2433,7 @@ function renderCounts(tally) {
   if (tally.error) bits.push(`${tally.error} failed`);
   document.getElementById("stat-counts").textContent =
     bits.length ? bits.join(" · ") : "no downloads";
+  renderHousekeeping(tally);
 
   const down = formatSpeed(tally.speed);
   const up = formatSpeed(tally.upspeed);
@@ -2882,19 +2929,30 @@ function updateSelectBar(sec) {
   // Set by the redraw off aria2's own status, and read back here and by Apply:
   // a running download has to be stopped before it will take the change.
   const running = bar.dataset.running === "true";
+  const gid = sec.dataset.gid;
+  const draft = filePriorityDraft.get(gid);
+  const dl = snapshot.get(gid);
   const boxes = [...sec.querySelectorAll("input[data-file-index]")];
-  const priorityChanged = [...sec.querySelectorAll("select[data-file-priority]")]
-    .some((sel) => sel.value !== sel.dataset.was);
+  const priorityChanged = draft?.size
+    ? [...draft.entries()].some(([index, tier]) => {
+      const file = (dl?.files || []).find((f) => Number(f.index) === Number(index));
+      return file && tier !== priorityFor(dl, file.index, file.selected);
+    })
+    : [...sec.querySelectorAll("select[data-file-priority]")]
+      .some((sel) => sel.value !== sel.dataset.was);
   const changed = priorityChanged || boxes.some((box) => box.checked !== (box.dataset.was !== "false"));
-  const taking = boxes.filter((box) => box.checked).length;
+  const taking = draft?.size
+    ? [...draft.values()].filter((tier) => tier !== "off").length
+    : boxes.filter((box) => box.checked).length;
+  const total = draft?.size || (dl?.files?.length > 1 ? dl.files.length : boxes.length);
 
-  bar.classList.toggle("hidden", !changed || boxes.length === 0);
+  bar.classList.toggle("hidden", !changed || total === 0);
   const priorityNote = " High downloads before Normal, then Low. Off stays out. aria2 has no per-file piece priority, so that order is which files are selected.";
   bar.querySelector(".detail-select-note").textContent = taking === 0
     ? "Leave at least one file — a torrent with nothing selected downloads all of it."
     : running
-      ? `Take ${taking} of ${boxes.length}. aria2 only changes this on a stopped download, so garia pauses it and starts it again.${priorityNote}`
-      : `Take ${taking} of ${boxes.length}.${priorityNote}`;
+      ? `Take ${taking} of ${total}. aria2 only changes this on a stopped download, so garia pauses it and starts it again.${priorityNote}`
+      : `Take ${taking} of ${total}.${priorityNote}`;
   bar.querySelector(".detail-select-apply").disabled = taking === 0;
 }
 
@@ -3215,6 +3273,22 @@ function buildPart(part) {
   // in these tables that isn't a measurement.
   if (bt) filesTable.dataset.pick = "true";
   if (bt) {
+    const filter = el("div", "detail-file-filter");
+    const input = el("input", "field-input detail-file-filter-input");
+    input.type = "search";
+    input.placeholder = "Filter files…";
+    input.setAttribute("aria-label", "Filter torrent files by name");
+    input.dataset.gid = part.gid;
+    filter.appendChild(input);
+    const selectedOnly = el("label", "detail-file-filter-selected");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "detail-file-filter-checked";
+    box.dataset.gid = part.gid;
+    selectedOnly.append(box, document.createTextNode(" Selected only"));
+    filter.appendChild(selectedOnly);
+    sec.appendChild(filter);
+
     const bulk = el("div", "playlist-bar detail-priority-bulk");
     bulk.appendChild(el("span", "playlist-count", "Set every file"));
     for (const tier of FILE_PRIORITY_TIERS) {
@@ -3229,17 +3303,6 @@ function buildPart(part) {
   if (bt) {
     const bulk = el("div", "detail-file-bulk");
     bulk.dataset.gid = part.gid;
-    for (const [action, label] of [
-      ["all-high", "All → High"],
-      ["all-normal", "All → Normal"],
-      ["checked-high", "Checked → High"],
-      ["checked-off", "Checked → Off"],
-    ]) {
-      const btn = el("button", "btn-secondary detail-file-bulk-btn", label);
-      btn.type = "button";
-      btn.dataset.bulkPriority = action;
-      bulk.appendChild(btn);
-    }
     sec.appendChild(bulk);
     const bar = el("div", "detail-select hidden");
     bar.appendChild(el("p", "detail-note detail-select-note"));
@@ -3739,7 +3802,20 @@ function updatePart(sec, part) {
 
   const files = st.files || [];
   const pending = fileSelection.get(part.gid);
-  syncTable(sec, "files", files.length > 1 ? files : [], (f) => f.index, (tr, f) => {
+  const filterInput = sec.querySelector(".detail-file-filter-input");
+  const filterChecked = sec.querySelector(".detail-file-filter-checked");
+  const filterWrap = sec.querySelector(".detail-file-filter");
+  if (filterWrap) {
+    filterWrap.classList.toggle("hidden", files.length < 2);
+  }
+  const visibleFiles = files.length > 1
+    ? torrentFileFilter(files, {
+      query: filterInput?.value || "",
+      selectedOnly: filterChecked?.checked === true,
+      selectedIndices: pending,
+    })
+    : [];
+  syncTable(sec, "files", visibleFiles, (f) => f.index, (tr, f) => {
     const size = Number(f.length) || 0;
     const got = Number(f.completedLength) || 0;
     // A torrent is a bundle you can take part of, so its rows are ticked; an
@@ -3809,9 +3885,35 @@ function updatePart(sec, part) {
     const health = torrentHealth({ seeders: seeds, leechers, peers: connected });
     const healthFact = sec.querySelector('[data-fact="health"] dd');
     const leechFact = sec.querySelector('[data-fact="leechers"] dd');
-    if (healthFact && healthFact.textContent !== health.label) {
-      healthFact.textContent = health.label;
-      healthFact.title = health.title;
+    if (healthFact) {
+      if (healthFact.textContent !== health.label) healthFact.textContent = health.label;
+      const healthNote = formatTorrentHealthNote(st, health);
+      healthFact.title = healthNote || health.title;
+    }
+    const fileBulk = sec.querySelector(".detail-file-bulk");
+    if (fileBulk) {
+      const checkedN = pending
+        ? pending.size
+        : (st.files || []).filter((f) => {
+          const text = String(f?.selected ?? "").trim().toLowerCase();
+          return !(f?.selected === false || text === "false" || f?.selected === 0);
+        }).length;
+      const actions = torrentBulkPriorityActions({
+        fileCount: (st.files || []).length,
+        checkedCount: checkedN,
+      });
+      const key = actions.map((a) => a.action).join("|");
+      if (fileBulk.dataset.actions !== key) {
+        fileBulk.dataset.actions = key;
+        fileBulk.textContent = "";
+        for (const item of actions) {
+          const btn = el("button", "btn-secondary detail-file-bulk-btn", item.label);
+          btn.type = "button";
+          btn.dataset.bulkPriority = item.action;
+          fileBulk.appendChild(btn);
+        }
+      }
+      fileBulk.classList.toggle("hidden", actions.length === 0 || !canPickFiles(st));
     }
     if (leechFact) {
       const text = String(leechers);
@@ -3892,13 +3994,30 @@ function updatePart(sec, part) {
   if (reason && Number(st.completedLength) > 0) {
     reason = `${reason} ${formatBytes(st.completedLength)} were already on disk.`;
   }
-  if (st.status === "active" && isStalled(st)) {
-    reason = [formatTorrentStateMessage(st), formatTorrentNextStep(st)].filter(Boolean).join(" ");
-  } else if (st.status === "active" && isSlowDownload(st)) {
-    reason = "Slow — peers are connected but the speed is very low.";
-  } else if (st.status === "error" && isTorrentDownload(st)) {
-    const next = formatTorrentNextStep(st);
-    if (next && !reason.includes("Retry adds it again")) reason = `${reason} ${next}`;
+  if (isTorrentDownload(st)) {
+    const seeds = Number(st.numSeeders) || 0;
+    const connected = Number(st.connections) || 0;
+    const leechers = leechersOf({ connections: connected, seeders: seeds, peers: part.peers });
+    const health = torrentHealth({ seeders: seeds, leechers, peers: connected });
+    if (st.status === "active" && isStalled(st)) {
+      reason = formatTorrentHealthNote(st, health)
+        || [formatTorrentStateMessage(st), formatTorrentNextStep(st, health)].filter(Boolean).join(" ");
+    } else if (st.status === "active" && isSlowDownload(st)) {
+      reason = [
+        "Slow — peers are connected but the speed is very low.",
+        formatTorrentNextStep(st, health),
+      ].filter(Boolean).join(" ");
+    } else if (st.status === "active" && (health.label === "Weak" || health.label === "No peers")) {
+      reason = formatTorrentHealthNote(st, health);
+    } else if (st.status === "seeding") {
+      const next = formatTorrentNextStep(st, health);
+      if (next) reason = [formatTorrentStateMessage(st), next].filter(Boolean).join(" ");
+    } else if (st.status === "error") {
+      const next = formatTorrentNextStep(st, health);
+      if (next && !reason.includes("Retry adds it again")) reason = `${reason} ${next}`;
+    } else if (st.status === "active" && !(Number(st.totalLength) > 0)) {
+      reason = formatTorrentNextStep(st, health);
+    }
   }
   const bulk = sec.querySelector(".detail-priority-bulk");
   if (bulk) {
@@ -3921,7 +4040,17 @@ function updateJobBlock(sec, data) {
   const job = data.job;
   setField(sec, "page", job.webpageUrl || "");
   setField(sec, "out", job.outPath || (job.dir ? `${job.dir}/${job.out}` : job.out || ""));
-  sec.querySelector(".detail-note").textContent = MERGE_NOTES[job.state] || "";
+  const kind = job.merge === false || job.formats?.length === 1
+    ? (String(job.out || "").match(/\.(mp3|m4a|opus|ogg|flac|wav)$/i) ? "audio" : "complete")
+    : "merge";
+  const explain = formatMediaRowExplain({
+    title: job.title || job.out || "",
+    ext: String(job.out || "").split(".").pop() || "",
+    kind,
+    height: Number(job.height) || 0,
+  });
+  const note = [MERGE_NOTES[job.state] || "", explain].filter(Boolean).join(" ");
+  sec.querySelector(".detail-note").textContent = note;
 }
 
 // Reveal has to name a file that is actually there: a merged row's output does
@@ -4009,21 +4138,39 @@ async function whilePaused(gid, wasActive, change) {
 }
 
 async function applyFileSelection(gid, sec) {
-  const picks = [...sec.querySelectorAll("select[data-file-priority]")];
-  const files = picks.map((sel) => ({
-    index: Number(sel.dataset.filePriority),
-    priority: sel.value,
-    length: Number(sel.dataset.length) || 0,
-    completedLength: Number(sel.dataset.completed) || 0,
-  }));
+  const draft = filePriorityDraft.get(gid);
+  const row = snapshot.get(gid);
+  let files;
+  let map = {};
+  if (draft?.size && row?.files?.length) {
+    files = row.files.map((f) => {
+      const index = Number(f.index);
+      const priority = draft.has(index)
+        ? draft.get(index)
+        : priorityFor(row, f.index, f.selected);
+      map[String(index)] = priority;
+      return {
+        index,
+        priority,
+        length: Number(f.length) || 0,
+        completedLength: Number(f.completedLength) || 0,
+      };
+    });
+  } else {
+    const picks = [...sec.querySelectorAll("select[data-file-priority]")];
+    files = picks.map((sel) => ({
+      index: Number(sel.dataset.filePriority),
+      priority: sel.value,
+      length: Number(sel.dataset.length) || 0,
+      completedLength: Number(sel.dataset.completed) || 0,
+    }));
+    for (const sel of picks) map[sel.dataset.filePriority] = sel.value;
+  }
   const wanted = files.length ? desiredIndices(files) : selectedIndices(sec);
   if (!wanted.length) return;
   const running = sec.querySelector(".detail-select")?.dataset.running === "true";
   await whilePaused(gid, running, () =>
     rpc("aria2.changeOption", [gid, { "select-file": wanted.join(",") }]));
-  const map = {};
-  for (const sel of picks) map[sel.dataset.filePriority] = sel.value;
-  const row = snapshot.get(gid);
   rememberPriorities({
     gid,
     infoHash: sec.dataset.infoHash || row?.infoHash || "",
@@ -5523,37 +5670,30 @@ window.addEventListener("DOMContentLoaded", async () => {
   // ── Detail panel ─────────────────────────────────────────────────────────
   const detailOverlay = document.getElementById("detail-overlay");
 
-  detailOverlay.addEventListener("click", (e) => {
-    const bulkBtn = e.target.closest("[data-bulk-priority]");
-    if (!bulkBtn) return;
-    const sec = bulkBtn.closest(".detail-part");
+  function refreshTorrentFiles(sec) {
     const gid = sec?.dataset.gid;
-    if (!sec || !gid) return;
-    const fileRows = [...sec.querySelectorAll("select[data-file-priority]")].map((sel) => ({
-      index: Number(sel.dataset.filePriority),
-      priority: sel.value,
-      length: Number(sel.dataset.length) || 0,
-      completedLength: Number(sel.dataset.completed) || 0,
-    }));
-    const checked = [...sec.querySelectorAll("input[data-file-index]:checked")]
-      .map((box) => Number(box.dataset.fileIndex));
-    const map = bulkPriorityMap(fileRows, bulkBtn.dataset.bulkPriority, checked);
-    const draft = filePriorityDraft.get(gid) || new Map();
-    for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
-      const key = String(sel.dataset.filePriority);
-      const next = map[key] ?? map[Number(key)];
-      if (!next) continue;
-      sel.value = next;
-      draft.set(Number(sel.dataset.filePriority), next);
-      const box = sec.querySelector(`input[data-file-index="${sel.dataset.filePriority}"]`);
-      if (box) box.checked = next !== "off";
-    }
-    filePriorityDraft.set(gid, draft);
-    fileSelection.set(gid, new Set(selectedIndices(sec)));
-    updateSelectBar(sec);
-  });
+    if (!gid) return;
+    const status = snapshot.get(gid);
+    if (!status) return;
+    const cached = detailCache.get(gid)?.parts?.[gid] || {};
+    updatePart(sec, {
+      gid,
+      status,
+      peers: cached.peers || [],
+      servers: cached.servers || [],
+      solo: true,
+    });
+  }
 
+  detailOverlay.addEventListener("input", (e) => {
+    if (!e.target.closest(".detail-file-filter-input")) return;
+    refreshTorrentFiles(e.target.closest(".detail-part"));
+  });
   detailOverlay.addEventListener("change", (e) => {
+    if (e.target.closest(".detail-file-filter-checked")) {
+      refreshTorrentFiles(e.target.closest(".detail-part"));
+      return;
+    }
     const sel = e.target.closest("select[data-file-priority]");
     if (!sel) return;
     const sec = sel.closest(".detail-part");
@@ -5570,13 +5710,44 @@ window.addEventListener("DOMContentLoaded", async () => {
     const bulkBtn = e.target.closest("[data-bulk-priority]");
     if (bulkBtn) {
       const sec = bulkBtn.closest(".detail-part");
-      const value = bulkBtn.dataset.bulkPriority;
-      if (sec && value) {
-        for (const sel of sec.querySelectorAll("select[data-file-priority]")) {
-          sel.value = value;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-        }
+      const gid = sec?.dataset.gid;
+      const action = normalizeBulkPriorityAction(bulkBtn.dataset.bulkPriority);
+      if (!sec || !gid || !action) return;
+      // Prefer the full torrent file list so a filter does not leave untouched
+      // files behind when the user says All → High.
+      const dl = snapshot.get(gid);
+      const allFiles = (dl?.files || []).map((f) => ({
+        index: Number(f.index),
+        priority: priorityFor(dl, f.index, f.selected),
+        length: Number(f.length) || 0,
+        completedLength: Number(f.completedLength) || 0,
+      }));
+      const fileRows = allFiles.length
+        ? allFiles
+        : [...sec.querySelectorAll("select[data-file-priority]")].map((sel) => ({
+          index: Number(sel.dataset.filePriority),
+          priority: sel.value,
+          length: Number(sel.dataset.length) || 0,
+          completedLength: Number(sel.dataset.completed) || 0,
+        }));
+      const checked = [...sec.querySelectorAll("input[data-file-index]:checked")]
+        .map((box) => Number(box.dataset.fileIndex));
+      const map = bulkPriorityMap(fileRows, action, checked);
+      const draft = filePriorityDraft.get(gid) || new Map();
+      for (const [key, next] of Object.entries(map)) {
+        draft.set(Number(key), next);
+        const sel = sec.querySelector(`select[data-file-priority="${key}"]`);
+        if (sel) sel.value = next;
+        const box = sec.querySelector(`input[data-file-index="${key}"]`);
+        if (box) box.checked = next !== "off";
       }
+      filePriorityDraft.set(gid, draft);
+      fileSelection.set(
+        gid,
+        new Set([...draft.entries()].filter(([, tier]) => tier !== "off").map(([index]) => index)),
+      );
+      refreshTorrentFiles(sec);
+      updateSelectBar(sec);
       return;
     }
 
@@ -5837,6 +6008,12 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("pause-all").addEventListener("click", pauseAll);
   document.getElementById("resume-all").addEventListener("click", resumeAll);
+  document.getElementById("stat-housekeeping")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "retry-all") retryFailed();
+    if (btn.dataset.action === "clear-completed") clearCompleted();
+  });
   document.getElementById("queue-toggle").addEventListener("click", () => {
     const stopped = schedule.queueStopped === true || settings.queueStopped === true;
     setQueueStopped(!stopped).then(() => pollAndSync());

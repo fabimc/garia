@@ -4,7 +4,7 @@
 - Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from Finder
 - Close the window and downloads keep going; Quit (⌘Q) is what stops them
 - A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
-- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Open Download Folder
+- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Retry Failed, Clear Completed, Open Download Folder
 - A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,), View → Columns
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden

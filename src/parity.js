@@ -337,7 +337,22 @@ export function formatEmptyQueueState({
       };
     }
     if (filter === "torrents") {
-      return { title: "No torrents", sub: "Magnets and .torrent files show up here" };
+      return {
+        title: "No torrents",
+        sub: "Magnets and .torrent files show up here — File → Open Torrent, or drop one on the window",
+      };
+    }
+    if (filter === "error") {
+      return {
+        title: "No failed downloads",
+        sub: "When a row fails, Retry on the row or Download → Retry Failed brings it back",
+      };
+    }
+    if (filter === "complete") {
+      return {
+        title: "Nothing completed yet",
+        sub: "Finished downloads land here — Clear Completed clears the list without deleting files",
+      };
     }
     return {
       title: "Nothing matches this view",
@@ -387,11 +402,17 @@ export function formatCaptureFlowHint(source) {
   return "Paste a URL, drop a file, or capture from the browser extension.";
 }
 
-export function formatMediaQualityLabel({ height = 0, ext = "", formatId = "" } = {}) {
+export function formatMediaQualityLabel({ height = 0, ext = "", formatId = "", kind = "" } = {}) {
   const h = Number(height);
-  const res = h > 0 ? `${h}p` : "unknown resolution";
-  const kind = String(ext || formatId || "stream").trim() || "stream";
-  return `${res} · ${kind}`;
+  const res = h > 0 ? `${h}p` : "";
+  const container = String(ext || formatId || "").trim();
+  const kindLabel = kind === "merge" ? "merge"
+    : kind === "audio" ? "audio"
+      : kind === "fallback" ? "fallback"
+        : kind === "complete" ? "one file"
+          : "";
+  const bits = [res, container, kindLabel].filter(Boolean);
+  return bits.length ? bits.join(" · ") : "stream";
 }
 
 export function formatSpeedLimitScope({ perDownloadBytes = 0, modeBytes = 0, mode = "full" } = {}) {
@@ -879,10 +900,47 @@ export function formatWaitReason({
   return "";
 }
 
+// Embedded and page-level media hints, ordered so og/JSON-LD and on-page
+ // players come before ordinary navigation. Shared with the extension collector.
+export function collectEmbeddedMediaUrls({
+  media = [],
+  metaVideos = [],
+  downloadHrefs = [],
+  srcsetUrls = [],
+  streamUrls = [],
+} = {}) {
+  const seen = new Set();
+  const out = [];
+  const push = (value) => {
+    const url = String(value ?? "").trim();
+    if (!url || url.startsWith("blob:") || url.startsWith("data:")) return;
+    if (!(url.startsWith("magnet:") || /^https?:\/\//i.test(url) || /^ftps?:\/\//i.test(url))) {
+      return;
+    }
+    if (seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  for (const src of metaVideos) push(src);
+  for (const src of media) push(src);
+  for (const src of streamUrls) push(src);
+  for (const src of downloadHrefs) push(src);
+  for (const src of srcsetUrls) push(src);
+  return out;
+}
+
 // What a page can hand over. Embedded media is listed first so a long run of
 // navigation links does not bury the file that was actually on screen. The
 // page itself is left out, and blob: or data: URLs are not downloads.
-export function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } = {}) {
+export function captureTargetsFromPage({
+  pageUrl = "",
+  links = [],
+  media = [],
+  metaVideos = [],
+  downloadHrefs = [],
+  srcsetUrls = [],
+  streamUrls = [],
+} = {}) {
   const page = String(pageUrl || "").split("#")[0];
   const seen = new Set();
   const out = [];
@@ -895,7 +953,9 @@ export function captureTargetsFromPage({ pageUrl = "", links = [], media = [] } 
     seen.add(url);
     out.push(url);
   };
-  for (const src of media) push(src);
+  for (const src of collectEmbeddedMediaUrls({
+    media, metaVideos, downloadHrefs, srcsetUrls, streamUrls,
+  })) push(src);
   for (const href of links) push(href);
   return out;
 }
@@ -920,17 +980,30 @@ export function formatQueueScan(status, { stalled = false, slow = false, schedul
 
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
-// failure — Retry covers that.
-export function housekeepingActions({ failed = 0, failedSelected = 0, completed = 0 } = {}) {
+// failure — Retry covers that. Labels match Download menu / dock verbs when
+// menuAligned is set, so the status bar and the menu say the same thing.
+export function housekeepingActions({
+  failed = 0,
+  failedSelected = 0,
+  completed = 0,
+  menuAligned = false,
+} = {}) {
   const items = [];
   const failedN = Math.max(0, Number(failed) || 0);
   const selectedN = Math.max(0, Number(failedSelected) || 0);
   const doneN = Math.max(0, Number(completed) || 0);
   if (failedN > 1 || (failedN > 0 && selectedN < failedN)) {
-    items.push({ action: "retry-all", label: "Retry All Failed" });
+    items.push({
+      action: "retry-all",
+      label: menuAligned ? "Retry Failed" : "Retry All Failed",
+    });
   }
   if (doneN > 0) items.push({ action: "clear-completed", label: "Clear Completed" });
   return items;
+}
+
+export function desktopHousekeepingItems(counts = {}) {
+  return housekeepingActions({ ...counts, menuAligned: true });
 }
 
 export function formatRestartResumeNote(sizeLabel) {
@@ -976,16 +1049,44 @@ export function formatPlaylistRuleNote(ruleId) {
 }
 
 // What to do next, for a torrent whose status is not the whole story.
-// Seeding and the queue already have their own sentences.
-export function formatTorrentNextStep(dl) {
+// Seeding and the queue already have their own sentences. Optional health
+// fills the Weak / No peers cases Folx users expect beside the fact label.
+export function formatTorrentNextStep(dl, health = null) {
   if (!dl || !isTorrentDownload(dl)) return "";
   if (dl.status === "error") {
     return "Retry adds it again when a magnet or URL is still on the row.";
   }
+  const total = Number(dl.totalLength) || 0;
+  if (dl.status === "active" && total === 0 && !dl.seeder) {
+    return "Fetching metainfo — the file list appears once a peer answers.";
+  }
   if (dl.status === "active" && isStalled(dl)) {
     return "Leave it running, or pause and resume to ask the trackers again.";
   }
+  if (dl.status === "active" && isSlowDownload(dl)) {
+    return "Leave it running, or raise the traffic mode if a cap is holding it back.";
+  }
+  const label = health?.label || "";
+  if (dl.status === "active" && (label === "Weak" || label === "No peers")) {
+    return "Leave it running, or pause and resume to ask the trackers again.";
+  }
+  if (dl.status === "seeding") {
+    return "Stop Seeding on the row when you are done sharing.";
+  }
+  if (dl.status === "paused") {
+    return "Resume when you are ready — file priorities still apply.";
+  }
   return "";
+}
+
+export function formatTorrentHealthNote(dl, health) {
+  if (!dl || !isTorrentDownload(dl) || !health) return "";
+  const state = formatTorrentStateMessage(dl);
+  const next = formatTorrentNextStep(dl, health);
+  const head = health.label
+    ? `${health.label} — ${health.title}`
+    : health.title || "";
+  return [head, state, next].filter(Boolean).filter((text, i, all) => all.indexOf(text) === i).join(" ");
 }
 
 // aria2 does not say which tracker answered. A connected peer is still the
@@ -1630,4 +1731,135 @@ export function queueBulkExtras({
     items.push({ action: "retry", label: "Retry Failed in Selection" });
   }
   return items;
+}
+
+// ── Folx parity §7–§9: torrent depth, capture/quality, desktop discoverability ──
+
+export function torrentFileName(file) {
+  const path = String(file?.path || file?.name || "").trim();
+  if (!path) return "";
+  const parts = path.split(/[/\\]/);
+  return parts[parts.length - 1] || path;
+}
+
+export function torrentFileExt(file) {
+  const name = torrentFileName(file);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+// Filter a multi-file torrent list so large sets stay manageable. selectedOnly
+// uses the current checkbox draft when provided, otherwise aria2's selected.
+export function torrentFileFilter(files, {
+  query = "",
+  ext = "",
+  selectedOnly = false,
+  selectedIndices = null,
+} = {}) {
+  const needle = String(query || "").trim().toLowerCase();
+  const wantExt = String(ext || "").trim().toLowerCase().replace(/^\./, "");
+  const checked = selectedIndices instanceof Set
+    ? selectedIndices
+    : Array.isArray(selectedIndices)
+      ? new Set(selectedIndices.map(Number))
+      : null;
+  return (files || []).filter((file) => {
+    const index = Number(file?.index);
+    if (selectedOnly) {
+      if (checked) {
+        if (!checked.has(index)) return false;
+      } else if (isFalseSelection(file?.selected)) {
+        return false;
+      }
+    }
+    if (wantExt && torrentFileExt(file) !== wantExt) return false;
+    if (!needle) return true;
+    const path = String(file?.path || "").toLowerCase();
+    const name = torrentFileName(file).toLowerCase();
+    return name.includes(needle) || path.includes(needle);
+  });
+}
+
+export function normalizeBulkPriorityAction(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value.startsWith("all-") || value.startsWith("checked-")) return value;
+  if (FILE_PRIORITY_TIERS.includes(value)) return `all-${value}`;
+  return "";
+}
+
+// Full Folx-style bulk bar: every map key, gated on whether anything is checked.
+export function torrentBulkPriorityActions({
+  checkedCount = 0,
+  fileCount = 0,
+} = {}) {
+  const files = Math.max(0, Number(fileCount) || 0);
+  if (files < 2) return [];
+  const items = [
+    { action: "all-high", label: "All → High" },
+    { action: "all-normal", label: "All → Normal" },
+    { action: "all-low", label: "All → Low" },
+    { action: "all-off", label: "All → Off" },
+  ];
+  const checked = Math.max(0, Number(checkedCount) || 0);
+  if (checked > 0) {
+    items.push(
+      { action: "checked-high", label: "Checked → High" },
+      { action: "checked-normal", label: "Checked → Normal" },
+      { action: "checked-low", label: "Checked → Low" },
+      { action: "checked-off", label: "Checked → Off" },
+    );
+  }
+  return items;
+}
+
+export function qualityChoiceKind(choice) {
+  if (!choice) return "";
+  if (choice.kind) return String(choice.kind);
+  const label = String(choice.label || "").toLowerCase();
+  if (label === "audio" || choice.audioOnly) return "audio";
+  const formats = Array.isArray(choice.formats) ? choice.formats : [];
+  if (formats.length >= 2) return "merge";
+  if (choice.fallback) return "fallback";
+  if (formats.length === 1) return "complete";
+  const detail = String(choice.detail || "").toLowerCase();
+  if (detail.includes("merged") || detail.includes("video + audio")) return "merge";
+  if (detail.includes("sound only")) return "audio";
+  if (detail.includes("fallback")) return "fallback";
+  return "complete";
+}
+
+export function formatQualityChoiceDetail({
+  kind = "",
+  ext = "",
+  note = "",
+  bitrate = 0,
+} = {}) {
+  const bits = [];
+  const container = String(ext || "").trim();
+  if (container) bits.push(container.toUpperCase());
+  if (kind === "merge") bits.push("video + audio, merged");
+  else if (kind === "audio") bits.push("sound only");
+  else if (kind === "fallback") bits.push("fallback");
+  else bits.push("one file");
+  if (Number(bitrate) > 0) bits.push(`${Math.round(Number(bitrate))} kbps`);
+  if (note) bits.push(String(note));
+  return bits.filter(Boolean).join(" · ");
+}
+
+export function formatMediaRowExplain({
+  title = "",
+  ext = "",
+  kind = "",
+  height = 0,
+} = {}) {
+  const name = formatMediaOutputName({ title, ext });
+  const kindWord = kind === "merge" ? "merged"
+    : kind === "audio" ? "audio only"
+      : kind === "fallback" ? "fallback"
+        : kind === "complete" ? "one file"
+          : "";
+  const res = Number(height) > 0 ? `${Number(height)}p` : "";
+  return [name, res, kindWord].filter(Boolean).join(" · ");
 }
