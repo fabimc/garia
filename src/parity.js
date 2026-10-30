@@ -186,6 +186,19 @@ export function scheduleHoldNote({
   return "held";
 }
 
+// Longer copy for tooltips and the schedule chip: Folx users need to know a
+// hold still means something after Quit and Open again.
+export function schedulePersistHint({
+  hasStartAt = false,
+  queueStopped = false,
+  scheduleBlocked = false,
+} = {}) {
+  if (hasStartAt) return "This start time survives a relaunch.";
+  if (queueStopped) return "The queue stays stopped after a relaunch until you start it.";
+  if (scheduleBlocked) return "The daily window keeps holding downloads after a relaunch while it is shut.";
+  return "Schedule holds survive a relaunch.";
+}
+
 const FAILURE_LABELS = {
   checksum: "Checksum",
   network: "Network",
@@ -1280,6 +1293,338 @@ export function packageMenuExtras({
     items.push({ action: "save-package-template", label: "Save as Template" });
   } else if (n > 1) {
     items.push({ action: "new-package", label: "New Package from Selection" });
+  }
+  return items;
+}
+
+// ── Folx parity: organization + queue/scheduler (§5–§6) ──────────────────
+// Tags and saved destinations live beside packages: aria2 still owns the
+// download; the labels and folder presets are app-side so bulk organize and
+// the row menu can reuse one shape. Queue group meta keeps section headers,
+// sidebar filters, and scan chips on the same Active/Queued/Paused/Seeding
+// words Folx users scan for.
+
+export function normalizeTag(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+}
+
+export function parseTagList(text) {
+  const seen = new Set();
+  const out = [];
+  for (const part of String(text || "").split(/[,;\n]+/)) {
+    const tag = normalizeTag(part);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
+}
+
+export function tagSummary(tags) {
+  const list = (Array.isArray(tags) ? tags : [])
+    .map(normalizeTag)
+    .filter(Boolean);
+  if (!list.length) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]}, ${list[1]}`;
+  return `${list[0]} +${list.length - 1}`;
+}
+
+export function tagsOfGid(tagMap, gid) {
+  const key = String(gid || "");
+  if (!key || !tagMap || typeof tagMap !== "object") return [];
+  const raw = tagMap instanceof Map ? tagMap.get(key) : tagMap[key];
+  return parseTagList(Array.isArray(raw) ? raw.join(",") : raw);
+}
+
+// mode: "set" replaces, "add" unions, "remove" drops the named tags.
+export function setTagsOnMap(tagMap, gids, tags, mode = "set") {
+  const next = tagMap instanceof Map
+    ? new Map(tagMap)
+    : new Map(Object.entries(tagMap || {}));
+  const wanted = parseTagList(Array.isArray(tags) ? tags.join(",") : tags);
+  const drop = new Set(wanted.map((t) => t.toLowerCase()));
+  for (const gid of gids || []) {
+    const key = String(gid || "");
+    if (!key) continue;
+    const current = tagsOfGid(next, key);
+    let list;
+    if (mode === "add") {
+      const seen = new Set(current.map((t) => t.toLowerCase()));
+      list = current.slice();
+      for (const tag of wanted) {
+        const low = tag.toLowerCase();
+        if (seen.has(low)) continue;
+        seen.add(low);
+        list.push(tag);
+      }
+    } else if (mode === "remove") {
+      list = current.filter((t) => !drop.has(t.toLowerCase()));
+    } else {
+      list = wanted;
+    }
+    if (list.length) next.set(key, list);
+    else next.delete(key);
+  }
+  return next;
+}
+
+export function filterGidsByTag(tagMap, tag) {
+  const wanted = normalizeTag(tag).toLowerCase();
+  if (!wanted) return [];
+  const entries = tagMap instanceof Map
+    ? [...tagMap.entries()]
+    : Object.entries(tagMap || {});
+  return entries
+    .filter(([, tags]) => parseTagList(Array.isArray(tags) ? tags.join(",") : tags)
+      .some((t) => t.toLowerCase() === wanted))
+    .map(([gid]) => String(gid));
+}
+
+export function newDestinationId(now = Date.now()) {
+  const stamp = Number(now) || Date.now();
+  return `dest-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function normalizeDestination(raw = {}) {
+  const path = String(raw.path || raw.dir || "").trim().replace(/\/+$/, "");
+  const name = String(raw.name || "").trim() || (path ? path.split("/").pop() : "") || "Folder";
+  if (!path && !raw.id) {
+    return { id: "", name: "", path: "" };
+  }
+  return {
+    id: String(raw.id || newDestinationId()),
+    name: name.slice(0, 60),
+    path,
+  };
+}
+
+export function destinationSummary(dest) {
+  const row = normalizeDestination(dest);
+  if (!row.path) return row.name || "";
+  if (!row.name || row.name === row.path.split("/").pop()) return row.path;
+  return `${row.name} — ${row.path}`;
+}
+
+// Absolute paths win. Relative ones hang under the download folder so a
+// saved "Video" pattern and a category folder read the same way.
+export function applyDestinationChoice(baseDir, pattern) {
+  const base = String(baseDir || "").replace(/\/+$/, "");
+  const dest = typeof pattern === "string"
+    ? normalizeDestination({ path: pattern })
+    : normalizeDestination(pattern);
+  const folder = dest.path;
+  if (!folder) return base;
+  if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
+  return base ? `${base}/${folder}` : folder;
+}
+
+export function containingFolderOf({ dir = "", path = "" } = {}) {
+  const file = String(path || "").trim();
+  if (file) {
+    const i = file.lastIndexOf("/");
+    if (i > 0) return file.slice(0, i);
+    if (i === 0) return "/";
+  }
+  return String(dir || "").replace(/\/+$/, "");
+}
+
+// Menu verbs for Folx-style organize. Categories and destinations are gated
+// by whether the caller has any to offer; tags are always available once a
+// row is selected so a first tag can be typed without a Settings trip.
+export function organizeMenuExtras({
+  hasCategories = false,
+  hasDestinations = false,
+  canOpenContaining = false,
+  selected = 0,
+  hasTagsOnSelection = false,
+} = {}) {
+  const items = [];
+  const n = Math.max(0, Number(selected) || 0);
+  if (n < 1) return items;
+  if (canOpenContaining) {
+    items.push({ action: "open-containing", label: "Open Containing Folder" });
+  }
+  if (hasCategories) {
+    items.push({ action: "set-category", label: "Set Category…" });
+    items.push({ action: "clear-category", label: "Use Download Folder" });
+  }
+  if (hasDestinations) {
+    items.push({ action: "set-destination", label: "Move to Saved Folder…" });
+  }
+  items.push({ action: "add-tag", label: n > 1 ? "Add Tag to Selection…" : "Add Tag…" });
+  if (hasTagsOnSelection) {
+    items.push({ action: "remove-tag", label: "Remove Tag…" });
+    items.push({ action: "clear-tags", label: "Clear Tags" });
+  }
+  return items;
+}
+
+// One dictionary for section headers, sidebar titles, and scan chips so
+// Active stays Active everywhere — Folx users scan those four words first.
+export function queueGroupMeta(status) {
+  const key = String(status || "");
+  const groups = {
+    active: {
+      key: "active",
+      sectionLabel: "Active",
+      sidebarFilter: "active",
+      sidebarTitle: "Active",
+      scanKey: "active",
+    },
+    merging: {
+      key: "merging",
+      sectionLabel: "Merging",
+      sidebarFilter: "active",
+      sidebarTitle: "Active",
+      scanKey: "merging",
+    },
+    seeding: {
+      key: "seeding",
+      sectionLabel: "Seeding",
+      sidebarFilter: "seeding",
+      sidebarTitle: "Seeding",
+      scanKey: "seeding",
+    },
+    waiting: {
+      key: "waiting",
+      sectionLabel: "Queued",
+      sidebarFilter: "waiting",
+      sidebarTitle: "Queued",
+      scanKey: "queued",
+    },
+    paused: {
+      key: "paused",
+      sectionLabel: "Paused",
+      sidebarFilter: "paused",
+      sidebarTitle: "Paused",
+      scanKey: "paused",
+    },
+    error: {
+      key: "error",
+      sectionLabel: "Failed",
+      sidebarFilter: "error",
+      sidebarTitle: "Failed",
+      scanKey: "failed",
+    },
+    complete: {
+      key: "complete",
+      sectionLabel: "Completed",
+      sidebarFilter: "complete",
+      sidebarTitle: "Completed",
+      scanKey: "done",
+    },
+    removed: {
+      key: "removed",
+      sectionLabel: "Removed",
+      sidebarFilter: "all",
+      sidebarTitle: "All Downloads",
+      scanKey: "removed",
+    },
+  };
+  return groups[key] || {
+    key,
+    sectionLabel: key || "Downloads",
+    sidebarFilter: key || "all",
+    sidebarTitle: key || "Downloads",
+    scanKey: key,
+  };
+}
+
+export function scheduledQueueRows(downloads, { heldGids, starts } = {}) {
+  const held = heldGids instanceof Set
+    ? heldGids
+    : new Set((heldGids || []).map(String));
+  const startMap = starts && typeof starts === "object" ? starts : {};
+  const rows = [];
+  for (const dl of downloads || []) {
+    const gid = String(dl?.gid || "");
+    if (!gid) continue;
+    const at = Number(startMap[gid]) || 0;
+    const isHeld = held.has(gid) || at > 0;
+    if (!isHeld) continue;
+    rows.push({
+      gid,
+      name: String(dl.name || dl.bittorrent?.info?.name || "").trim(),
+      status: String(dl.status || ""),
+      startAt: at,
+      reason: at > 0 ? "start-at" : "held",
+    });
+  }
+  return rows.sort((a, b) => {
+    if (a.startAt && b.startAt) return a.startAt - b.startAt;
+    if (a.startAt) return -1;
+    if (b.startAt) return 1;
+    return a.gid.localeCompare(b.gid);
+  });
+}
+
+export function scheduleReviewSummary(rows, {
+  windowEnabled = false,
+  windowOpen = false,
+  windowLabel = "",
+  queueStopped = false,
+} = {}) {
+  const list = rows || [];
+  const n = list.length;
+  const bits = [];
+  if (queueStopped) bits.push("Queue stopped");
+  if (windowEnabled) {
+    bits.push(windowOpen
+      ? (windowLabel ? `Window open until ${windowLabel}` : "Window open")
+      : (windowLabel ? `Window shut until ${windowLabel}` : "Window shut"));
+  }
+  if (n === 0) {
+    return {
+      count: 0,
+      label: bits.length ? bits.join(" · ") : "Nothing scheduled",
+      title: bits.length
+        ? `${bits.join(". ")}. Held start times survive a relaunch.`
+        : "No downloads are held for a start time or the schedule window.",
+    };
+  }
+  const noun = n === 1 ? "1 held" : `${n} held`;
+  const label = bits.length ? `${noun} · ${bits.join(" · ")}` : noun;
+  return {
+    count: n,
+    label,
+    title: `${noun} download${n === 1 ? "" : "s"}. Start times and the queue stop survive a relaunch.`,
+  };
+}
+
+// Extra multi-select verbs when the selection mixes states Folx users tidy
+// together — pause/resume discovery beyond the primary Pause/Resume items.
+export function queueBulkExtras({
+  selected = 0,
+  active = 0,
+  waiting = 0,
+  paused = 0,
+  seeding = 0,
+  completed = 0,
+  failed = 0,
+} = {}) {
+  const items = [];
+  const n = Math.max(0, Number(selected) || 0);
+  if (n < 2) return items;
+  const moving = (Number(active) || 0) + (Number(waiting) || 0);
+  const held = Number(paused) || 0;
+  if (moving > 0 && held > 0) {
+    items.push({ action: "stop", label: "Pause Active in Selection" });
+    items.push({ action: "resume", label: "Resume Paused in Selection" });
+  }
+  if ((Number(seeding) || 0) > 0 && n > (Number(seeding) || 0)) {
+    items.push({ action: "unseed", label: "Stop Seeding in Selection" });
+  }
+  if ((Number(completed) || 0) > 0 && (Number(completed) || 0) < n) {
+    items.push({ action: "clear-selected-completed", label: "Clear Completed in Selection" });
+  }
+  if ((Number(failed) || 0) > 0 && (Number(failed) || 0) < n) {
+    items.push({ action: "retry", label: "Retry Failed in Selection" });
   }
   return items;
 }

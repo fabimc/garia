@@ -4,6 +4,7 @@ const LOGINS_KEY = "garia:logins";
 const SITE_RULES_KEY = "garia:site-rules";
 const GRAB_JOBS_KEY = "garia:grab-jobs";
 const TEMPLATES_KEY = "garia:templates";
+const DESTINATIONS_KEY = "garia:destinations";
 const MODES = ["full", "medium", "light"];
 
 function newId(prefix = "id") {
@@ -222,6 +223,55 @@ function siteOf(input) {
     host = s.split(":")[0];
   }
   return host.trim().replace(/\.+$/, "").toLowerCase();
+}
+
+function loadDestinations() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DESTINATIONS_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((row) => ({
+        id: String(row?.id || newId("dest")),
+        name: String(row?.name || "").trim() || "Folder",
+        path: String(row?.path || row?.dir || "").trim().replace(/\/+$/, ""),
+      }))
+      .filter((row) => row.path);
+  } catch {
+    return [];
+  }
+}
+
+let destinations = loadDestinations();
+
+function saveDestinationsList() {
+  try {
+    localStorage.setItem(DESTINATIONS_KEY, JSON.stringify(destinations));
+  } catch { /* private mode */ }
+}
+
+function renderDestinations() {
+  const listEl = document.getElementById("settings-destinations");
+  if (!listEl) return;
+  listEl.textContent = "";
+  if (!destinations.length) {
+    const li = document.createElement("li");
+    li.className = "login-empty";
+    li.textContent = "No saved folders yet.";
+    listEl.append(li);
+    return;
+  }
+  for (const dest of destinations) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "login-row";
+    btn.dataset.destinationId = dest.id;
+    btn.innerHTML = '<span class="login-host"></span><span class="login-what"></span>';
+    btn.querySelector(".login-host").textContent = dest.name;
+    btn.querySelector(".login-what").textContent = dest.path;
+    li.append(btn);
+    listEl.append(li);
+  }
 }
 
 function renderCategories() {
@@ -454,6 +504,8 @@ function fillForm() {
   settingsNotify.checked = settings.notifyOnComplete !== false;
   settingsSmart.checked = settings.smartFolders === true;
   renderCategories();
+  destinations = loadDestinations();
+  renderDestinations();
   settingsCatch.checked = settings.catchClipboard !== false;
   if (settingsCatchPage) settingsCatchPage.checked = settings.catchPageClipboard === true;
   settingsConfirmCapture.checked = settings.confirmCapture !== false;
@@ -969,6 +1021,46 @@ document.getElementById("category-save").addEventListener("click", saveCategory)
 document.getElementById("category-cancel").addEventListener("click", closeCategory);
 document.getElementById("category-close").addEventListener("click", closeCategory);
 categoryDelete.addEventListener("click", removeCategory);
+
+document.getElementById("settings-destination-add")?.addEventListener("click", async () => {
+  const name = window.prompt("Name for this saved folder", "Downloads");
+  if (name == null || !name.trim()) return;
+  const pick = pickFolder();
+  if (typeof pick !== "function") return;
+  try {
+    const chosen = await pick({
+      directory: true,
+      multiple: false,
+      title: "Choose a folder to save",
+      defaultPath: settings.downloadDir || undefined,
+    });
+    if (typeof chosen !== "string" || !chosen) return;
+    const path = chosen.replace(/\/+$/, "");
+    const entry = {
+      id: newId("dest"),
+      name: name.trim().slice(0, 60),
+      path,
+    };
+    destinations = [entry, ...destinations.filter((row) => row.path !== path)];
+    saveDestinationsList();
+    renderDestinations();
+  } catch (err) {
+    console.error(err);
+    showError(`Couldn't open the folder picker: ${err?.message || err}`);
+  }
+});
+
+document.getElementById("settings-destinations")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-destination-id]");
+  if (!btn) return;
+  const id = btn.dataset.destinationId;
+  const dest = destinations.find((row) => row.id === id);
+  if (!dest) return;
+  if (!window.confirm(`Remove saved folder “${dest.name}”?`)) return;
+  destinations = destinations.filter((row) => row.id !== id);
+  saveDestinationsList();
+  renderDestinations();
+});
 categoryOverlay.addEventListener("click", (e) => {
   if (e.target === categoryOverlay) closeCategory();
 });
