@@ -45,6 +45,7 @@ Want to learn more?
  * [Checksum verification](Checksums.md)
  * [Remote control](Remote-Control.md)
  * [uTorrent parity review](uTorrent-Parity.md)
+ * [uGet parity review](uGet-Parity.md)
  * [JDownloader parity review](JDownloader-Parity.md)
  * [Motrix parity review](Motrix-Parity.md)
  * [Folx parity review](Folx-Parity.md)
