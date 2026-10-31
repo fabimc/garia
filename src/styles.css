@@ -849,9 +849,25 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--danger);
 }
 .dl-scan[data-scan="slow"],
-.dl-scan[data-scan="scheduled"] {
+.dl-scan[data-scan="scheduled"],
+.dl-scan[data-scan="held"],
+.dl-scan[data-scan="stopped"] {
     background: var(--warning-soft);
     color: var(--warning);
+}
+
+.dl-scan[data-scan="paused"] {
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+    color: var(--muted);
+}
+
+.sequence-row,
+.mirrors-row {
+    margin-top: 0.5rem;
+}
+
+.sequence-row .btn-secondary {
+    margin-top: 0.35rem;
 }
 
 .dl-package {

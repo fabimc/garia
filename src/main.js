@@ -61,6 +61,9 @@ import {
   newPackageId,
   formatSetupCategoryHint,
   setupCategoriesPatch,
+  formatSpeedLimitScope,
+  filterClipboardUrls,
+  quietCaptureSkipsConfirm,
   FILE_PRIORITY_TIERS,
   parseTagList,
   tagSummary,
@@ -217,6 +220,8 @@ let settings = {
   catchClipboard: true,
   catchPageClipboard: false,
   confirmCapture: true,
+  quietMode: false,
+  clipboardExtensions: "",
   inOrder: false,
   cookieFile: "",
   proxyEnabled: false,
@@ -2088,10 +2093,19 @@ function updateItemEl(li, dl) {
   else if (showBar) statusText = `${pct}%`;
   else statusText = statusLabel(dl.status);
 
+  const queueIsStopped = schedule.queueStopped === true || settings.queueStopped === true;
+  const startHeld = Boolean(startAt(dl.gid));
+  const scheduleWindowHeld = Boolean(held)
+    && !startHeld
+    && !queueIsStopped
+    && schedule.enabled === true
+    && schedule.open === false;
   const scan = formatQueueScan(dl.status, {
     stalled: isStalled(dl),
     slow: isSlowDownload(dl),
-    scheduled: Boolean(held),
+    scheduled: startHeld,
+    queueStopped: queueIsStopped && (Boolean(held) || dl.status === "waiting" || dl.status === "paused"),
+    scheduleHeld: scheduleWindowHeld,
   });
   const scanEl = li.querySelector(".dl-scan");
   scanEl.classList.toggle("hidden", !scan.label);
@@ -3529,10 +3543,18 @@ function updateLimitBlock(sec, data) {
     if (!mode) said.push("That is a cap for this download alone — neither traffic mode stands for it.");
     // The cap is an aria2 option on a download, and a merged row is two of them.
     if (data.parts.length > 1) said.push("Each half of the merge carries it, so the pair can take twice that.");
-  } else if (currentMode() === "full") {
-    said.push("Takes what the line gives it.");
   } else {
-    said.push(`Takes what the line gives it, under the overall ${MODE_LABELS[currentMode()]} cap.`);
+    // Shared wording with row tooltips / recovery copy.
+    said.push(formatSpeedLimitScope({
+      perDownloadBytes: 0,
+      modeBytes: modeLimit(currentMode()),
+      mode: currentMode(),
+    }));
+    if (currentMode() === "full") {
+      said.push("Takes what the line gives it.");
+    } else {
+      said.push(`Under the overall ${MODE_LABELS[currentMode()]} cap.`);
+    }
   }
   said.push("The number is for this download, not each socket, and aria2 keeps it in the session.");
   sec.querySelector(".detail-note").textContent = said.join(" ");
@@ -6987,9 +7009,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function handleCatch(event = {}) {
-    const incoming = catchUrls(event);
+    let incoming = catchUrls(event);
     const { source, name, referrer } = event;
     if (!incoming.length) return;
+    // Clipboard monitor can be narrowed to the extensions the user cares
+    // about — magnets still pass, pages use their own switch.
+    if (source === "clipboard" && settings.clipboardExtensions) {
+      const pages = incoming.filter((u) => looksLikeAPage(u));
+      const files = filterClipboardUrls(
+        incoming.filter((u) => !looksLikeAPage(u)),
+        settings.clipboardExtensions,
+      );
+      incoming = [...files, ...pages];
+      if (!incoming.length) return;
+    }
     const key = `${source}:${incoming.join("\n")}`;
     if (recentlyCaught.has(key)) return;
     recentlyCaught.add(key);
@@ -7015,7 +7048,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (source === "extension") {
       const file = !url.startsWith("magnet:") && !looksLikeAPage(url);
-      if (file && settings.confirmCapture !== false) {
+      if (file && !quietCaptureSkipsConfirm(settings.quietMode, settings.confirmCapture)) {
         openCapture({ url, name, referrer });
         return;
       }
@@ -7024,6 +7057,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (settings.catchClipboard === false) return;
     if (source === "clipboard" && looksLikeAPage(url) && settings.catchPageClipboard !== true) return;
+    // Quiet mode skips the offer banner the way uGet quiet mode skips the
+    // properties dialog — a copied file link goes straight in.
+    if (source === "clipboard" && settings.quietMode === true && !looksLikeAPage(url)) {
+      ingestUrl(url, extras);
+      return;
+    }
     offeredUrl = url;
     const folder = targetDir(url);
     const page = looksLikeAPage(url);

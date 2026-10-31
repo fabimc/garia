@@ -18,73 +18,86 @@ Garia already covers a large share of the core download-manager experience that 
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
 - Notification, status, and tray/dock integrations
 
-That means Garia already matches the everyday "do my downloads, organize them, and keep them running" experience that uGet is known for. The remaining work below is the batch, queue, and browser-capture depth that makes a uGet-style client feel faster and more complete on large or repetitive download tasks.
+That means Garia already matches the everyday "do my downloads, organize them, and keep them running" experience that uGet is known for. The remaining work below was the batch, queue, and browser-capture depth that makes a uGet-style client feel faster and more complete on large or repetitive download tasks.
 
-## Parity work still to achieve
+## Parity work now in the app
+
+The bullets are the spec that shipped. Gaps that stay out of scope for Garia’s smaller product shape are listed at the end. Batch review, packages, wait reasons, and media packaging already landed with the JDownloader / Motrix work; this pass closes the uGet-shaped leftovers on top of that shared pipeline.
 
 ### 1. Link-grabbing and browser intake
 
-Priority: high
+Priority: high — shipped
 
-- Make browser-originated downloads feel as native and low-friction as uGet's clipboard / drag / page-capture flow.
-- Improve the capture review for multiple links so batch intake feels more deliberate and less ad hoc.
-- Keep capture and add flows consistent between the browser extension, system events, and the app itself.
-- Provide clearer user feedback around duplicate links, site rules, and when a page yields several possible downloads.
+- Browser-originated downloads share one intake path across the extension, clipboard, system open, and Add Download.
+- A paste or extension dump of several links is reviewed first, with content kind, host, MIME, and “already in the list” feedback.
+- Clipboard monitoring can be narrowed to named file extensions (Settings → Browser), the way uGet’s clipboard monitor filters by type. Magnets still pass.
+- Quiet mode skips the confirm sheet for browser captures and adds copied file links without the offer banner.
 
 ### 2. Batch workflow and package organization
 
-Priority: high
+Priority: high — shipped
 
-- Add stronger package- and batch-level grouping so large download sets are easier to reason about.
-- Surface more clear "active / queued / completed / failed" grouping for bulk downloads.
-- Improve row actions for multi-item selection: retry failed, clear completed, move between groups, and remove while preserving files.
-- Keep package rules and queue behavior consistent across relaunches without surprising the user.
+- Named packages keep a related grab together for pause / retry / clear, with sidebar filters and status section headers.
+- Multi-select row actions cover retry failed, clear completed, move between packages, and remove while keeping files.
+- Packages and queue order survive a relaunch.
+- uGet-style URL sequences (`file[01-10].zip`) expand into the same batch review. OK expands an unexpanded sequence automatically (200 URL cap).
 
 ### 3. Queue depth and workflow polish
 
-Priority: high
+Priority: high — shipped
 
-- Extend queue organization beyond simple reorder and stop/resume with more explicit move-to-top / move-to-end semantics.
-- Add stronger download-housekeeping controls for repeated tasks, retry loops, and lists of completed rows.
-- Improve the difference between a user-held pause, a queue stop, and a schedule hold in the UI.
-- Keep the scheduler and stop/start rules legible in both the list and the detail panel.
+- Move to top / move to end, Retry All Failed, and Clear Completed stay on the Download menu, dock, and tray.
+- Scan chips distinguish a user **Paused** row from **Stopped** (queue), **Held** (daily window), and **Scheduled** (start time).
+- The header status line and detail panel keep saying why the queue or schedule is holding work.
 
 ### 4. Download control and failure clarity
 
-Priority: medium
+Priority: medium — shipped
 
-- Improve the visibility of rate limiting, per-download caps, and why a download is waiting.
-- Give users clearer guidance when a download fails because of a login problem, a checksum mismatch, or a transient network issue.
-- Add more discoverable recovery actions for retries, stuck items, and resumed sessions.
-- Keep the same diagnostic language across row actions, detail panels, and settings.
+- Per-download speed caps and traffic modes share one detail-panel sentence via the same scope helper used in tests.
+- Failed rows name Login, Checksum, Network, Disk, Server, or Media merge, with a recovery next step on the tooltip and detail panel.
+- Retry and Retry All Failed stay discoverable on the row, menu, dock, and tray.
 
 ### 5. Media and browser-native convenience
 
-Priority: medium
+Priority: medium — shipped (Garia-shaped)
 
-- Keep browser-capture, media downloads, and general file downloads in one consistent pipeline.
-- Strengthen the quality-selection workflow for video/audio where the backend requires the same site rules and cookie jar.
-- Improve the user messaging around ffmpeg merge, media failures, and incomplete media downloads.
-- Treat media-specific features as high-value extensions of the main download pipeline, not as a separate product.
+- Browser capture, media downloads, and ordinary files stay on one add pipeline; playlists become packages.
+- Site rules can set a default video quality; the cookie jar is shared with yt-dlp probes.
+- ffmpeg merge messaging and incomplete-media notes stay on the quality picker.
 
 ### 6. Platform polish and discoverability
 
-Priority: medium
+Priority: medium — shipped (Garia-shaped)
 
-- Align the macOS and Linux menu and tray flows with the same core verbs where behavior is equivalent.
-- Keep queue, status, and row actions consistent across app surfaces so users do not need to learn two different workflows.
-- Make the app feel native and self-explanatory for power users without adding a second heavy configuration system.
+- macOS and Linux menus, tray, and dock share the same core verbs where behavior is equivalent: New Download, Pause / Resume All, Stop / Start Queue, Retry Failed, Clear Completed, Open Download Folder.
+- Queue status and row actions stay consistent across those surfaces.
+
+### 7. Multi-source mirrors
+
+Priority: medium — shipped
+
+- The Add Download sheet accepts optional mirror URLs for a single file. aria2 pulls from every URI at once, the same idea as uGet’s multiple mirrors.
+
+## Out of scope for Garia
+
+These remain explicitly outside the product shape rather than unfinished checklist items:
+
+- Per-category active-download limits as a second concurrency system (Garia keeps one app-wide concurrency + packages)
+- FlashGot / browser-native download takeover beyond the existing extension (especially Safari’s limits)
+- A separate plugin marketplace or Metalink authoring UI
+- Quiet mode that auto-assigns a fixed category without the existing smart-folder rules
 
 ## Recommended implementation order
 
-1. Improve browser capture and batch intake so large link sets feel as natural as the core single-download flow.
-2. Add richer queue controls and list-housekeeping actions for repeated multi-download workloads.
-3. Strengthen pause, retry, failure, and schedule messaging so users know why a row is waiting or failing.
-4. Bring media and browser-capture quality flows into the same shared model as normal file downloads.
-5. Finish the platform polish and discoverability pass so the app reads like a complete uGet-style desktop client.
+1. Improve browser capture and batch intake so large link sets feel as natural as the core single-download flow. — done
+2. Add richer queue controls and list-housekeeping actions for repeated multi-download workloads. — done
+3. Strengthen pause, retry, failure, and schedule messaging so users know why a row is waiting or failing. — done
+4. Bring media and browser-capture quality flows into the same shared model as normal file downloads. — done
+5. Finish the platform polish and discoverability pass so the app reads like a complete uGet-style desktop client. — done
 
 ## Outcome
 
-When this roadmap is implemented, Garia should feel substantially closer to uGet for the kinds of tasks users actually care about: batch browser intake, large queued download sets, clearer scheduler and failure states, and a more polished desktop workflow around the same aria2 engine. The remaining work is an incremental product gap, not a full rewrite.
+Garia matches the uGet workflows that fit a smaller aria2-based desktop client: batch browser intake, URL sequences, clipboard extension filters, quiet capture, packages and queue housekeeping, clearer pause / stop / schedule chips, failure recovery language, multi-source mirrors, and shared menu/tray verbs. What uGet does through category-level concurrency plugins and FlashGot-era browser hooks stays intentionally out of scope, listed above.
 
-This document should be revisited as the queue, browser capture, and media workflows mature.
+This document should be revisited only when product scope changes — not as an open feature backlog.

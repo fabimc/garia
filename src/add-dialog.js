@@ -2,6 +2,7 @@ import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, openOverlay } from "./overlays.js";
 import {
   applyIntakePick,
+  expandUrlSequence,
   formatIntakeMeta,
   formatMediaOutputName,
   formatMediaRowExplain,
@@ -9,9 +10,12 @@ import {
   intakeReviewHint,
   newPackageId,
   packageDisplayName,
+  parseMirrorUrls,
+  parseUrlSequence,
   qualityChoiceKind,
   rememberedQualityRule,
   reviewIntake,
+  urlSequenceHint,
 } from "./parity.js";
 
 export function initAddDialog(api) {
@@ -94,6 +98,11 @@ export function initAddDialog(api) {
   const batchCount      = document.getElementById("batch-count");
   const batchHint       = document.getElementById("batch-hint");
   const batchPackageName = document.getElementById("batch-package-name");
+  const sequenceRow = document.getElementById("sequence-row");
+  const sequenceHint = document.getElementById("sequence-hint");
+  const sequenceExpand = document.getElementById("sequence-expand");
+  const mirrorsRow = document.getElementById("mirrors-row");
+  const mirrorsInput = document.getElementById("modal-mirrors");
   let batchReferrer = "";
   let batchPackageEdited = false;
 
@@ -362,6 +371,29 @@ export function initAddDialog(api) {
     paintBatchCounts();
   }
 
+  function renderSequence() {
+    if (!sequenceRow) return;
+    const text = modalUrlInput.value.trim();
+    const urls = parseDownloadUrls(text);
+    // A sequence marker lives inside one URL line — expand it into the
+    // same batch review a multi-paste uses.
+    const info = urls.length <= 1 ? parseUrlSequence(text) : null;
+    const show = modalMode === "url" && Boolean(info);
+    sequenceRow.classList.toggle("hidden", !show);
+    if (!show) return;
+    if (sequenceHint) sequenceHint.textContent = urlSequenceHint(text);
+    if (sequenceExpand) {
+      sequenceExpand.disabled = !info || info.count < 2 || info.count > 200;
+    }
+  }
+
+  function renderMirrors() {
+    if (!mirrorsRow) return;
+    const url = plainFileUrl();
+    const show = Boolean(url) && modalMode === "url";
+    mirrorsRow.classList.toggle("hidden", !show);
+  }
+
   function renderChecksum() {
     const urls = parseDownloadUrls(modalUrlInput.value);
     const forFile = urls.length === 1 && takesChecksum(urls[0]);
@@ -378,6 +410,8 @@ export function initAddDialog(api) {
     if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
     renderBatch();
     renderDir();
+    renderSequence();
+    renderMirrors();
   }
 
   // The URL the Save to field is for: the one submitUrl would hand straight
@@ -412,6 +446,7 @@ export function initAddDialog(api) {
     if (batchPackageName) batchPackageName.value = extras.packageName || "";
     modalUrlInput.value = Array.isArray(url) ? url.join("\n") : url;
     modalChecksum.value = "";
+    if (mirrorsInput) mirrorsInput.value = "";
     modalDir.value      = "";
     dirEdited           = false;
     torrentInput.value  = "";
@@ -440,6 +475,14 @@ export function initAddDialog(api) {
   document.getElementById("batch-video").addEventListener("click", () => pickBatch("video"));
   document.getElementById("batch-archive").addEventListener("click", () => pickBatch("archive"));
   document.getElementById("batch-none").addEventListener("click", () => pickBatch("none"));
+  sequenceExpand?.addEventListener("click", () => {
+    const expanded = expandUrlSequence(modalUrlInput.value.trim());
+    if (expanded.length < 2) return;
+    modalUrlInput.value = expanded.join("\n");
+    lastBatchKey = "";
+    renderChecksum();
+    modalUrlInput.focus();
+  });
   batchPackageName?.addEventListener("input", () => {
     batchPackageEdited = batchPackageName.value.trim() !== "";
   });
@@ -521,7 +564,9 @@ export function initAddDialog(api) {
     }
     try {
       const at = modalStartAt();
-      const gid = await rpc("aria2.addUri", [[url], {
+      const mirrors = parseMirrorUrls(mirrorsInput?.value || "", url);
+      const uris = [url, ...mirrors];
+      const gid = await rpc("aria2.addUri", [uris, {
         ...options,
         ...checksumOption(parsed),
         ...(holdOnAdd(at) ? { pause: "true" } : {}),
@@ -582,6 +627,23 @@ export function initAddDialog(api) {
   }
 
   async function submitUrl() {
+    const raw = modalUrlInput.value.trim();
+    // A still-unexpanded sequence is treated as a batch once the user hits OK,
+    // so they do not have to press Expand first.
+    if (parseUrlSequence(raw) && parseDownloadUrls(raw).length <= 1) {
+      const expanded = expandUrlSequence(raw);
+      if (expanded.length > 1) {
+        modalUrlInput.value = expanded.join("\n");
+        lastBatchKey = "";
+        renderChecksum();
+        await addBatch(expanded);
+        return;
+      }
+      if (parseUrlSequence(raw)?.count > 200) {
+        showModalError("That sequence is too large — use at most 200 URLs");
+        return;
+      }
+    }
     const urls = parseDownloadUrls(modalUrlInput.value);
     if (urls.length > 1) {
       await addBatch(urls);

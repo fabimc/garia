@@ -102,6 +102,15 @@ import {
   formatMediaRowExplain,
   collectEmbeddedMediaUrls,
   desktopHousekeepingItems,
+  parseUrlSequence,
+  expandUrlSequence,
+  urlSequenceHint,
+  parseClipboardExtensions,
+  clipboardExtensionAllowed,
+  filterClipboardUrls,
+  parseMirrorUrls,
+  quietCaptureSkipsConfirm,
+  formatSpeedLimitScope,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -544,6 +553,82 @@ test("queue scan words stay stable across progress", () => {
   assert.equal(formatQueueScan("active", { stalled: true }).label, "Stalled");
   assert.equal(formatQueueScan("active", { slow: true }).label, "Slow");
   assert.equal(formatQueueScan("active", { scheduled: true }).label, "Scheduled");
+  assert.equal(formatQueueScan("paused", { queueStopped: true }).label, "Stopped");
+  assert.equal(formatQueueScan("waiting", { queueStopped: true }).label, "Stopped");
+  assert.equal(formatQueueScan("paused", { scheduleHeld: true }).label, "Held");
+  assert.equal(formatQueueScan("paused").label, "Paused");
+  // A start time wins over Stop Queue so the chip still says when it runs.
+  assert.equal(
+    formatQueueScan("paused", { scheduled: true, queueStopped: true }).label,
+    "Scheduled",
+  );
+});
+
+test("uGet-style URL sequences expand with padding", () => {
+  assert.equal(parseUrlSequence("https://cdn.example/a.zip"), null);
+  assert.deepEqual(
+    expandUrlSequence("https://cdn.example/file[01-03].zip"),
+    [
+      "https://cdn.example/file01.zip",
+      "https://cdn.example/file02.zip",
+      "https://cdn.example/file03.zip",
+    ],
+  );
+  assert.deepEqual(
+    expandUrlSequence("https://cdn.example/v[1:3].mp4"),
+    [
+      "https://cdn.example/v1.mp4",
+      "https://cdn.example/v2.mp4",
+      "https://cdn.example/v3.mp4",
+    ],
+  );
+  assert.deepEqual(
+    expandUrlSequence("https://cdn.example/r[3-1].bin"),
+    [
+      "https://cdn.example/r3.bin",
+      "https://cdn.example/r2.bin",
+      "https://cdn.example/r1.bin",
+    ],
+  );
+  assert.equal(expandUrlSequence("https://cdn.example/x[01-250].zip").length, 0);
+  assert.match(urlSequenceHint("https://cdn.example/file[01-03].zip"), /3 URLs/);
+});
+
+test("clipboard extension filters keep magnets and listed kinds", () => {
+  assert.deepEqual(parseClipboardExtensions(" .ZIP, mp4;iso iso "), ["zip", "mp4", "iso"]);
+  assert.equal(clipboardExtensionAllowed("https://a.test/a.zip", ["zip"]), true);
+  assert.equal(clipboardExtensionAllowed("https://a.test/a.mp4", ["zip"]), false);
+  assert.equal(clipboardExtensionAllowed("magnet:?xt=urn:btih:abc", ["zip"]), true);
+  assert.equal(clipboardExtensionAllowed("https://a.test/a.zip", []), true);
+  assert.deepEqual(
+    filterClipboardUrls(
+      ["https://a.test/a.zip", "https://a.test/b.mp4", "magnet:?xt=urn:btih:x"],
+      ["zip"],
+    ),
+    ["https://a.test/a.zip", "magnet:?xt=urn:btih:x"],
+  );
+});
+
+test("mirror URLs skip the primary and non-http lines", () => {
+  assert.deepEqual(
+    parseMirrorUrls(
+      "https://a.test/a.zip\nhttps://mirror.test/a.zip\nnot-a-url",
+      "https://a.test/a.zip",
+    ),
+    ["https://mirror.test/a.zip"],
+  );
+});
+
+test("quiet mode skips the browser confirm sheet", () => {
+  assert.equal(quietCaptureSkipsConfirm(true, true), true);
+  assert.equal(quietCaptureSkipsConfirm(false, false), true);
+  assert.equal(quietCaptureSkipsConfirm(false, true), false);
+});
+
+test("speed-limit scope sentences stay distinct for row and mode caps", () => {
+  assert.match(formatSpeedLimitScope({ perDownloadBytes: 1024 }), /own cap/i);
+  assert.match(formatSpeedLimitScope({ modeBytes: 2048, mode: "light" }), /Traffic mode/);
+  assert.match(formatSpeedLimitScope({}), /No per-download cap/);
 });
 
 test("housekeeping offers retry-all and clear-completed only when they do something", () => {

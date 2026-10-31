@@ -502,6 +502,38 @@
                     </div>
 
                     <div class="field">
+                        <label class="field-check">
+                            <input type="checkbox" id="settings-quiet-mode" />
+                            <span>Quiet mode</span>
+                        </label>
+                        <p class="field-hint">
+                            Skip the confirm sheet for browser captures, and add
+                            copied file links without the offer banner — the
+                            same idea as uGet's quiet mode.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label class="modal-label" for="settings-clipboard-exts"
+                            >Clipboard file types
+                            <span class="modal-optional">optional</span></label
+                        >
+                        <input
+                            id="settings-clipboard-exts"
+                            type="text"
+                            class="field-input"
+                            placeholder="zip, iso, pdf, mp4 — blank means every kind"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        <p class="field-hint">
+                            Only offer copied links that end in these
+                            extensions. Magnets still count. Leave blank to
+                            watch every known file type.
+                        </p>
+                    </div>
+
+                    <div class="field">
                         <div class="modal-label">Bookmarklet</div>
                         <p class="field-hint">
                             Drag this to your bookmarks bar, then click it on a
