@@ -32,6 +32,7 @@ Priority: high — shipped
 - A paste or extension dump of several links is reviewed first, with content kind, host, MIME, and “already in the list” feedback.
 - Clipboard monitoring can be narrowed to named file extensions (Settings → Browser), the way uGet’s clipboard monitor filters by type. Magnets still pass.
 - Quiet mode skips the confirm sheet for browser captures and adds copied file links without the offer banner.
+- Quiet mode can pin those captures to one category folder even when smart folders are off (Settings → Browser → Quiet category).
 
 ### 2. Batch workflow and package organization
 
@@ -83,10 +84,9 @@ Priority: medium — shipped
 
 These remain explicitly outside the product shape rather than unfinished checklist items:
 
-- Per-category active-download limits as a second concurrency system (Garia keeps one app-wide concurrency + packages)
-- FlashGot / browser-native download takeover beyond the existing extension (especially Safari’s limits)
+- Per-category active-download limits as a second concurrency system — aria2 only exposes one `max-concurrent-downloads`, so true per-category caps need an app-side pause/resume scheduler on top of packages. Not a small additive field.
+- FlashGot / browser-native download takeover beyond the existing extension — click capture, `downloads.onCreated` takeover, context menus, and the video chip already cover Chromium/Firefox; Safari cannot cancel in-flight browser downloads, and deeper engine hooks are speculative.
 - A separate plugin marketplace or Metalink authoring UI
-- Quiet mode that auto-assigns a fixed category without the existing smart-folder rules
 
 ## Recommended implementation order
 
@@ -98,6 +98,6 @@ These remain explicitly outside the product shape rather than unfinished checkli
 
 ## Outcome
 
-Garia matches the uGet workflows that fit a smaller aria2-based desktop client: batch browser intake, URL sequences, clipboard extension filters, quiet capture, packages and queue housekeeping, clearer pause / stop / schedule chips, failure recovery language, multi-source mirrors, and shared menu/tray verbs. What uGet does through category-level concurrency plugins and FlashGot-era browser hooks stays intentionally out of scope, listed above.
+Garia matches the uGet workflows that fit a smaller aria2-based desktop client: batch browser intake, URL sequences, clipboard extension filters, quiet capture (with an optional fixed category pin), packages and queue housekeeping, clearer pause / stop / schedule chips, failure recovery language, multi-source mirrors, and shared menu/tray verbs. Category-level concurrency plugins and FlashGot-era browser engine hooks stay intentionally out of scope, listed above.
 
 This document should be revisited only when product scope changes — not as an open feature backlog.

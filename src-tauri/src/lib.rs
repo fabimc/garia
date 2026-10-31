@@ -185,6 +185,10 @@ struct Settings {
     /// mode. Off by default so a copied link is still an offer, not an order.
     #[serde(default)]
     quiet_mode: bool,
+    /// Optional category id quiet captures land in, even when smart folders
+    /// are off. Empty means the normal download folder / matching rules.
+    #[serde(default)]
+    quiet_category_id: String,
     /// Optional comma-separated file extensions the clipboard watcher cares
     /// about. Empty means every known file type. Magnets always pass.
     #[serde(default)]
@@ -282,6 +286,7 @@ impl Default for Settings {
             catch_page_clipboard: false,
             confirm_capture: true,
             quiet_mode: false,
+            quiet_category_id: String::new(),
             clipboard_extensions: String::new(),
             in_order: false,
             cookie_file: String::new(),
@@ -4720,6 +4725,7 @@ mod tests {
     fn a_settings_file_without_quiet_mode_stays_loud() {
         let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
         assert!(!s.quiet_mode);
+        assert!(s.quiet_category_id.is_empty());
         assert!(s.clipboard_extensions.is_empty());
     }
 

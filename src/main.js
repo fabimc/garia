@@ -64,6 +64,7 @@ import {
   formatSpeedLimitScope,
   filterClipboardUrls,
   quietCaptureSkipsConfirm,
+  quietCaptureDir,
   FILE_PRIORITY_TIERS,
   parseTagList,
   tagSummary,
@@ -221,6 +222,7 @@ let settings = {
   catchPageClipboard: false,
   confirmCapture: true,
   quietMode: false,
+  quietCategoryId: "",
   clipboardExtensions: "",
   inOrder: false,
   cookieFile: "",
@@ -445,6 +447,24 @@ function targetDir(url) {
   if (!base || !settings.smartFolders || !url) return base;
   const cat = matchCategory(url);
   return cat ? categoryPath(cat) : base;
+}
+
+// Categories available for quiet-mode pinning — saved list, else the starters.
+function quietCategoryChoices() {
+  const list = Array.isArray(settings.categories) ? settings.categories : [];
+  return list.length
+    ? list
+    : DEFAULT_CATEGORIES.map((cat) => ({ ...cat, extensions: [...cat.extensions] }));
+}
+
+function quietDirFor(url) {
+  return quietCaptureDir({
+    quietMode: settings.quietMode === true,
+    quietCategoryId: settings.quietCategoryId || "",
+    categories: quietCategoryChoices(),
+    downloadDir: settings.downloadDir || "",
+    fallbackDir: targetDir(url),
+  });
 }
 
 async function chooseFolderInto(input) {
@@ -7052,6 +7072,9 @@ window.addEventListener("DOMContentLoaded", async () => {
         openCapture({ url, name, referrer });
         return;
       }
+      if (settings.quietMode === true && file) {
+        extras.dir = quietDirFor(url);
+      }
       ingestUrl(url, extras);
       return;
     }
@@ -7060,6 +7083,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // Quiet mode skips the offer banner the way uGet quiet mode skips the
     // properties dialog — a copied file link goes straight in.
     if (source === "clipboard" && settings.quietMode === true && !looksLikeAPage(url)) {
+      extras.dir = quietDirFor(url);
       ingestUrl(url, extras);
       return;
     }

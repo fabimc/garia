@@ -2000,3 +2000,29 @@ export function quietCaptureSkipsConfirm(quietMode, confirmCapture) {
   if (quietMode === true) return true;
   return confirmCapture === false;
 }
+
+export function findCategoryById(categories, id) {
+  const wanted = String(id || "").trim();
+  if (!wanted) return null;
+  return (Array.isArray(categories) ? categories : []).find((cat) => cat?.id === wanted) || null;
+}
+
+// Quiet mode can pin captures to one category folder without turning on
+// smart folders. Empty quietCategoryId keeps the normal fallback dir.
+export function quietCaptureDir({
+  quietMode = false,
+  quietCategoryId = "",
+  categories = [],
+  downloadDir = "",
+  fallbackDir = "",
+} = {}) {
+  const fallback = String(fallbackDir || "").replace(/\/+$/, "");
+  if (quietMode !== true) return fallback;
+  const cat = findCategoryById(categories, quietCategoryId);
+  if (!cat) return fallback;
+  const base = String(downloadDir || "").replace(/\/+$/, "");
+  const folder = String(cat.folder || cat.name || "").trim();
+  if (!folder) return base || fallback;
+  if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
+  return base ? `${base}/${folder}` : folder;
+}

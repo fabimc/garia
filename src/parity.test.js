@@ -110,6 +110,8 @@ import {
   filterClipboardUrls,
   parseMirrorUrls,
   quietCaptureSkipsConfirm,
+  quietCaptureDir,
+  findCategoryById,
   formatSpeedLimitScope,
 } from "./parity.js";
 
@@ -623,6 +625,41 @@ test("quiet mode skips the browser confirm sheet", () => {
   assert.equal(quietCaptureSkipsConfirm(true, true), true);
   assert.equal(quietCaptureSkipsConfirm(false, false), true);
   assert.equal(quietCaptureSkipsConfirm(false, true), false);
+});
+
+test("quiet mode can pin captures to a category folder without smart folders", () => {
+  const cats = [{ id: "archives", name: "Archives", folder: "Archives" }];
+  assert.equal(findCategoryById(cats, "archives")?.folder, "Archives");
+  assert.equal(
+    quietCaptureDir({
+      quietMode: true,
+      quietCategoryId: "archives",
+      categories: cats,
+      downloadDir: "/Downloads",
+      fallbackDir: "/Downloads",
+    }),
+    "/Downloads/Archives",
+  );
+  assert.equal(
+    quietCaptureDir({
+      quietMode: true,
+      quietCategoryId: "",
+      categories: cats,
+      downloadDir: "/Downloads",
+      fallbackDir: "/Downloads",
+    }),
+    "/Downloads",
+  );
+  assert.equal(
+    quietCaptureDir({
+      quietMode: false,
+      quietCategoryId: "archives",
+      categories: cats,
+      downloadDir: "/Downloads",
+      fallbackDir: "/Downloads",
+    }),
+    "/Downloads",
+  );
 });
 
 test("speed-limit scope sentences stay distinct for row and mode caps", () => {
