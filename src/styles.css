@@ -904,6 +904,30 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--warning, #b8860b);
 }
 
+.detail-file-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0.35rem 0 0.45rem;
+}
+
+.detail-file-filter-input {
+    flex: 1 1 10rem;
+    min-width: 8rem;
+    font-size: 0.78rem;
+    padding: 0.28rem 0.5rem;
+}
+
+.detail-file-filter-selected {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
 .detail-file-bulk {
     display: flex;
     flex-wrap: wrap;
@@ -914,6 +938,29 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .detail-file-bulk-btn {
     font-size: 0.72rem;
     padding: 0.2rem 0.45rem;
+}
+
+.status-housekeeping {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: 0.35rem;
+}
+
+.status-housekeeping-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+}
+
+.status-housekeeping-btn:hover {
+    text-decoration: underline;
 }
 
 .dl-status-text.is-slow {

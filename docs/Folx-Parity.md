@@ -22,7 +22,7 @@ The core everyday workflow is already present: add a download, track progress, c
 
 ## Parity work already in the app
 
-The matching work already shipped in Garia is the part of the Folx workflow users notice first: browser-capture review, queue-state clarity, media naming, torrent handling, organization, and queue grouping.
+The matching work already shipped in Garia is the part of the Folx workflow users notice first: browser-capture review, queue-state clarity, media naming, torrent handling, organization, queue grouping, torrent file depth, capture polish, and desktop discoverability.
 
 ### 1. Browser capture and intake
 
@@ -65,39 +65,45 @@ Priority: high
 - Multi-select queue extras surface pause/resume (and related housekeeping) when the selection mixes states.
 - Held and scheduled rows feed a status-bar review: the schedule chip names how many are held, and tooltips say start times and the queue stop survive a relaunch.
 
-## Remaining gaps versus Folx
-
 ### 7. Torrent and file control depth
 
 Priority: high
 
-- Improve per-torrent file-priority controls so the user can manage large sets without digging through hidden state.
-- Expose richer bulk file operations for multi-file torrents, similar to the multi-selection workflows a Folx user expects.
-- Surface more human-readable torrent health, seeding state, and next-step messaging beyond the helpers already shared with other parity work.
+- Multi-file torrents get a file filter (name search + Selected only) so large sets stay manageable without scrolling every path.
+- Bulk priority exposes every `bulkPriorityMap` action (All/Checked × High/Normal/Low/Off). Set-every-file pills and the bulk bar share one click path through `normalizeBulkPriorityAction`.
+- Health and next-step copy cover metainfo fetch, Weak/No peers, slow, stalled, seeding, and paused — combined in `formatTorrentHealthNote` for the Health fact and detail note.
 
 ### 8. Browser capture and media quality polish
 
 Priority: medium
 
-- Add stronger capture detection for embedded media and more aggressive page-level source recognition.
-- Improve the quality-choice flow so the user can clearly see when a format is a merge, a split stream, or a fallback option.
-- Keep the resulting filename and output format consistent and explainable in the row and detail panel.
+- Page capture also reads `og:video` / Twitter player meta, JSON-LD `contentUrl`, `srcset`, and `.m3u8` links, ordered ahead of ordinary navigation via `collectEmbeddedMediaUrls`.
+- Quality choices carry an explicit kind (`complete` / `merge` / `audio`) and shared detail wording; the picker “Saves as …” line names file, resolution, and kind together.
+- Video detail notes include the same explainable output line beside merge state.
 
 ### 9. Native desktop polish
 
 Priority: medium
 
-- Align menu and dock verbs with the same expectations users have from Folx and other macOS-native managers.
-- Improve empty states, notices, and detail-side content so the app explains what is happening without a long read of logs.
-- Make app-level actions such as retry failed, clear completed, and bulk housekeeping easier to discover outside the row menu.
+- Download menu, dock, and tray already share Retry Failed and Clear Completed; Features docs match those verbs.
+- Empty states for Failed, Completed, and Torrents point at Retry Failed / Clear Completed / Open Torrent.
+- Status bar shows Retry Failed and Clear Completed when the queue has work for them (`desktopHousekeepingItems`), so housekeeping is visible without opening a menu.
+
+## Remaining gaps versus Folx
+
+None of the numbered roadmap items are open after `#68` (organization + queue) and this PR (torrent depth, capture/quality, desktop discoverability). Further Folx-like polish is optional product work outside this plan:
+
+- Deeper network sniffing for blob players / DRM streams (yt-dlp already covers most watch pages)
+- Folder-tree collapse inside torrent file lists
+- Dock verbs beyond the existing Download menu set
 
 ## Recommended implementation order
 
-1. ~~Organization, file-management, and destination workflow.~~ Done for tags, saved folders, containing folder, and bulk organize.
-2. ~~Queue and scheduler parity, including bulk operations and clearer state grouping.~~ Done for Active grouping, mixed-selection extras, and schedule hold review.
-3. Torrent and file control depth: health, priority, and bulk file operations.
-4. Browser-capture and media-quality improvements.
-5. Native desktop polish and discoverability.
+1. ~~Organization, file-management, and destination workflow.~~ `#68`
+2. ~~Queue and scheduler parity, including bulk operations and clearer state grouping.~~ `#68`
+3. ~~Torrent and file control depth: health, priority, and bulk file operations.~~ Done here.
+4. ~~Browser-capture and media-quality improvements.~~ Done here.
+5. ~~Native desktop polish and discoverability.~~ Done here.
 
 ## Implementation notes for the next contributor
 
@@ -109,4 +115,4 @@ Priority: medium
 
 ## Outcome
 
-Organization and queue/scheduler parity from this roadmap are in the app. Garia should feel substantially closer to Folx for filing downloads, scanning Active/Queued/Paused/Seeding, and reviewing scheduled holds. What remains is torrent file-control depth, capture/media-quality polish, and native desktop discoverability.
+With `#68` and this PR, Garia matches the Folx roadmap for organization, queue grouping, torrent file control, capture/quality explainability, and in-window housekeeping discoverability. Remaining differences are intentional honesty about aria2 limits and optional polish outside the numbered plan.

@@ -4,10 +4,12 @@ import {
   applyIntakePick,
   formatIntakeMeta,
   formatMediaOutputName,
+  formatMediaRowExplain,
   formatPlaylistRuleNote,
   intakeReviewHint,
   newPackageId,
   packageDisplayName,
+  qualityChoiceKind,
   rememberedQualityRule,
   reviewIntake,
 } from "./parity.js";
@@ -705,11 +707,26 @@ export function initAddDialog(api) {
   function paintVideoOut() {
     if (!videoOut) return;
     const choice = probed?.choices?.[probed.selected];
-    const name = choice
-      ? formatMediaOutputName({ title: safeName(probed.info?.title), ext: choice.ext })
-      : "";
-    videoOut.textContent = name ? `Saves as ${name}` : "";
-    videoOut.classList.toggle("hidden", !name);
+    if (!choice) {
+      videoOut.textContent = "";
+      videoOut.classList.add("hidden");
+      return;
+    }
+    const kind = qualityChoiceKind(choice);
+    const explain = formatMediaRowExplain({
+      title: safeName(probed.info?.title),
+      ext: choice.ext,
+      kind,
+      height: choice.height || parseInt(choice.label, 10) || 0,
+    });
+    const name = formatMediaOutputName({
+      title: safeName(probed.info?.title),
+      ext: choice.ext,
+    });
+    videoOut.textContent = explain
+      ? `Saves as ${explain}`
+      : (name ? `Saves as ${name}` : "");
+    videoOut.classList.toggle("hidden", !videoOut.textContent);
   }
 
   videoChoices.addEventListener("click", (e) => {

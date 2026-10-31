@@ -62,22 +62,89 @@ document.addEventListener("click", (event) => {
   sendFileCapture(href, gariaBasenameFromUrl(href));
 }, true);
 
+function absoluteUrl(raw) {
+  if (!raw) return "";
+  try { return new URL(raw, document.baseURI).href; } catch { return ""; }
+}
+
+function collectSrcsetUrls(value) {
+  const out = [];
+  for (const part of String(value || "").split(",")) {
+    const url = absoluteUrl(part.trim().split(/\s+/)[0]);
+    if (url) out.push(url);
+  }
+  return out;
+}
+
+function collectMetaVideos() {
+  const out = [];
+  for (const meta of document.querySelectorAll(
+    'meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"], meta[name="twitter:player:stream"]',
+  )) {
+    const url = absoluteUrl(meta.getAttribute("content"));
+    if (url) out.push(url);
+  }
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const data = JSON.parse(script.textContent || "null");
+      const stack = Array.isArray(data) ? data.slice() : [data];
+      while (stack.length) {
+        const node = stack.pop();
+        if (!node || typeof node !== "object") continue;
+        if (typeof node.contentUrl === "string") {
+          const url = absoluteUrl(node.contentUrl);
+          if (url) out.push(url);
+        }
+        if (typeof node.embedUrl === "string") {
+          const url = absoluteUrl(node.embedUrl);
+          if (url) out.push(url);
+        }
+        for (const value of Object.values(node)) {
+          if (value && typeof value === "object") stack.push(value);
+        }
+      }
+    } catch { /* ignore bad JSON-LD */ }
+  }
+  return out;
+}
+
 function collectPageLinks() {
   const links = [];
   for (const a of document.querySelectorAll("a[href]")) {
     try { links.push(new URL(a.href, document.baseURI).href); } catch { /* skip */ }
   }
   const media = [];
+  const downloadHrefs = [];
+  const srcsetUrls = [];
+  const streamUrls = [];
   const nodes = document.querySelectorAll(
-    "video[src], audio[src], video source[src], audio source[src], a[download][href]",
+    "video[src], audio[src], video source[src], audio source[src], video[srcset], source[srcset]",
   );
   for (const node of nodes) {
-    const raw = node.currentSrc || node.getAttribute("src") || node.href || "";
-    if (!raw) continue;
-    try { media.push(new URL(raw, document.baseURI).href); } catch { /* skip */ }
+    const raw = node.currentSrc || node.getAttribute("src") || "";
+    const url = absoluteUrl(raw);
+    if (url) media.push(url);
+    if (node.getAttribute("srcset")) srcsetUrls.push(...collectSrcsetUrls(node.getAttribute("srcset")));
   }
+  for (const a of document.querySelectorAll("a[download][href]")) {
+    const url = absoluteUrl(a.href);
+    if (url) downloadHrefs.push(url);
+  }
+  for (const a of document.querySelectorAll("a[href]")) {
+    const url = absoluteUrl(a.href);
+    if (url && /\.m3u8(\?|#|$)/i.test(url)) streamUrls.push(url);
+  }
+  const metaVideos = collectMetaVideos();
   if (typeof gariaCaptureTargets === "function") {
-    return gariaCaptureTargets({ pageUrl: location.href, links, media });
+    return gariaCaptureTargets({
+      pageUrl: location.href,
+      links,
+      media,
+      metaVideos,
+      downloadHrefs,
+      srcsetUrls,
+      streamUrls,
+    });
   }
   return links;
 }

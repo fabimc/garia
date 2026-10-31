@@ -93,6 +93,15 @@ import {
   scheduleReviewSummary,
   schedulePersistHint,
   queueBulkExtras,
+  torrentFileFilter,
+  torrentBulkPriorityActions,
+  normalizeBulkPriorityAction,
+  formatTorrentHealthNote,
+  qualityChoiceKind,
+  formatQualityChoiceDetail,
+  formatMediaRowExplain,
+  collectEmbeddedMediaUrls,
+  desktopHousekeepingItems,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -787,4 +796,115 @@ test("queue bulk extras appear for mixed multi-select housekeeping", () => {
     queueBulkExtras({ selected: 3, seeding: 1, active: 2 })
       .some((item) => item.action === "unseed"),
   );
+});
+
+// Folx parity §7–§9
+
+test("torrent file filter matches name, extension, and selection", () => {
+  const files = [
+    { index: 1, path: "/t/Video/a.mkv", selected: "true" },
+    { index: 2, path: "/t/Video/b.mp4", selected: "true" },
+    { index: 3, path: "/t/Extras/readme.txt", selected: "false" },
+  ];
+  assert.equal(torrentFileFilter(files, { query: "mkv" }).length, 1);
+  assert.equal(torrentFileFilter(files, { ext: "mp4" })[0].index, 2);
+  assert.equal(torrentFileFilter(files, { selectedOnly: true }).length, 2);
+  assert.equal(torrentFileFilter(files, { selectedOnly: true, selectedIndices: [3] }).length, 1);
+});
+
+test("torrent bulk priority actions cover every map key when files are checked", () => {
+  assert.deepEqual(torrentBulkPriorityActions({ fileCount: 1 }), []);
+  assert.deepEqual(
+    torrentBulkPriorityActions({ fileCount: 5, checkedCount: 0 }).map((i) => i.action),
+    ["all-high", "all-normal", "all-low", "all-off"],
+  );
+  assert.ok(
+    torrentBulkPriorityActions({ fileCount: 5, checkedCount: 2 })
+      .some((i) => i.action === "checked-normal"),
+  );
+  assert.equal(normalizeBulkPriorityAction("high"), "all-high");
+  assert.equal(normalizeBulkPriorityAction("checked-low"), "checked-low");
+  assert.equal(normalizeBulkPriorityAction(""), "");
+});
+
+test("torrent next step and health note cover weak, metainfo, and seeding", () => {
+  const meta = {
+    bittorrent: {},
+    status: "active",
+    totalLength: "0",
+    completedLength: "0",
+    downloadSpeed: "0",
+    connections: "0",
+    seeder: "false",
+  };
+  assert.match(formatTorrentNextStep(meta), /metainfo/i);
+  assert.match(
+    formatTorrentNextStep({ ...meta, seeder: undefined }),
+    /metainfo/i,
+  );
+  assert.equal(
+    formatTorrentNextStep({ ...meta, seeder: "true" }),
+    "",
+  );
+  assert.match(
+    formatTorrentNextStep({ bittorrent: {}, status: "seeding" }),
+    /Stop Seeding/i,
+  );
+  const weak = torrentHealth({ seeders: 0, leechers: 2, peers: 2 });
+  assert.equal(weak.label, "Weak");
+  const note = formatTorrentHealthNote({
+    bittorrent: {},
+    status: "active",
+    totalLength: "100",
+    completedLength: "10",
+    downloadSpeed: "0",
+    connections: "2",
+  }, weak);
+  assert.match(note, /Weak/);
+  assert.match(note, /pause and resume/i);
+});
+
+test("quality choice kinds and row explain lines name merge vs one file", () => {
+  assert.equal(qualityChoiceKind({ formats: [{}, {}], label: "1080p" }), "merge");
+  assert.equal(qualityChoiceKind({ formats: [{}], label: "Audio" }), "audio");
+  assert.equal(qualityChoiceKind({ formats: [{}], label: "720p" }), "complete");
+  assert.match(formatQualityChoiceDetail({ kind: "merge", ext: "mkv" }), /merged/i);
+  assert.match(formatQualityChoiceDetail({ kind: "complete", ext: "mp4" }), /one file/i);
+  assert.match(
+    formatMediaRowExplain({ title: "Talk", ext: "mkv", kind: "merge", height: 1080 }),
+    /Talk\.mkv · 1080p · merged/,
+  );
+});
+
+test("embedded media collection puts meta and players ahead of download links", () => {
+  const urls = collectEmbeddedMediaUrls({
+    metaVideos: ["https://cdn.test/og.mp4"],
+    media: ["https://cdn.test/player.mp4"],
+    streamUrls: ["https://cdn.test/live.m3u8"],
+    downloadHrefs: ["https://cdn.test/file.zip"],
+    srcsetUrls: ["https://cdn.test/poster.jpg"],
+  });
+  assert.deepEqual(urls.slice(0, 3), [
+    "https://cdn.test/og.mp4",
+    "https://cdn.test/player.mp4",
+    "https://cdn.test/live.m3u8",
+  ]);
+  assert.deepEqual(
+    captureTargetsFromPage({
+      pageUrl: "https://ex.test/watch",
+      links: ["https://ex.test/next"],
+      metaVideos: ["https://cdn.test/og.mp4"],
+      media: ["https://cdn.test/player.mp4"],
+    }),
+    ["https://cdn.test/og.mp4", "https://cdn.test/player.mp4", "https://ex.test/next"],
+  );
+});
+
+test("desktop housekeeping matches Download menu verbs", () => {
+  assert.deepEqual(
+    desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
+    ["Retry Failed", "Clear Completed"],
+  );
+  assert.equal(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).title, "No failed downloads");
+  assert.match(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).sub, /Retry Failed/);
 });
