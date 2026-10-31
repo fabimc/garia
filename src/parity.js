@@ -962,9 +962,22 @@ export function captureTargetsFromPage({
 
 // A stable word for the row, beside the percentage. The status cell changes
 // every second; this one does not, so Active, Queued, and Done can be scanned
-// without reading the bar.
-export function formatQueueScan(status, { stalled = false, slow = false, scheduled = false } = {}) {
+// without reading the bar. A user pause, a Stop Queue, and a schedule hold
+// are three different waits — say so on the chip, not only in the tooltip.
+export function formatQueueScan(status, {
+  stalled = false,
+  slow = false,
+  scheduled = false,
+  queueStopped = false,
+  scheduleHeld = false,
+} = {}) {
   if (scheduled) return { key: "scheduled", label: "Scheduled" };
+  if (queueStopped && (status === "paused" || status === "waiting")) {
+    return { key: "stopped", label: "Stopped" };
+  }
+  if (scheduleHeld && status === "paused") {
+    return { key: "held", label: "Held" };
+  }
   if (status === "error") return { key: "failed", label: "Failed" };
   if (status === "complete") return { key: "done", label: "Done" };
   if (status === "seeding") return { key: "seeding", label: "Seeding" };
@@ -1864,4 +1877,152 @@ export function formatMediaRowExplain({
           : "";
   const res = Number(height) > 0 ? `${Number(height)}p` : "";
   return [name, res, kindWord].filter(Boolean).join(" · ");
+}
+
+// ── uGet parity ──────────────────────────────────────────────────────────
+// Sequence batches, clipboard extension filters, quiet capture, and mirror
+// URIs are the bits of uGet's batch/intake workflow that still sat outside
+// the JDownloader-shaped packages and review sheet.
+
+// uGet-style numeric range inside a URL: file[01-10].zip or img[1:5].jpg.
+// Padding follows the start token's width when either side has a leading zero.
+const SEQUENCE_RE = /\[(\d+)([-:])(\d+)\]/;
+
+export function parseUrlSequence(pattern) {
+  const text = String(pattern || "").trim();
+  const match = text.match(SEQUENCE_RE);
+  if (!match) return null;
+  const startRaw = match[1];
+  const endRaw = match[3];
+  const start = Number(startRaw);
+  const end = Number(endRaw);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const pad = /^0\d/.test(startRaw) || /^0\d/.test(endRaw)
+    ? Math.max(startRaw.length, endRaw.length)
+    : 0;
+  const step = start <= end ? 1 : -1;
+  const count = Math.abs(end - start) + 1;
+  return {
+    pattern: text,
+    start,
+    end,
+    pad,
+    count,
+    index: match.index,
+    length: match[0].length,
+    step,
+  };
+}
+
+export function expandUrlSequence(pattern, { max = 200 } = {}) {
+  const info = parseUrlSequence(pattern);
+  if (!info) return [];
+  const limit = Math.max(1, Math.min(Number(max) || 200, 500));
+  if (info.count > limit) return [];
+  const out = [];
+  for (let n = info.start; ; n += info.step) {
+    const token = info.pad > 0
+      ? String(Math.abs(n)).padStart(info.pad, "0")
+      : String(n);
+    out.push(
+      info.pattern.slice(0, info.index) + token + info.pattern.slice(info.index + info.length),
+    );
+    if (n === info.end) break;
+  }
+  return out;
+}
+
+export function urlSequenceHint(pattern) {
+  const info = parseUrlSequence(pattern);
+  if (!info) return "";
+  if (info.count > 200) {
+    return `That sequence is ${info.count} URLs — narrow the range (200 max) before expanding.`;
+  }
+  const all = expandUrlSequence(pattern);
+  const first = all[0] || "";
+  const last = all.at(-1) || "";
+  const firstName = first.split("/").pop() || first;
+  const lastName = last.split("/").pop() || last;
+  if (info.count === 1) return `One URL: ${firstName}`;
+  return `${info.count} URLs, from ${firstName} to ${lastName}.`;
+}
+
+// Empty list means "every known file extension" — the caller keeps the
+// built-in set. A non-empty list is the uGet clipboard-monitor filter.
+export function parseClipboardExtensions(text) {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return [];
+  const seen = new Set();
+  const out = [];
+  for (const part of raw.split(/[\s,;]+/)) {
+    const ext = part.replace(/^\./, "").trim().toLowerCase();
+    if (!ext || !/^[a-z0-9]{1,10}$/.test(ext)) continue;
+    if (seen.has(ext)) continue;
+    seen.add(ext);
+    out.push(ext);
+  }
+  return out;
+}
+
+export function clipboardExtensionAllowed(url, allowed = []) {
+  const list = Array.isArray(allowed) ? allowed : parseClipboardExtensions(allowed);
+  if (!list.length) return true;
+  const text = String(url || "").trim();
+  if (/^magnet:/i.test(text)) return true;
+  const ext = extensionOfUrl(text);
+  if (!ext) return false;
+  return list.includes(ext);
+}
+
+export function filterClipboardUrls(urls, allowed = []) {
+  return (urls || []).filter((url) => clipboardExtensionAllowed(url, allowed));
+}
+
+// Alternate sources for one file. aria2 merges them as multi-source URIs.
+export function parseMirrorUrls(text, primary = "") {
+  const main = String(primary || "").trim();
+  const seen = new Set(main ? [main] : []);
+  const out = [];
+  for (const raw of String(text || "").split(/\s+/)) {
+    const token = raw.replace(/^[<"'“‘]+|[>"'”’,]+$/g, "").trim();
+    if (!(token.startsWith("http://") || token.startsWith("https://")
+      || token.startsWith("ftp://") || token.startsWith("ftps://"))) {
+      continue;
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
+}
+
+export function quietCaptureSkipsConfirm(quietMode, confirmCapture) {
+  if (quietMode === true) return true;
+  return confirmCapture === false;
+}
+
+export function findCategoryById(categories, id) {
+  const wanted = String(id || "").trim();
+  if (!wanted) return null;
+  return (Array.isArray(categories) ? categories : []).find((cat) => cat?.id === wanted) || null;
+}
+
+// Quiet mode can pin captures to one category folder without turning on
+// smart folders. Empty quietCategoryId keeps the normal fallback dir.
+export function quietCaptureDir({
+  quietMode = false,
+  quietCategoryId = "",
+  categories = [],
+  downloadDir = "",
+  fallbackDir = "",
+} = {}) {
+  const fallback = String(fallbackDir || "").replace(/\/+$/, "");
+  if (quietMode !== true) return fallback;
+  const cat = findCategoryById(categories, quietCategoryId);
+  if (!cat) return fallback;
+  const base = String(downloadDir || "").replace(/\/+$/, "");
+  const folder = String(cat.folder || cat.name || "").trim();
+  if (!folder) return base || fallback;
+  if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
+  return base ? `${base}/${folder}` : folder;
 }

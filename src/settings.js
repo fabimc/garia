@@ -147,6 +147,9 @@ let settings = {
   catchClipboard: true,
   catchPageClipboard: false,
   confirmCapture: true,
+  quietMode: false,
+  quietCategoryId: "",
+  clipboardExtensions: "",
   inOrder: false,
   cookieFile: "",
   remoteControl: false,
@@ -359,6 +362,30 @@ const settingsSmart = document.getElementById("settings-smart-folders");
 const settingsCatch = document.getElementById("settings-catch");
 const settingsCatchPage = document.getElementById("settings-catch-page");
 const settingsConfirmCapture = document.getElementById("settings-confirm-capture");
+const settingsQuietMode = document.getElementById("settings-quiet-mode");
+const settingsQuietCategory = document.getElementById("settings-quiet-category");
+const settingsClipboardExts = document.getElementById("settings-clipboard-exts");
+
+function renderQuietCategoryOptions() {
+  if (!settingsQuietCategory) return;
+  const list = Array.isArray(settings.categories) && settings.categories.length
+    ? settings.categories
+    : DEFAULT_CATEGORIES;
+  const current = String(settings.quietCategoryId || "");
+  settingsQuietCategory.textContent = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "Download folder (no pin)";
+  settingsQuietCategory.append(none);
+  for (const cat of list) {
+    if (!cat?.id) continue;
+    const opt = document.createElement("option");
+    opt.value = cat.id;
+    opt.textContent = cat.name || cat.id;
+    settingsQuietCategory.append(opt);
+  }
+  settingsQuietCategory.value = list.some((cat) => cat.id === current) ? current : "";
+}
 const settingsInOrder = document.getElementById("settings-in-order");
 const settingsCookies = document.getElementById("settings-cookies");
 const settingsRemote = document.getElementById("settings-remote");
@@ -509,6 +536,11 @@ function fillForm() {
   settingsCatch.checked = settings.catchClipboard !== false;
   if (settingsCatchPage) settingsCatchPage.checked = settings.catchPageClipboard === true;
   settingsConfirmCapture.checked = settings.confirmCapture !== false;
+  if (settingsQuietMode) settingsQuietMode.checked = settings.quietMode === true;
+  renderQuietCategoryOptions();
+  if (settingsClipboardExts) {
+    settingsClipboardExts.value = String(settings.clipboardExtensions || "");
+  }
   settingsInOrder.checked = settings.inOrder === true;
   settingsCookies.value = settings.cookieFile || "";
   settingsRemote.checked = settings.remoteControl === true;
@@ -554,6 +586,9 @@ function formSettings() {
     catchClipboard: settingsCatch.checked,
     catchPageClipboard: settingsCatchPage?.checked === true,
     confirmCapture: settingsConfirmCapture.checked,
+    quietMode: settingsQuietMode?.checked === true,
+    quietCategoryId: String(settingsQuietCategory?.value || "").trim(),
+    clipboardExtensions: String(settingsClipboardExts?.value || "").trim(),
     inOrder: settingsInOrder.checked,
     cookieFile: settingsCookies.value.trim(),
     remoteControl: settingsRemote.checked,
@@ -575,7 +610,8 @@ function settingsDiffer(a, b) {
   const keys = [
     "downloadDir", "maxConcurrentDownloads", "mediumLimit", "lightLimit",
     "seedRatio", "seedTimeMinutes", "smartFolders", "notifyOnComplete",
-    "catchClipboard", "catchPageClipboard", "confirmCapture", "inOrder", "cookieFile", "remoteControl",
+    "catchClipboard", "catchPageClipboard", "confirmCapture", "quietMode",
+    "quietCategoryId", "clipboardExtensions", "inOrder", "cookieFile", "remoteControl",
     "proxyEnabled", "proxyHost", "proxyPort", "proxyUser", "proxyNoProxy",
     "scheduleEnabled", "scheduleStart", "scheduleEnd",
     "queueStopped", "doneAction",
@@ -976,7 +1012,12 @@ function closeCategory() {
 function writeCategories(next) {
   settings = { ...settings, categories: next, smartFolders: next.length ? settingsSmart.checked : false };
   if (!next.length) settingsSmart.checked = false;
+  // Drop a quiet pin that pointed at a category that no longer exists.
+  if (settings.quietCategoryId && !next.some((cat) => cat.id === settings.quietCategoryId)) {
+    settings = { ...settings, quietCategoryId: "" };
+  }
   renderCategories();
+  renderQuietCategoryOptions();
   persistSettings(true);
 }
 
@@ -1091,15 +1132,15 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   showPane(item.dataset.pane);
 });
 
-for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
-  input.addEventListener("change", persistSettings);
+for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsQuietMode, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
+  input?.addEventListener("change", persistSettings);
 }
 for (const input of document.querySelectorAll('input[name="done-action"]')) {
   input.addEventListener("change", persistSettings);
 }
 
-for (const input of [settingsDir, settingsMedium, settingsLight, settingsConc, settingsRatio, settingsSeedFor, settingsCookies, settingsSchedFrom, settingsSchedTo, settingsProxyHost, settingsProxyPort, settingsProxyUser, settingsProxyPass, settingsProxyBypass]) {
-  input.addEventListener("change", persistSettings);
+for (const input of [settingsDir, settingsMedium, settingsLight, settingsConc, settingsRatio, settingsSeedFor, settingsCookies, settingsClipboardExts, settingsQuietCategory, settingsSchedFrom, settingsSchedTo, settingsProxyHost, settingsProxyPort, settingsProxyUser, settingsProxyPass, settingsProxyBypass]) {
+  input?.addEventListener("change", persistSettings);
 }
 
 settingsAutostart.addEventListener("change", persistAutostart);

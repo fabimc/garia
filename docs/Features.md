@@ -24,6 +24,8 @@
 - Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia. The extension options page turns click capture, download takeover, and the video button on or off.
 - Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives
 - Add several URLs at once — paste, drop, or send every link on a page from the extension, then uncheck the ones you do not want
+- Expand a uGet-style URL sequence (`file[01-10].zip`) into that same batch review, optionally with mirror URLs for one file
+- Quiet mode and a clipboard file-type filter in Settings → Browser — skip the confirm sheet, only offer the extensions you name, and optionally pin quiet captures to one category folder without turning smart folders on
 - A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header
 - When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
@@ -36,4 +38,4 @@
 - An HTTP proxy: host, port, and an optional login — HTTP, HTTPS, and FTP, not BitTorrent peers
 - Checksum verification: paste a hash beside the URL and aria2 checks the file as it arrives — before it starts, while it runs, or against one already on disk
 - Remote control: open the aria2 port to the local network and pair a phone by scanning the secret
-- Status badges: Downloading, Seeding, Merging, Queued, Paused, Complete, Error
+- Status badges: Downloading, Seeding, Merging, Queued, Paused, Stopped, Held, Scheduled, Complete, Error — so a hand pause, Stop Queue, and a schedule hold do not look the same

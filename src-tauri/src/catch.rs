@@ -84,6 +84,46 @@ pub fn file_urls_in(text: &str) -> Vec<String> {
     urls
 }
 
+/// Parse a user-typed clipboard extension filter. Empty means "every known
+/// file type". Magnets always pass the filter regardless of the list.
+pub fn parse_clipboard_extensions(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';') {
+        let ext = part.trim().trim_start_matches('.').to_ascii_lowercase();
+        if ext.is_empty() || ext.len() > 10 {
+            continue;
+        }
+        if !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        if !out.iter().any(|e| e == &ext) {
+            out.push(ext);
+        }
+    }
+    out
+}
+
+fn clipboard_extension_allowed(url: &str, allowed: &[String]) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    if url.starts_with("magnet:") {
+        return true;
+    }
+    match extension_of(url) {
+        Some(ext) => allowed.iter().any(|e| e == &ext),
+        None => false,
+    }
+}
+
+/// Keep only the clipboard file URLs that match the user's extension filter.
+pub fn filter_clipboard_urls(urls: Vec<String>, filter: &str) -> Vec<String> {
+    let allowed = parse_clipboard_extensions(filter);
+    urls.into_iter()
+        .filter(|url| clipboard_extension_allowed(url, &allowed))
+        .collect()
+}
+
 fn tidy_token(s: &str) -> &str {
     s.trim_matches(|c| matches!(c, '<' | '>' | '"' | '\'' | ',' | '“' | '”' | '‘' | '’'))
 }
@@ -554,5 +594,27 @@ mod tests {
     fn a_plain_file_is_not_a_torrent() {
         assert_eq!(torrent_path("file:///tmp/movie.iso"), None);
         assert_eq!(torrent_path("relative.torrent"), None);
+    }
+
+    #[test]
+    fn clipboard_extension_filter_keeps_magnets_and_listed_kinds() {
+        assert_eq!(
+            parse_clipboard_extensions(" .ZIP, mp4;iso iso "),
+            vec!["zip".to_string(), "mp4".to_string(), "iso".to_string()]
+        );
+        let urls = vec![
+            "https://cdn.example/a.zip".to_string(),
+            "https://cdn.example/b.mp4".to_string(),
+            "magnet:?xt=urn:btih:abc".to_string(),
+        ];
+        assert_eq!(
+            filter_clipboard_urls(urls.clone(), "zip"),
+            vec![
+                "https://cdn.example/a.zip".to_string(),
+                "magnet:?xt=urn:btih:abc".to_string(),
+            ]
+        );
+        assert_eq!(filter_clipboard_urls(urls.clone(), ""), urls);
+        assert!(filter_clipboard_urls(urls, "pdf").len() == 1); // magnet only
     }
 }

@@ -649,6 +649,19 @@
                          later is a worse way to find out. -->
                     <p id="modal-login" class="field-hint modal-login hidden"></p>
 
+                    <!-- uGet-style numeric sequence: file[01-10].zip expands
+                         into the batch review below. -->
+                    <div id="sequence-row" class="field sequence-row hidden">
+                        <p id="sequence-hint" class="field-hint"></p>
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="sequence-expand"
+                        >
+                            Expand sequence
+                        </button>
+                    </div>
+
                     <!-- Several URLs at once. Reviewed here rather than
                          queued on the spot, so a paste or an extension
                          dump can drop the ones that are not wanted. -->
@@ -691,6 +704,26 @@
                             role="group"
                             aria-label="URLs to download"
                         ></div>
+                    </div>
+
+                    <!-- Alternate hosts for the same file. aria2 treats them
+                         as multi-source URIs the way uGet mirrors do. -->
+                    <div id="mirrors-row" class="field mirrors-row hidden">
+                        <label class="modal-label" for="modal-mirrors"
+                            >Mirrors <span class="modal-optional">optional</span></label
+                        >
+                        <textarea
+                            id="modal-mirrors"
+                            rows="2"
+                            class="field-input"
+                            placeholder="Other URLs for the same file, one per line"
+                            autocomplete="off"
+                            spellcheck="false"
+                        ></textarea>
+                        <p class="field-hint">
+                            aria2 pulls from every mirror at once and merges
+                            the bytes into one download.
+                        </p>
                     </div>
 
                     <!-- Optional, and hidden for a torrent or a magnet, which

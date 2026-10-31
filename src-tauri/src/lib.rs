@@ -181,6 +181,18 @@ struct Settings {
     /// three get decided. The bookmarklet and a video page skip it.
     #[serde(default = "default_true")]
     confirm_capture: bool,
+    /// Skip the confirm sheet and the clipboard offer banner — uGet's quiet
+    /// mode. Off by default so a copied link is still an offer, not an order.
+    #[serde(default)]
+    quiet_mode: bool,
+    /// Optional category id quiet captures land in, even when smart folders
+    /// are off. Empty means the normal download folder / matching rules.
+    #[serde(default)]
+    quiet_category_id: String,
+    /// Optional comma-separated file extensions the clipboard watcher cares
+    /// about. Empty means every known file type. Magnets always pass.
+    #[serde(default)]
+    clipboard_extensions: String,
     /// Ask aria2 for the lowest-numbered piece it can take next, so the file
     /// fills from the front and can be played before it is finished. Off by
     /// default, because it is a real trade: the default selector picks pieces
@@ -273,6 +285,9 @@ impl Default for Settings {
             catch_clipboard: true,
             catch_page_clipboard: false,
             confirm_capture: true,
+            quiet_mode: false,
+            quiet_category_id: String::new(),
+            clipboard_extensions: String::new(),
             in_order: false,
             cookie_file: String::new(),
             remote_control: false,
@@ -2042,12 +2057,18 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
         let mut primed = false;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(800));
-            let (watch_files, watch_pages) = app
+            let (watch_files, watch_pages, clipboard_exts) = app
                 .try_state::<SettingsState>()
                 .and_then(|s| {
-                    s.current.lock().ok().map(|g| (g.catch_clipboard, g.catch_page_clipboard))
+                    s.current.lock().ok().map(|g| {
+                        (
+                            g.catch_clipboard,
+                            g.catch_page_clipboard,
+                            g.clipboard_extensions.clone(),
+                        )
+                    })
                 })
-                .unwrap_or((true, false));
+                .unwrap_or((true, false, String::new()));
             if !watch_files && !watch_pages {
                 primed = false;
                 last = None;
@@ -2075,7 +2096,10 @@ fn spawn_clipboard_watch(app: tauri::AppHandle) {
                 continue;
             }
             if watch_files {
-                let files = catch::file_urls_in(&text);
+                let files = catch::filter_clipboard_urls(
+                    catch::file_urls_in(&text),
+                    &clipboard_exts,
+                );
                 if files.len() > 1 {
                     // A dump of several file links is a LinkGrabber-style
                     // review, not a one-URL banner offer.
@@ -4694,6 +4718,15 @@ mod tests {
     fn a_settings_file_without_confirm_capture_still_asks() {
         let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
         assert!(s.confirm_capture);
+    }
+
+    /// Quiet mode and clipboard filters are opt-in; older settings stay loud.
+    #[test]
+    fn a_settings_file_without_quiet_mode_stays_loud() {
+        let s = settings_from(r#"{"downloadDir":"/tmp"}"#);
+        assert!(!s.quiet_mode);
+        assert!(s.quiet_category_id.is_empty());
+        assert!(s.clipboard_extensions.is_empty());
     }
 
     /// A settings file from before the proxy field existed must not start
