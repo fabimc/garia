@@ -1522,8 +1522,11 @@ export function queueGroupMeta(status) {
     removed: {
       key: "removed",
       sectionLabel: "Removed",
-      sidebarFilter: "all",
-      sidebarTitle: "All Downloads",
+      // Keep "removed" (not "all"): sidebarViewOf feeds the poll tally, and
+      // tally.all is already pre-seeded to the list length — mapping removed
+      // rows to "all" would increment that badge a second time.
+      sidebarFilter: "removed",
+      sidebarTitle: "Removed",
       scanKey: "removed",
     },
   };

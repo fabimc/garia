@@ -740,6 +740,10 @@ test("queue groups keep Active/Queued/Paused/Seeding aligned with scan chips", (
   assert.equal(queueGroupMeta("seeding").sidebarFilter, "seeding");
   assert.equal(queueGroupMeta("merging").sidebarFilter, "active");
   assert.equal(formatQueueScan("active").label, queueGroupMeta("active").sectionLabel);
+  // removed must not map to "all" — tally.all is pre-seeded, so "all" would
+  // double-count removed rows in the All Downloads badge.
+  assert.equal(queueGroupMeta("removed").sidebarFilter, "removed");
+  assert.notEqual(queueGroupMeta("removed").sidebarFilter, "all");
 });
 
 test("scheduled queue rows and review copy surface holds across relaunches", () => {
