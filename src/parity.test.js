@@ -77,6 +77,22 @@ import {
   rememberedQualityRule,
   formatSetupCategoryHint,
   setupCategoriesPatch,
+  normalizeTag,
+  parseTagList,
+  tagSummary,
+  tagsOfGid,
+  setTagsOnMap,
+  filterGidsByTag,
+  normalizeDestination,
+  destinationSummary,
+  applyDestinationChoice,
+  containingFolderOf,
+  organizeMenuExtras,
+  queueGroupMeta,
+  scheduledQueueRows,
+  scheduleReviewSummary,
+  schedulePersistHint,
+  queueBulkExtras,
 } from "./parity.js";
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -650,4 +666,125 @@ test("the welcome sheet is where categories are introduced", () => {
   assert.match(html, /id="setup-categories"/);
   assert.match(html, /Sort files into folders by type/);
   assert.match(html, /id="setup-categories-hint"/);
+});
+
+// Folx parity §5–§6: tags, destinations, organize menu, queue groups, schedule review.
+
+test("tags normalize, parse, and summarize for the row", () => {
+  assert.equal(normalizeTag("  Work  "), "Work");
+  assert.equal(normalizeTag("a".repeat(50)).length, 40);
+  assert.deepEqual(parseTagList("Work, home;Work\nISO"), ["Work", "home", "ISO"]);
+  assert.equal(tagSummary(["Work"]), "Work");
+  assert.equal(tagSummary(["Work", "Home"]), "Work, Home");
+  assert.equal(tagSummary(["Work", "Home", "ISO"]), "Work +2");
+});
+
+test("tag maps add, replace, and remove without inventing empty entries", () => {
+  let map = setTagsOnMap({}, ["a", "b"], "Work, Home", "set");
+  assert.deepEqual(tagsOfGid(map, "a"), ["Work", "Home"]);
+  map = setTagsOnMap(map, ["a"], "ISO", "add");
+  assert.deepEqual(tagsOfGid(map, "a"), ["Work", "Home", "ISO"]);
+  map = setTagsOnMap(map, ["a"], "home", "remove");
+  assert.deepEqual(tagsOfGid(map, "a"), ["Work", "ISO"]);
+  map = setTagsOnMap(map, ["b"], "", "set");
+  assert.deepEqual(tagsOfGid(map, "b"), []);
+  assert.equal(map.has("b"), false);
+  assert.deepEqual(filterGidsByTag(map, "Work"), ["a"]);
+});
+
+test("saved destinations resolve under the download folder or as absolute paths", () => {
+  const abs = normalizeDestination({ name: "ISOs", path: "/Volumes/ISOs" });
+  assert.equal(abs.name, "ISOs");
+  assert.equal(applyDestinationChoice("/Users/me/Downloads", abs), "/Volumes/ISOs");
+  assert.equal(
+    applyDestinationChoice("/Users/me/Downloads", { name: "Video", path: "Video" }),
+    "/Users/me/Downloads/Video",
+  );
+  assert.equal(applyDestinationChoice("/Users/me/Downloads", { path: "" }), "/Users/me/Downloads");
+  assert.match(destinationSummary(abs), /ISOs/);
+  assert.equal(containingFolderOf({ path: "/a/b/c.iso" }), "/a/b");
+  assert.equal(containingFolderOf({ dir: "/a/b/" }), "/a/b");
+  assert.equal(containingFolderOf({}), "");
+});
+
+test("organize menu offers category, destination, tag, and containing-folder verbs", () => {
+  assert.deepEqual(organizeMenuExtras({ selected: 0 }), []);
+  const full = organizeMenuExtras({
+    selected: 2,
+    hasCategories: true,
+    hasDestinations: true,
+    canOpenContaining: true,
+    hasTagsOnSelection: true,
+  }).map((item) => item.action);
+  assert.deepEqual(full, [
+    "open-containing",
+    "set-category",
+    "clear-category",
+    "set-destination",
+    "add-tag",
+    "remove-tag",
+    "clear-tags",
+  ]);
+  assert.deepEqual(
+    organizeMenuExtras({ selected: 1, hasCategories: false, hasDestinations: false })
+      .map((item) => item.action),
+    ["add-tag"],
+  );
+});
+
+test("queue groups keep Active/Queued/Paused/Seeding aligned with scan chips", () => {
+  assert.equal(queueGroupMeta("active").sectionLabel, "Active");
+  assert.equal(queueGroupMeta("active").sidebarTitle, "Active");
+  assert.equal(queueGroupMeta("waiting").sectionLabel, "Queued");
+  assert.equal(queueGroupMeta("paused").scanKey, "paused");
+  assert.equal(queueGroupMeta("seeding").sidebarFilter, "seeding");
+  assert.equal(queueGroupMeta("merging").sidebarFilter, "active");
+  assert.equal(formatQueueScan("active").label, queueGroupMeta("active").sectionLabel);
+  // removed must not map to "all" — tally.all is pre-seeded, so "all" would
+  // double-count removed rows in the All Downloads badge.
+  assert.equal(queueGroupMeta("removed").sidebarFilter, "removed");
+  assert.notEqual(queueGroupMeta("removed").sidebarFilter, "all");
+});
+
+test("scheduled queue rows and review copy surface holds across relaunches", () => {
+  const rows = scheduledQueueRows(
+    [
+      { gid: "1", status: "paused", name: "later" },
+      { gid: "2", status: "paused", name: "soon" },
+      { gid: "3", status: "active", name: "running" },
+    ],
+    { heldGids: ["1"], starts: { 2: 1_700_000_000_000 } },
+  );
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].gid, "2");
+  assert.equal(rows[0].reason, "start-at");
+  assert.equal(rows[1].reason, "held");
+  const empty = scheduleReviewSummary([], { windowEnabled: true, windowOpen: false, windowLabel: "2:00 AM" });
+  assert.match(empty.label, /Window shut until 2:00 AM/);
+  assert.match(empty.title, /relaunch/i);
+  const held = scheduleReviewSummary(rows, { queueStopped: true });
+  assert.equal(held.count, 2);
+  assert.match(held.label, /2 held/);
+  assert.match(held.title, /relaunch/i);
+  assert.match(schedulePersistHint({ hasStartAt: true }), /start time survives/);
+  assert.match(schedulePersistHint({ queueStopped: true }), /stays stopped/);
+});
+
+test("queue bulk extras appear for mixed multi-select housekeeping", () => {
+  assert.deepEqual(queueBulkExtras({ selected: 1, active: 1 }), []);
+  assert.deepEqual(
+    queueBulkExtras({
+      selected: 4,
+      active: 1,
+      waiting: 1,
+      paused: 1,
+      completed: 1,
+      failed: 0,
+    }).map((item) => item.action),
+    ["stop", "resume", "clear-selected-completed"],
+  );
+  assert.ok(
+    queueBulkExtras({ selected: 3, seeding: 1, active: 2 })
+      .some((item) => item.action === "unseed"),
+  );
 });

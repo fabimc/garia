@@ -62,6 +62,21 @@ import {
   formatSetupCategoryHint,
   setupCategoriesPatch,
   FILE_PRIORITY_TIERS,
+  parseTagList,
+  tagSummary,
+  tagsOfGid,
+  setTagsOnMap,
+  normalizeDestination,
+  destinationSummary,
+  applyDestinationChoice,
+  containingFolderOf,
+  organizeMenuExtras,
+  queueGroupMeta,
+  scheduledQueueRows,
+  scheduleReviewSummary,
+  schedulePersistHint,
+  queueBulkExtras,
+  newDestinationId,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -995,6 +1010,68 @@ function savePackages() {
   renderPackageNav?.();
 }
 
+// Folx-style tags and saved destination folders. aria2 still owns the file;
+// these only label rows and remember folder presets for bulk organize.
+const TAGS_KEY = "garia:download-tags";
+const DESTINATIONS_KEY = "garia:destinations";
+
+function loadTagMap() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TAGS_KEY) || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return new Map();
+    const map = new Map();
+    for (const [gid, tags] of Object.entries(raw)) {
+      const list = parseTagList(Array.isArray(tags) ? tags.join(",") : tags);
+      if (list.length) map.set(String(gid), list);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+let downloadTags = loadTagMap();
+
+function saveTags() {
+  try {
+    localStorage.setItem(TAGS_KEY, JSON.stringify(Object.fromEntries(downloadTags)));
+  } catch { /* private mode */ }
+}
+
+function loadDestinations() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DESTINATIONS_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((row) => normalizeDestination(row))
+      .filter((row) => row.id && row.path);
+  } catch {
+    return [];
+  }
+}
+
+let destinations = loadDestinations();
+
+function saveDestinations() {
+  try {
+    localStorage.setItem(DESTINATIONS_KEY, JSON.stringify(destinations));
+  } catch { /* private mode */ }
+}
+
+function rememberDestination(raw) {
+  const dest = normalizeDestination({
+    ...raw,
+    id: raw?.id || newDestinationId(),
+  });
+  if (!dest.path) return null;
+  destinations = [
+    dest,
+    ...destinations.filter((row) => row.id !== dest.id && row.path !== dest.path),
+  ];
+  saveDestinations();
+  return dest;
+}
+
 function rememberPackage({ id, name, gids }) {
   const list = (gids || []).map(String).filter(Boolean);
   if (!id || list.length < 2) return;
@@ -1343,7 +1420,7 @@ function statusClass(status) {
 }
 
 function sidebarViewOf(status) {
-  return status === "merging" ? "active" : status;
+  return queueGroupMeta(status).sidebarFilter;
 }
 
 // Row order: what's moving first, what's finished last.
@@ -1830,6 +1907,7 @@ function createItemEl(dl) {
       <button type="button" class="dl-name"></button>
       <span class="dl-scan hidden"></span>
       <span class="dl-package hidden"></span>
+      <span class="dl-tags hidden"></span>
       <span class="dl-verified hidden">Verified</span>
       <span class="dl-priority hidden"></span>
       <span class="dl-cap hidden"></span>
@@ -2009,6 +2087,16 @@ function updateItemEl(li, dl) {
     pkgEl.title = pkgName ? `Package: ${pkgName}` : "";
   }
 
+  const tags = tagsOfGid(downloadTags, dl.gid);
+  const tagsLabel = tagSummary(tags);
+  li.dataset.tags = tags.join(",");
+  const tagsEl = li.querySelector(".dl-tags");
+  if (tagsEl) {
+    tagsEl.classList.toggle("hidden", !tagsLabel);
+    if (tagsLabel && tagsEl.textContent !== tagsLabel) tagsEl.textContent = tagsLabel;
+    tagsEl.title = tags.length ? `Tags: ${tags.join(", ")}` : "";
+  }
+
   const statusEl = li.querySelector(".dl-status-text");
   if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
   const failKind = dl.status === "error"
@@ -2046,8 +2134,9 @@ function updateItemEl(li, dl) {
   const resumeTip = resumedGids.has(dl.gid) && Number(dl.completedLength) > 0
     ? formatRestartResumeNote(formatBytes(dl.completedLength))
     : "";
+  const persistTip = held ? heldPersistTip(dl.gid) : "";
   // waitReason already carries the recovery next step for tagged failures.
-  statusEl.title = [waitReason, reason, seedTip, stallTip, slowTip, resumeTip]
+  statusEl.title = [waitReason, persistTip, reason, seedTip, stallTip, slowTip, resumeTip]
     .filter(Boolean)
     .filter((text, i, all) => all.indexOf(text) === i)
     .join(" ");
@@ -2080,14 +2169,16 @@ function updateItemEl(li, dl) {
 }
 
 // ── Section headers ──────────────────────────────────────────────────────
+// Active/Queued/Paused/Seeding match the scan chips — Folx users scan those
+// words, so the section header must not say "Downloading" for Active rows.
 const SECTION_LABELS = {
-  active: "Downloading",
-  merging: "Merging",
-  seeding: "Seeding",
-  waiting: "Queued",
-  paused: "Paused",
-  error: "Failed",
-  complete: "Completed",
+  active: queueGroupMeta("active").sectionLabel,
+  merging: queueGroupMeta("merging").sectionLabel,
+  seeding: queueGroupMeta("seeding").sectionLabel,
+  waiting: queueGroupMeta("waiting").sectionLabel,
+  paused: queueGroupMeta("paused").sectionLabel,
+  error: queueGroupMeta("error").sectionLabel,
+  complete: queueGroupMeta("complete").sectionLabel,
 };
 
 // Reused across polls so a re-sort moves the same nodes rather than rebuilding.
@@ -2158,12 +2249,12 @@ function withSeeding(dl) {
 const VIEW_TITLES = {
   all: "All Downloads",
   torrents: "Torrents",
-  active: "Downloading",
-  seeding: "Seeding",
-  waiting: "Queued",
-  paused: "Paused",
-  complete: "Completed",
-  error: "Failed",
+  active: queueGroupMeta("active").sidebarTitle,
+  seeding: queueGroupMeta("seeding").sidebarTitle,
+  waiting: queueGroupMeta("waiting").sidebarTitle,
+  paused: queueGroupMeta("paused").sidebarTitle,
+  complete: queueGroupMeta("complete").sidebarTitle,
+  error: queueGroupMeta("error").sidebarTitle,
 };
 
 // The last payload for each gid. Retry needs its URIs and folder, delete needs
@@ -2251,7 +2342,9 @@ function applyFilter(listEl) {
         : activeFilter === "torrents"
           ? el.dataset.torrent === "true"
           : activeFilter === "all" || rowStatus === activeFilter;
-    const nameMatch = !needle || el.dataset.name.toLowerCase().includes(needle);
+    const nameMatch = !needle
+      || el.dataset.name.toLowerCase().includes(needle)
+      || String(el.dataset.tags || "").toLowerCase().includes(needle);
     const match = statusMatch && nameMatch;
     el.classList.toggle("hidden", !match);
     el.classList.remove("is-last-shown");
@@ -2532,19 +2625,52 @@ function heldNote(gid) {
   });
 }
 
+function heldPersistTip(gid) {
+  if (!isHeld(gid)) return "";
+  return schedulePersistHint({
+    hasStartAt: startAt(gid) > 0,
+    queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
+    scheduleBlocked: schedule.enabled && !schedule.open,
+  });
+}
+
 const QUEUE_STOP_NOTE = "Running and queued downloads pause, and nothing new starts. Seeding continues.";
 
 // A window that is holding downloads back has to say so somewhere always
 // visible. Without it the app is simply a list of downloads that aren't going.
 function renderSchedule() {
+  const stopped = schedule.queueStopped === true || settings.queueStopped === true;
+  const heldRows = scheduledQueueRows([...snapshot.values()], {
+    heldGids,
+    starts: schedule.starts,
+  });
+  const review = scheduleReviewSummary(heldRows, {
+    windowEnabled: schedule.enabled,
+    windowOpen: schedule.open,
+    windowLabel: schedule.enabled
+      ? clockLabel(schedule.open ? schedule.end : schedule.start)
+      : "",
+    queueStopped: stopped,
+  });
+
   const queueEl = document.getElementById("stat-queue");
   if (queueEl) {
-    const stopped = schedule.queueStopped === true || settings.queueStopped === true;
     queueEl.classList.toggle("hidden", !stopped);
     if (stopped) {
       queueEl.dataset.state = "shut";
       queueEl.textContent = "· Queue stopped";
-      queueEl.title = `${QUEUE_STOP_NOTE} Start Queue lets them run again. The queue stays stopped after a relaunch until you start it.`;
+      queueEl.title = `${QUEUE_STOP_NOTE} Start Queue lets them run again. ${schedulePersistHint({ queueStopped: true })}`;
+    }
+  }
+
+  const heldEl = document.getElementById("stat-held");
+  if (heldEl) {
+    const showHeld = heldRows.length > 0 && !schedule.enabled;
+    heldEl.classList.toggle("hidden", !showHeld);
+    if (showHeld) {
+      heldEl.dataset.state = "shut";
+      heldEl.textContent = `· ${review.label}`;
+      heldEl.title = review.title;
     }
   }
 
@@ -2556,13 +2682,23 @@ function renderSchedule() {
   const span = formatSpan(secondsUntil(schedule.nextChange));
   const open = schedule.open;
   el.dataset.state = open ? "open" : "shut";
-  el.textContent = open
-    ? `· downloading until ${clockLabel(schedule.end)}`
-    : `· held until ${clockLabel(schedule.start)}`;
+  const windowBit = open
+    ? `downloading until ${clockLabel(schedule.end)}`
+    : `held until ${clockLabel(schedule.start)}`;
+  el.textContent = heldRows.length
+    ? `· ${heldRows.length} held · ${windowBit}`
+    : `· ${windowBit}`;
+  const persist = schedulePersistHint({
+    hasStartAt: heldRows.some((row) => row.reason === "start-at"),
+    scheduleBlocked: !open,
+  });
   el.title = open
-    ? `The window closes at ${clockLabel(schedule.end)}${span ? `, in ${span}` : ""}.`
+    ? `The window closes at ${clockLabel(schedule.end)}${span ? `, in ${span}` : ""}. ${persist}`
     : `Downloads are held until ${clockLabel(schedule.start)}${span ? `, in ${span}` : ""}. `
-      + "Garia has to be running then.";
+      + `Garia has to be running then. ${persist}`;
+  if (heldRows.length) {
+    el.title = `${review.title} ${el.title}`;
+  }
 }
 
 function renderQueueToggle() {
@@ -4242,6 +4378,13 @@ async function poll(listEl) {
     for (const gid of categoryMemo.keys()) {
       if (!seen.has(gid)) categoryMemo.delete(gid);
     }
+    let tagsPruned = false;
+    for (const gid of downloadTags.keys()) {
+      if (seen.has(gid)) continue;
+      downloadTags.delete(gid);
+      tagsPruned = true;
+    }
+    if (tagsPruned) saveTags();
 
     // Reorder by status, stable within each group so aria2's own ordering shows
     // through, inserting a section header whenever the status changes. Only
@@ -4590,6 +4733,140 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  async function changeSelectedDirs(dir) {
+    const folder = String(dir || "").replace(/\/+$/, "");
+    if (!folder) return;
+    let changed = false;
+    for (const dl of selectedDownloads()) {
+      const running = dl.status === "active";
+      try {
+        await whilePaused(dl.gid, running, () => rpc("aria2.changeOption", [dl.gid, { dir: folder }]));
+        categoryMemo.delete(dl.gid);
+        changed = true;
+      } catch (err) {
+        failed(`Couldn't move “${fileName(dl)}”`, err);
+      }
+    }
+    if (changed) {
+      filterDirty = true;
+      await pollAndSync();
+    }
+  }
+
+  async function runOrganizeAction(action) {
+    const gids = [...selected];
+    const dls = selectedDownloads();
+    if (!gids.length) return;
+
+    if (action === "open-containing") {
+      const folders = [...new Set(dls.map((dl) => containingFolderOf({
+        dir: destDirOf(dl) || dl.dir,
+        path: rowPath(dl),
+      })).filter(Boolean))];
+      const openPath = window.__TAURI__?.opener?.openPath;
+      if (typeof openPath !== "function") return;
+      for (const folder of folders) {
+        try {
+          await openPath(folder);
+        } catch (err) {
+          failed("Couldn't open the folder", err);
+        }
+      }
+      return;
+    }
+
+    if (action === "set-category") {
+      const cats = activeCategories();
+      if (!cats.length) return;
+      const choices = cats.map((cat, i) => `${i + 1}. ${cat.name}`).join("\n");
+      const answer = window.prompt(`Move to category number:\n${choices}`, "1");
+      if (answer == null || !answer.trim()) return;
+      const asIndex = Number(answer.trim());
+      if (!Number.isFinite(asIndex) || asIndex < 1 || asIndex > cats.length) return;
+      await changeSelectedDirs(categoryPath(cats[asIndex - 1]));
+      return;
+    }
+
+    if (action === "clear-category") {
+      const base = (settings.downloadDir || "").replace(/\/+$/, "");
+      if (!base) return;
+      await changeSelectedDirs(base);
+      return;
+    }
+
+    if (action === "set-destination") {
+      const list = destinations.slice();
+      const choices = list.map((row, i) => `${i + 1}. ${destinationSummary(row)}`).join("\n");
+      const answer = window.prompt(
+        list.length
+          ? `Move to saved folder number, or type a new name to save one:\n${choices}`
+          : "Name a saved folder (you will choose the path next):",
+        list[0]?.name || "Downloads",
+      );
+      if (answer == null || !answer.trim()) return;
+      const asIndex = Number(answer.trim());
+      let dest = null;
+      if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= list.length) {
+        dest = list[asIndex - 1];
+      } else {
+        const pick = window.__TAURI__?.dialog?.open;
+        let path = "";
+        if (typeof pick === "function") {
+          try {
+            const chosen = await pick({
+              directory: true,
+              multiple: false,
+              title: "Choose a folder to save",
+              defaultPath: settings.downloadDir || undefined,
+            });
+            if (typeof chosen === "string") path = chosen;
+          } catch (err) {
+            failed("Couldn't choose a folder", err);
+            return;
+          }
+        }
+        if (!path) return;
+        dest = rememberDestination({ name: answer.trim(), path });
+      }
+      if (!dest) return;
+      const folder = applyDestinationChoice(settings.downloadDir, dest);
+      await changeSelectedDirs(folder);
+      return;
+    }
+
+    if (action === "add-tag") {
+      const answer = window.prompt("Tag (comma-separated for several)", "");
+      if (answer == null || !parseTagList(answer).length) return;
+      downloadTags = setTagsOnMap(downloadTags, gids, answer, "add");
+      saveTags();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "remove-tag") {
+      const existing = [...new Set(dls.flatMap((dl) => tagsOfGid(downloadTags, dl.gid)))];
+      if (!existing.length) return;
+      const answer = window.prompt(
+        `Remove tag (one of: ${existing.join(", ")})`,
+        existing[0],
+      );
+      if (answer == null || !answer.trim()) return;
+      downloadTags = setTagsOnMap(downloadTags, gids, answer, "remove");
+      saveTags();
+      filterDirty = true;
+      await pollAndSync();
+      return;
+    }
+
+    if (action === "clear-tags") {
+      downloadTags = setTagsOnMap(downloadTags, gids, "", "set");
+      saveTags();
+      filterDirty = true;
+      await pollAndSync();
+    }
+  }
+
   async function runOnSelected(action) {
     const gids = [...selected];
     if (action === "remove") { openConfirm(gids); return; }
@@ -4627,6 +4904,23 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (action === "clear-completed") {
       clearCompleted();
+      return;
+    }
+    if (action === "clear-selected-completed") {
+      const done = selectedDownloads()
+        .filter((dl) => dl.status === "complete")
+        .map((dl) => dl.gid);
+      if (done.length) await removeDownloads(done, false);
+      return;
+    }
+    if (action === "open-containing"
+      || action === "set-category"
+      || action === "clear-category"
+      || action === "set-destination"
+      || action === "add-tag"
+      || action === "remove-tag"
+      || action === "clear-tags") {
+      await runOrganizeAction(action);
       return;
     }
     if (action === "select-package"
@@ -4910,7 +5204,36 @@ window.addEventListener("DOMContentLoaded", async () => {
       items.push({ action: "move-end", label: "Move to End" });
     }
     if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
+    const bulk = queueBulkExtras({
+      selected: dls.length,
+      active: dls.filter((d) => d.status === "active").length,
+      waiting: dls.filter((d) => d.status === "waiting").length,
+      paused: dls.filter((d) => d.status === "paused").length,
+      seeding: dls.filter((d) => d.status === "seeding").length,
+      completed: dls.filter((d) => d.status === "complete").length,
+      failed: dls.filter(
+        (d) => d.status === "error" && (d.job?.webpageUrl || retryUris(d).length),
+      ).length,
+    });
+    if (bulk.length) {
+      items.push({ separator: true });
+      items.push(...bulk);
+    }
     items.push(...queueHousekeeping(dls));
+    const organize = organizeMenuExtras({
+      selected: dls.length,
+      hasCategories: activeCategories().length > 0,
+      hasDestinations: destinations.length > 0 || Boolean(settings.downloadDir),
+      canOpenContaining: dls.some((d) => containingFolderOf({
+        dir: destDirOf(d) || d.dir,
+        path: rowPath(d),
+      })),
+      hasTagsOnSelection: dls.some((d) => tagsOfGid(downloadTags, d.gid).length > 0),
+    });
+    if (organize.length) {
+      items.push({ separator: true });
+      items.push(...organize);
+    }
     const pkgIds = [...new Set(dls.map((d) => packageOf(d.gid)?.id).filter(Boolean))];
     if (pkgIds.length === 1) {
       const pkg = packages.find((row) => row.id === pkgIds[0]);
@@ -4951,6 +5274,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   function openRowMenu(x, y) {
     const dls = selectedDownloads();
     if (!dls.length) return;
+    destinations = loadDestinations();
     rowMenu.textContent = "";
     for (const spec of menuSpecFor(dls)) {
       if (spec.separator) {
