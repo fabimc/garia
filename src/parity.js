@@ -1057,7 +1057,9 @@ export function formatTorrentNextStep(dl, health = null) {
     return "Retry adds it again when a magnet or URL is still on the row.";
   }
   const total = Number(dl.totalLength) || 0;
-  if (dl.status === "active" && total === 0 && !dl.seeder) {
+  // aria2 sends seeder as "true"/"false" strings; !"false" is false, so
+  // compare explicitly rather than treating the field as a boolean.
+  if (dl.status === "active" && total === 0 && dl.seeder !== "true") {
     return "Fetching metainfo — the file list appears once a peer answers.";
   }
   if (dl.status === "active" && isStalled(dl)) {

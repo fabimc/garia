@@ -2941,10 +2941,26 @@ function updateSelectBar(sec) {
     : [...sec.querySelectorAll("select[data-file-priority]")]
       .some((sel) => sel.value !== sel.dataset.was);
   const changed = priorityChanged || boxes.some((box) => box.checked !== (box.dataset.was !== "false"));
-  const taking = draft?.size
-    ? [...draft.values()].filter((tier) => tier !== "off").length
-    : boxes.filter((box) => box.checked).length;
-  const total = draft?.size || (dl?.files?.length > 1 ? dl.files.length : boxes.length);
+  // A partial draft (one checkbox change) must still count every torrent file:
+  // draft-only taking/total undercounts and can disable Apply when two of three
+  // are still selected.
+  const allFiles = dl?.files?.length > 1 ? dl.files : null;
+  let taking;
+  let total;
+  if (draft?.size && allFiles) {
+    total = allFiles.length;
+    taking = 0;
+    for (const file of allFiles) {
+      const index = Number(file.index);
+      const tier = draft.has(index)
+        ? draft.get(index)
+        : priorityFor(dl, file.index, file.selected);
+      if (tier !== "off") taking += 1;
+    }
+  } else {
+    taking = boxes.filter((box) => box.checked).length;
+    total = boxes.length;
+  }
 
   bar.classList.toggle("hidden", !changed || total === 0);
   const priorityNote = " High downloads before Normal, then Low. Off stays out. aria2 has no per-file piece priority, so that order is which files are selected.";

@@ -835,8 +835,17 @@ test("torrent next step and health note cover weak, metainfo, and seeding", () =
     completedLength: "0",
     downloadSpeed: "0",
     connections: "0",
+    seeder: "false",
   };
   assert.match(formatTorrentNextStep(meta), /metainfo/i);
+  assert.match(
+    formatTorrentNextStep({ ...meta, seeder: undefined }),
+    /metainfo/i,
+  );
+  assert.equal(
+    formatTorrentNextStep({ ...meta, seeder: "true" }),
+    "",
+  );
   assert.match(
     formatTorrentNextStep({ bittorrent: {}, status: "seeding" }),
     /Stop Seeding/i,
