@@ -1,3 +1,6 @@
+# srcmd.org — short-lived plans / TODOs (not intent; see src/md/)
+tmp/
+
 # Logs
 logs
 *.log

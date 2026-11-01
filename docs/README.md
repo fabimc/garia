@@ -70,3 +70,7 @@ Garia welcomes help.
  * Testing on Intel and Apple Silicon Macs
  * Documentation
  * The [browser extension store listings](Publishing-the-Extension.md)
+
+### Intent (`src/md`)
+
+Developer- and agent-focused intent (decisions, traps, subtleties) lives in [`../src/md/`](../src/md/README.md), following [srcmd.org](https://srcmd.org/). That tree is not user help and not a formal spec. Prefer editing `src/md` before changing the matching code. Short-lived plans go in `tmp/` (gitignored).
