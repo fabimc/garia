@@ -4,3 +4,4 @@ model/states/
 model/ScheduleHold_TTrace_*
 # Keep committed proof logs under evidence/; ignore ad-hoc local runs named otherwise.
 evidence/local-*.log
+states/
