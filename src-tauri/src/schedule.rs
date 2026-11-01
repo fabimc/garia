@@ -305,9 +305,11 @@ pub enum Act {
 pub fn decide(row: &Row, allowed: bool, held: bool, overridden: bool) -> Act {
     let paused = row.status == "paused";
     match (allowed, paused, held) {
-        // The window opened, or the row's hour came: whatever we stopped, we
-        // start. A paused row we did *not* stop is the user's and stays put.
-        (true, true, true) => Act::Release,
+        // Allowed and still marked held: drop the hold. If the row is paused
+        // we also unpause (we stopped it). If it is already running — Resume
+        // raced the window/start opening — unhold alone; leaving `held` would
+        // make a later user Pause look like ours and get Released.
+        (true, _, true) => Act::Release,
         (true, _, _) => Act::Leave,
         // Shut, and already stopped: nothing to do either way.
         (false, true, _) => Act::Leave,
@@ -391,6 +393,15 @@ mod tests {
         assert_eq!(decide(&stopped, true, true, false), Act::Release);
         // The user's own pause, which the window opening must not undo.
         assert_eq!(decide(&stopped, true, false, false), Act::Leave);
+    }
+
+    #[test]
+    fn a_running_held_row_is_unheld_when_allowed() {
+        // Resume raced the window/start opening: still marked held, already
+        // running. Release drops the stale hold without needing another pause.
+        let running = Row { gid: "a".into(), status: "active".into() };
+        assert_eq!(decide(&running, true, true, false), Act::Release);
+        assert_eq!(decide(&running, true, false, false), Act::Leave);
     }
 
     #[test]

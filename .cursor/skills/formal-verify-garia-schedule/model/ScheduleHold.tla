@@ -10,7 +10,7 @@
  *
  *   src-tauri/src/lib.rs
  *     schedule_tick — forcePause / unpause, hold / unhold, clear overrides
- *       when `open`; set_queue_stopped_blocking; set_download_start_blocking
+ *       when allowed; set_queue_stopped_blocking; set_download_start_blocking
  *
  * `open` here is schedule_tick's `open = daily_open && !queue_stopped`.
  * Per-gid `allowed` is schedule::allowed(gid, open, starts, now).
@@ -49,8 +49,11 @@ Allowed == open /\ (~hasStart \/ startDue)
 
 \* schedule::decide — schedule.rs
 \* Row status "paused" is the only pause; active and waiting are "running".
+\* Release covers both paused+held (unpause) and running+held (stale hold after
+\* Resume raced allowed) — schedule_tick unholds without requiring unpause RPC
+\* when the row is already running.
 Decide(paused, allowed, isHeld, isOverridden) ==
-  CASE allowed /\ paused /\ isHeld                 -> "Release"
+  CASE allowed /\ isHeld                           -> "Release"
     [] allowed                                     -> "Leave"
     [] (~allowed) /\ paused                        -> "Leave"
     [] (~allowed) /\ (~paused) /\ isHeld           -> "Overridden"
@@ -84,13 +87,11 @@ TypeOK ==
 \* NoStaleHold — after a Tick, a running download is not still marked held.
 \*   Harm if broken: held sticks across a Resume that races a window/queue open;
 \*   a later user Pause is mistaken for a scheduler hold and gets Released.
-\*   (Finding on current code — see skill report.)
 \*
 \* OverrideStickyWhileGated — deciding Overridden must leave overridden set
 \*   whenever allowed is still false (e.g. per-download start not due yet).
 \*   Harm if broken: clearing overrides whenever `open` forgets a resume of a
 \*   start-gated row and the next tick Holds it again.
-\*   (Finding on current code — see skill report.)
 
 UserPauseSafety == ~badRelease
 OverrideNoFight == ~badRehold
@@ -116,8 +117,8 @@ Init ==
 \* + override clear). RPC success is assumed — see module header.
 \* Overridden only fires when ~Allowed. Allowed = open /\ (~hasStart \/ startDue),
 \* so ~Allowed does NOT imply ~open: a start-gated row can be Overridden while
-\* open=TRUE, then overriddenNext clears because open — that race is the
-\* OverrideStickyWhileGated finding (badLostOverride).
+\* open=TRUE. Overrides clear when the row is allowed (not merely when open),
+\* matching schedule_tick's retain on ~allowed.
 Tick ==
   LET paused == (status = "paused")
       allowed == Allowed
@@ -131,7 +132,7 @@ Tick ==
           [] d \in {"Release", "Overridden"} -> FALSE
           [] OTHER                           -> held
       overriddenNext ==
-        IF open THEN FALSE
+        IF allowed THEN FALSE
         ELSE IF d = "Overridden" THEN TRUE
         ELSE overridden
       hasStartNext ==

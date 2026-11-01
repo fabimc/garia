@@ -2257,7 +2257,13 @@ fn schedule_tick(app: &tauri::AppHandle) {
                 }
             }
             schedule::Act::Release => {
-                if ask("aria2.unpause", serde_json::json!([row.gid])).is_some() {
+                // Already running: only the hold bit is stale (Resume raced
+                // allowed). Unpausing an active gid fails in aria2, so do not
+                // gate the unhold on RPC success in that case.
+                let needs_unpause = row.status == "paused";
+                if !needs_unpause
+                    || ask("aria2.unpause", serde_json::json!([row.gid])).is_some()
+                {
                     unhold.push(row.gid.clone());
                 }
             }
@@ -2272,13 +2278,13 @@ fn schedule_tick(app: &tauri::AppHandle) {
         }
     }
 
-    // An override answers one shut window rather than every future one, so the
-    // window opening clears them all.
-    if open {
-        overridden.clear();
-    } else {
-        overridden.retain(|gid| known.contains(gid));
-    }
+    // An override answers one gated period (shut window / future start), not
+    // every future one. Clear it once the row is actually allowed to run —
+    // not merely when the daily window/`open` bit is true, or a resume of a
+    // start-gated hold is forgotten and the next tick Holds again.
+    overridden.retain(|gid| {
+        known.contains(gid) && !schedule::allowed(gid, open, &saved.starts, now)
+    });
     sched.set_overridden(overridden);
     sched.reconcile(&hold, &unhold, &spent, &known);
 
