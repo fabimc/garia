@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# One-command TLC run for the Garia schedule hold model.
+# Usage:
+#   ./scripts/run-tlc              # full invariants (includes known findings)
+#   ./scripts/run-tlc passing      # only invariants expected to pass on current code
+#   ./scripts/run-tlc full         # same as default
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MODEL="$ROOT/model"
+JAR="$MODEL/tla2tools.jar"
+# Pinned TLA+ tools release (TLC). Re-fetch when the skill bumps this URL.
+TLA2TOOLS_URL="${TLA2TOOLS_URL:-https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar}"
+
+MODE="${1:-full}"
+case "$MODE" in
+  full)    CFG="$MODEL/ScheduleHold.cfg" ;;
+  passing) CFG="$MODEL/ScheduleHold-passing.cfg" ;;
+  *)
+    echo "usage: $0 [full|passing]" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v java >/dev/null 2>&1; then
+  echo "java is required to run TLC (OpenJDK 17+)." >&2
+  exit 1
+fi
+
+if [[ ! -f "$JAR" ]]; then
+  echo "Fetching tla2tools.jar from $TLA2TOOLS_URL ..."
+  curl -fsSL -o "$JAR" "$TLA2TOOLS_URL"
+fi
+
+# Drop prior TLC trace specs so a failure's artifact is from this run only.
+rm -f "$MODEL"/ScheduleHold_TTrace_*.tla "$MODEL"/ScheduleHold_TTrace_*.cfg "$MODEL"/*.bin
+
+cd "$MODEL"
+# SPEC path is the module name relative to cwd (model/).
+set +e
+java -XX:+UseParallelGC -cp tla2tools.jar tlc2.TLC \
+  -config "$CFG" \
+  -workers auto \
+  -cleanup \
+  ScheduleHold
+status=$?
+set -e
+
+echo
+echo "TLC exit: $status (0 = all checked invariants held)"
+echo "Config: $CFG"
+if ls "$MODEL"/ScheduleHold_TTrace_*.tla >/dev/null 2>&1; then
+  echo "Counterexample trace spec(s):"
+  ls -1 "$MODEL"/ScheduleHold_TTrace_*.tla
+  echo "Read every TLC result with the pstack /statechart skill (by name)."
+fi
+exit "$status"

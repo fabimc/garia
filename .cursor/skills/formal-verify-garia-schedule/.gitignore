@@ -1,0 +1,5 @@
+model/tla2tools.jar
+model/*.bin
+model/states/
+model/ScheduleHold_TTrace_*
+evidence/*.log
