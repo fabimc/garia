@@ -229,6 +229,28 @@ const removed = new Set();
 // Records the UI has had aria2 forget. Only a stopped download can be.
 const purged = new Set();
 
+// URIs the UI added through aria2.addUri. Kept so a browser-dev verification
+// run can prove Add download against this mock (the gid must show up in
+// tellWaiting / tellActive on the next poll, the way a real aria2 answers).
+const added = new Map();
+
+function addUri(uris = [], options = {}) {
+  const gid = "9999" + String(Date.now()).slice(-4) + String(added.size);
+  const uri = Array.isArray(uris) ? (uris[0] || "https://example.com/file") : String(uris);
+  const name = uri.split("/").pop()?.split("?")[0] || "download.bin";
+  const dir = options.dir || "/Users/me/Downloads";
+  const path = `${dir.replace(/\/$/, "")}/${name}`;
+  const status = options.pause === "true" ? "paused" : "waiting";
+  if (status === "paused") paused.add(gid);
+  added.set(gid, () =>
+    item(gid, paused.has(gid) ? "paused" : "waiting", path, 10 * MB, 0, 0, {
+      uris: [{ uri, status: "used" }],
+    }));
+  queueOrder.push(gid);
+  QUEUE.set(gid, added.get(gid));
+  return gid;
+}
+
 function snapshot() {
   // Let the two active downloads creep forward so progress bars animate.
   const t = (Date.now() - started) / 1000;
@@ -423,9 +445,7 @@ function answer(method, params = []) {
       ? (s.stopped.some((d) => d.gid === params[0])
         ? (purged.add(params[0]), "OK")
         : { error: `Could not remove download result of GID#${params[0]}` }) :
-    // aria2 answers a fresh gid, and the checksum path follows it — the mock
-    // has no row to give it, which is itself the shape a purged gid has.
-    method === "aria2.addUri"       ? "9999" + String(Date.now()).slice(-4) :
+    method === "aria2.addUri"       ? addUri(params[0], params[1] || {}) :
     method === "aria2.getGlobalStat" ? {
       numActive: String(s.active.length),
       numWaiting: String(s.waiting.length),

@@ -1,0 +1,9 @@
+{
+  "name": "verify-garia-helpers",
+  "private": true,
+  "type": "module",
+  "description": "Playwright driver dependency for control-garia.mjs",
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}

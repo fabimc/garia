@@ -1,0 +1,136 @@
+url: http://127.0.0.1:8765/
+title: Garia
+conn: aria2 · 127.0.0.1:6800
+view: Active
+
+- complementary:
+  - text: garia
+  - button "Hide sidebar":
+    - img
+  - button "Add download":
+    - img
+    - text: Add download
+  - navigation:
+    - text: Library
+    - button "All Downloads 24":
+      - img
+      - text: All Downloads 24
+    - button "Torrents 2":
+      - img
+      - text: Torrents 2
+    - button "Active 7":
+      - img
+      - text: Active 7
+    - button "Seeding 1":
+      - img
+      - text: Seeding 1
+    - button "Queued 5":
+      - img
+      - text: Queued 5
+    - button "Paused 1":
+      - img
+      - text: Paused 1
+    - text: Archive
+    - button "Completed 4":
+      - img
+      - text: Completed 4
+    - button "Failed 6":
+      - img
+      - text: Failed 6
+  - button "Settings":
+    - img
+    - text: Settings
+- main:
+  - heading "Active" [level=1]
+  - text: 7 items
+  - button "Pause all":
+    - img
+    - text: Pause all
+  - button "Resume all":
+    - img
+    - text: Resume all
+  - button "Stop Queue"
+  - button "Columns":
+    - img
+    - text: Columns
+  - img
+  - searchbox "Search downloads…"
+  - row "Name Size Status Speed Time left"
+  - listbox "Downloads":
+    - option "Pause Ubuntu 24.04 Desktop.iso Active 351.0 MB 29% 4.2 MB/s 59s Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "Ubuntu 24.04 Desktop.iso"
+      - text: Active 351.0 MB 29% 4.2 MB/s 59s
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause archive-linux-isos Active 1.8 GB 19% 2.6 MB/s 9m Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "archive-linux-isos"
+      - text: Active 1.8 GB 19% 2.6 MB/s 9m
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause stream-of-unknown-size.bin Active Light 26.8 MB Resumed after a restart — 26.8 MB were already on disk. 1.1 MB/s — Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "stream-of-unknown-size.bin"
+      - text: Active Light 26.8 MB 1.1 MB/s —
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause Big Buck Bunny 4K.mp4 Active 2.3 GB 23% 5.5 MB/s 6m Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "Big Buck Bunny 4K.mp4"
+      - text: Active 2.3 GB 23% 5.5 MB/s 6m
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause lands-in-15-seconds.mp4 Active 80.0 MB 98% 5.3 MB/s — Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "lands-in-15-seconds.mp4"
+      - text: Active 80.0 MB 98% 5.3 MB/s —
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause A Very Long Talk About Nothing.f315.webm Active 1.3 GB 37% 3.4 MB/s 4m Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "A Very Long Talk About Nothing.f315.webm"
+      - text: Active 1.3 GB 37% 3.4 MB/s 4m
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+    - option "Pause A Very Long Talk About Nothing.f251.webm Active 42.0 MB 37% 614.4 KB/s 44s Show in Finder Delete download":
+      - button "Pause":
+        - img
+      - img
+      - button "A Very Long Talk About Nothing.f251.webm"
+      - text: Active 42.0 MB 37% 614.4 KB/s 44s
+      - button "Show in Finder":
+        - img
+      - button "Delete download":
+        - img
+- contentinfo:
+  - text: aria2 · 127.0.0.1:6800 · 7 downloading · 1 seeding · 5 queued · 1 paused · 4 done · 6 failed
+  - button "Retry Failed"
+  - button "Clear Completed"
+  - text: ·
+  - button "Full speed"
+  - text: ↓ 22.7 MB/s ↑ 1.4 MB/s ⌘F search

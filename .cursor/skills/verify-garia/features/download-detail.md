@@ -1,0 +1,31 @@
+# Download details
+
+Download details lets a user open a detail dialog for one download to inspect name, status, and source information beyond the row summary.
+
+## Sub-features
+
+- `detail-open` opens the detail dialog from a row name.
+- `detail-title` shows the download name in `#detail-title`.
+- `detail-close` dismisses the dialog with Done or Close.
+
+## How to get to it (user POV)
+
+- Choose the download name on a row in the list.
+- Use the row context menu Details item when present.
+
+## Driving it with control-garia
+
+Preconditions:
+
+- `./helpers/control-garia doctor` reports `ok: true`.
+- Seeded row `Ubuntu 24.04 Desktop.iso` exists under All Downloads or Active.
+
+- **Open details.** Choose the Ubuntu row name. Run `./helpers/control-garia browser open-detail --name 'Ubuntu 24.04 Desktop.iso'`. `#detail-overlay` is visible and `#detail-title` contains `Ubuntu 24.04 Desktop.iso`.
+- **Close.** Choose Done. Run `./helpers/control-garia browser click --css '#detail-done'`. The overlay is hidden.
+- **Proof.** Re-open details and capture. Run `./helpers/control-garia browser open-detail --name 'Ubuntu 24.04 Desktop.iso'`, then `./helpers/control-garia browser screenshot --path download-detail/ubuntu.png` and `./helpers/control-garia browser snapshot --path download-detail/ubuntu.aria.txt`. Artifacts show the detail dialog and the Ubuntu title.
+
+## Gotchas
+
+- Click `.dl-name`, not the row chrome alone — selection without opening details is not proof.
+- Torrent details include peers/files; HTTP details include servers. Assert the title first, then shape-specific fields if the journey requires them.
+- `Show in Finder` / reveal needs Tauri and is unverified in browser-dev.

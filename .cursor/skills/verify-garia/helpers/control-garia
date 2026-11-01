@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Thin wrapper so the skill can show `./helpers/control-garia …` invocations.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -d "$ROOT/node_modules/playwright" ]]; then
+  echo "Installing playwright for verify-garia helpers…" >&2
+  (cd "$ROOT" && npm install --no-fund --no-audit)
+fi
+exec node "$ROOT/control-garia.mjs" "$@"
