@@ -1,0 +1,88 @@
+TLC2 Version 2026.10.30.154139 (rev: 090e85c)
+Running breadth-first search Model-Checking with fp 28 and seed 915193957920248852 with 4 workers on 4 cores with 3557MB heap and 64MB offheap memory [pid: 3260] (Linux 6.12.94+ amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold.tla
+Parsing file /tmp/tlc-11995070012979547731/Integers.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-11995070012979547731/_TLCTrace.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-11995070012979547731/Naturals.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-11995070012979547731/TLC.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-11995070012979547731/TLCExt.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-11995070012979547731/Sequences.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-11995070012979547731/FiniteSets.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module ScheduleHold
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module ScheduleHold
+Starting... (2026-11-01 16:05:01)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-01 16:05:01.
+Error: Invariant OverrideStickyWhileGated is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ lastDecision = "none"
+/\ held = FALSE
+/\ badStaleHold = FALSE
+/\ open = TRUE
+/\ badLostOverride = FALSE
+/\ status = "running"
+/\ hasStart = FALSE
+/\ badRehold = FALSE
+/\ overridden = FALSE
+/\ badRelease = FALSE
+/\ startDue = FALSE
+
+State 2: <AssignFutureStart line 186, col 3 to line 193, col 34 of module ScheduleHold>
+/\ lastDecision = "none"
+/\ held = TRUE
+/\ badStaleHold = FALSE
+/\ open = TRUE
+/\ badLostOverride = FALSE
+/\ status = "paused"
+/\ hasStart = TRUE
+/\ badRehold = FALSE
+/\ overridden = FALSE
+/\ badRelease = FALSE
+/\ startDue = FALSE
+
+State 3: <UserResume line 161, col 3 to line 165, col 71 of module ScheduleHold>
+/\ lastDecision = "none"
+/\ held = TRUE
+/\ badStaleHold = FALSE
+/\ open = TRUE
+/\ badLostOverride = FALSE
+/\ status = "running"
+/\ hasStart = TRUE
+/\ badRehold = FALSE
+/\ overridden = FALSE
+/\ badRelease = FALSE
+/\ startDue = FALSE
+
+State 4: <Tick line 137, col 6 to line 147, col 36 of module ScheduleHold>
+/\ lastDecision = "Overridden"
+/\ held = FALSE
+/\ badStaleHold = FALSE
+/\ open = TRUE
+/\ badLostOverride = TRUE
+/\ status = "running"
+/\ hasStart = TRUE
+/\ badRehold = FALSE
+/\ overridden = FALSE
+/\ badRelease = FALSE
+/\ startDue = FALSE
+
+112 states generated, 47 distinct states found, 13 states left on queue.
+The depth of the complete state graph search is 6.
+Finished in 00s at (2026-11-01 16:05:01)
+Trace exploration spec path: ./ScheduleHold_TTrace_1793549101.tla
+
+TLC exit: 12 (0 = all checked invariants held)
+Config: /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold.cfg
+Counterexample trace spec(s):
+/workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold_TTrace_1793549101.tla
+Read every TLC result with the pstack /statechart skill (by name).
