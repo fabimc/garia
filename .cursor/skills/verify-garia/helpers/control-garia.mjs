@@ -487,7 +487,7 @@ async function cmdBrowser(argv) {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   if (!sub) {
-    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | reload");
+    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | reload | eval");
   }
 
   if (sub === "reload") {
