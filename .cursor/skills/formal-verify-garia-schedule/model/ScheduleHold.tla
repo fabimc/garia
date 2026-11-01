@@ -114,8 +114,10 @@ Init ==
 --------------------------------------------------------------------------
 \* One schedule_tick for this gid (lib.rs schedule_tick loop body + reconcile
 \* + override clear). RPC success is assumed — see module header.
-\* Overridden only fires when ~Allowed, and Allowed requires open, so
-\* Overridden ⇒ ~open and never races the "clear overrides when open" branch.
+\* Overridden only fires when ~Allowed. Allowed = open /\ (~hasStart \/ startDue),
+\* so ~Allowed does NOT imply ~open: a start-gated row can be Overridden while
+\* open=TRUE, then overriddenNext clears because open — that race is the
+\* OverrideStickyWhileGated finding (badLostOverride).
 Tick ==
   LET paused == (status = "paused")
       allowed == Allowed
@@ -214,4 +216,3 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 =============================================================================
-)

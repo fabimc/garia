@@ -20,7 +20,7 @@ This is **not** the behavioral `verify-garia` skill. It does not launch the UI.
 
 ## Tool and why
 
-**TLA+ / TLC** (model checker). The question is whether events can happen in a bad order across ticks and user actions — that is a model-checking question. Garia’s scheduler is Rust; there is no in-language model checker wired here. TLC runs on the pinned `tla2tools.jar` (Java). Prefer this over inventing more unit tests: the unit tests in `schedule.rs` cover discrete `decide` cases, not the interleavings with `open` vs `allowed` and sticky `held`.
+**TLA+ / TLC** (model checker). The question is whether events can happen in a bad order across ticks and user actions — that is a model-checking question. Garia’s scheduler is Rust; there is no in-language model checker wired here. TLC runs on the pinned `tla2tools.jar` (Java): GitHub release **v1.8.0**, whose asset banners as `TLC2 Version 2026.10.30.154139 (rev: 090e85c)` — `scripts/run-tlc` checks the jar SHA-256 so download, pin, and evidence stay aligned. Prefer this over inventing more unit tests: the unit tests in `schedule.rs` cover discrete `decide` cases, not the interleavings with `open` vs `allowed` and sticky `held`.
 
 ## Coverage record
 
