@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# One-command TLC run for the Garia schedule hold model.
+# Usage:
+#   ./scripts/run-tlc              # full invariants (includes known findings)
+#   ./scripts/run-tlc passing      # only invariants expected to pass on current code
+#   ./scripts/run-tlc full         # same as default
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MODEL="$ROOT/model"
+JAR="$MODEL/tla2tools.jar"
+
+# Pinned TLA+ tools: GitHub release tag v1.8.0 ("The Clarke release").
+# That release's tla2tools.jar banners as the TLC build below — tag name and
+# TLC version string differ; evidence logs must show this exact banner.
+# Bump URL + SHA + EXPECTED_TLC_BANNER together when changing the pin.
+TLA2TOOLS_URL="${TLA2TOOLS_URL:-https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar}"
+TLA2TOOLS_SHA256="${TLA2TOOLS_SHA256:-011267fca25d0752cf18894dd585cd28b96960c112ea8a20b823ea770e7e10cd}"
+EXPECTED_TLC_BANNER="${EXPECTED_TLC_BANNER:-TLC2 Version 2026.10.30.154139 (rev: 090e85c)}"
+
+MODE="${1:-full}"
+case "$MODE" in
+  full)    CFG="$MODEL/ScheduleHold.cfg" ;;
+  passing) CFG="$MODEL/ScheduleHold-passing.cfg" ;;
+  *)
+    echo "usage: $0 [full|passing]" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v java >/dev/null 2>&1; then
+  echo "java is required to run TLC (OpenJDK 17+)." >&2
+  exit 1
+fi
+
+fetch_jar() {
+  echo "Fetching tla2tools.jar from $TLA2TOOLS_URL ..."
+  curl -fsSL -o "$JAR" "$TLA2TOOLS_URL"
+}
+
+verify_jar() {
+  local actual
+  actual="$(sha256sum "$JAR" | awk '{print $1}')"
+  if [[ "$actual" != "$TLA2TOOLS_SHA256" ]]; then
+    echo "tla2tools.jar SHA-256 mismatch." >&2
+    echo "  expected: $TLA2TOOLS_SHA256" >&2
+    echo "  actual:   $actual" >&2
+    echo "Delete $JAR and re-run, or bump TLA2TOOLS_URL/SHA/EXPECTED_TLC_BANNER together." >&2
+    exit 1
+  fi
+}
+
+if [[ ! -f "$JAR" ]]; then
+  fetch_jar
+fi
+verify_jar
+
+# Drop prior TLC trace specs so a failure's artifact is from this run only.
+rm -f "$MODEL"/ScheduleHold_TTrace_*.tla "$MODEL"/ScheduleHold_TTrace_*.cfg "$MODEL"/*.bin
+
+cd "$MODEL"
+echo "Pinned TLC: $EXPECTED_TLC_BANNER"
+echo "Jar SHA-256: $TLA2TOOLS_SHA256"
+# SPEC path is the module name relative to cwd (model/).
+set +e
+java -XX:+UseParallelGC -cp tla2tools.jar tlc2.TLC \
+  -config "$CFG" \
+  -workers auto \
+  -cleanup \
+  ScheduleHold
+status=$?
+set -e
+
+echo
+echo "TLC exit: $status (0 = all checked invariants held)"
+echo "Config: $CFG"
+echo "Expected banner (must match evidence): $EXPECTED_TLC_BANNER"
+if ls "$MODEL"/ScheduleHold_TTrace_*.tla >/dev/null 2>&1; then
+  echo "Counterexample trace spec(s):"
+  ls -1 "$MODEL"/ScheduleHold_TTrace_*.tla
+  echo "Read every TLC result with the pstack /statechart skill (by name)."
+fi
+exit "$status"
