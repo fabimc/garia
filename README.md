@@ -34,6 +34,8 @@ Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the 
 
 [Garia's documentation](docs/README.md) is the place for features, building, the bundled tools, and the browser extension.
 
+Intent for agents and contributors lives in [`src/md/`](src/md/README.md) ([srcmd.org](https://srcmd.org/) layout). Change that Markdown first, then derive code and tests from it. Formal docs stay in `docs/`.
+
 ## Building
 
 Garia builds from the command line with Tauri.
@@ -92,7 +94,8 @@ The result lands under `src-tauri/target/universal-apple-darwin/release/bundle/`
 Bug reports and pull requests are welcome.
 
  * Check [existing issues](https://github.com/fabimc/garia/issues) before opening a new one.
- * Documentation lives in `docs/`. Fixes and new pages there are as useful as code.
+ * Intent for modules and features lives in `src/md/` ([srcmd.org](https://srcmd.org/)). Curate that first when changing behavior.
+ * User-facing documentation lives in `docs/`. Fixes and new pages there are as useful as code.
  * The [browser extension store checklist](docs/Publishing-the-Extension.md) is the path to Chrome Web Store and addons.mozilla.org.
  * The website lives in `site/` — plain HTML and CSS, no build step. A push to `master` that touches it deploys it to GitHub Pages through `.github/workflows/pages.yml`.
 
