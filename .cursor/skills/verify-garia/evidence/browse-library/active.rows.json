@@ -1,0 +1,44 @@
+[
+  {
+    "gid": "aaaa1111",
+    "name": "Ubuntu 24.04 Desktop.iso",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "eeee1111",
+    "name": "archive-linux-isos",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "aaaa2222",
+    "name": "stream-of-unknown-size.bin",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "aaaa3333",
+    "name": "Big Buck Bunny 4K.mp4",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "dddd1111",
+    "name": "lands-in-15-seconds.mp4",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff1111",
+    "name": "A Very Long Talk About Nothing.f315.webm",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff2222",
+    "name": "A Very Long Talk About Nothing.f251.webm",
+    "status": "active",
+    "selected": "false"
+  }
+]
