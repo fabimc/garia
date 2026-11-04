@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One-command TLC run for the Garia schedule hold model.
 # Usage:
-#   ./scripts/run-tlc              # full invariants (includes known findings)
-#   ./scripts/run-tlc passing      # only invariants expected to pass on current code
+#   ./scripts/run-tlc              # all four invariants (expect exit 0)
+#   ./scripts/run-tlc passing      # props 1–2 subset
 #   ./scripts/run-tlc full         # same as default
 set -euo pipefail
 

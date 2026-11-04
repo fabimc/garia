@@ -1,15 +1,15 @@
 Pinned TLC: TLC2 Version 2026.10.30.154139 (rev: 090e85c)
 Jar SHA-256: 011267fca25d0752cf18894dd585cd28b96960c112ea8a20b823ea770e7e10cd
 TLC2 Version 2026.10.30.154139 (rev: 090e85c)
-Running breadth-first search Model-Checking with fp 68 and seed -8778765061964234303 with 4 workers on 4 cores with 3557MB heap and 64MB offheap memory [pid: 3793] (Linux 6.12.94+ amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 105 and seed 6757266428309857216 with 4 workers on 4 cores with 3330MB heap and 64MB offheap memory [pid: 3194] (Linux 6.12.94+ amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
 Parsing file /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold.tla
-Parsing file /tmp/tlc-12070513989697039108/Integers.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
-Parsing file /tmp/tlc-12070513989697039108/_TLCTrace.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /tmp/tlc-12070513989697039108/Naturals.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /tmp/tlc-12070513989697039108/TLC.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /tmp/tlc-12070513989697039108/TLCExt.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /tmp/tlc-12070513989697039108/Sequences.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /tmp/tlc-12070513989697039108/FiniteSets.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-2439989830367320848/Integers.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-2439989830367320848/_TLCTrace.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-2439989830367320848/Naturals.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-2439989830367320848/TLC.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-2439989830367320848/TLCExt.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-2439989830367320848/Sequences.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-2439989830367320848/FiniteSets.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
 Semantic processing of module Naturals
 Semantic processing of module Integers
 Semantic processing of module Sequences
@@ -21,17 +21,17 @@ Semantic processing of module ScheduleHold
 Linting of module TLCExt
 Linting of module _TLCTrace
 Linting of module ScheduleHold
-Starting... (2026-11-01 17:34:25)
+Starting... (2026-11-01 23:32:21)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-11-01 17:34:25.
+Finished computing initial states: 1 distinct state generated at 2026-11-01 23:32:21.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
-  calculated (optimistic):  val = 1.6E-14
-1233 states generated, 331 distinct states found, 0 states left on queue.
-The depth of the complete state graph search is 15.
-The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 4 and the 95th percentile is 4).
-Finished in 00s at (2026-11-01 17:34:25)
+  calculated (optimistic):  val = 10.0E-16
+308 states generated, 81 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 12.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 4 and the 95th percentile is 3).
+Finished in 00s at (2026-11-01 23:32:21)
 
 TLC exit: 0 (0 = all checked invariants held)
 Config: /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold-passing.cfg
