@@ -784,7 +784,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+    /* JS middle-truncates into textContent + title tooltip; no end ellipsis. */
     min-width: 0;
 }
 
