@@ -650,6 +650,7 @@ async function cmdBrowser(argv) {
     if (!name) die("open-detail requires --name");
     await withPage(async (page) => {
       const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      // Name click opens the docked inspector (Enter / dblclick / ⌘I also work).
       await row.locator(".dl-name").click();
       await page.locator("#detail-pane:not(.hidden)").waitFor({ timeout: 8000 });
       const title = await page.locator("#detail-title").textContent();

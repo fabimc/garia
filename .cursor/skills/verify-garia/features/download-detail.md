@@ -26,6 +26,6 @@ Preconditions:
 
 ## Gotchas
 
-- Click `.dl-name`, not the row chrome alone — selection without opening details is not proof.
-- Torrent details include peers/files; HTTP details include servers. Assert the title first, then shape-specific fields if the journey requires them.
+- Click `.dl-name` to open the inspector (Enter, double-click, and ⌘I / Ctrl+I also open it). Row chrome alone only selects.
+- Torrent inspector tabs isolate Files / Peers / Trackers. Assert the title first, then the active tab’s panel if the journey requires it.
 - `Show in Finder` / reveal needs Tauri and is unverified in browser-dev.

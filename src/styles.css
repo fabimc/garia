@@ -1503,11 +1503,6 @@ html.in-app .modal {
     animation: sheet-down 0.18s ease-out;
 }
 
-html.in-app .modal.modal-lg {
-    width: min(640px, 100%);
-    max-height: calc(100vh - 58px);
-}
-
 @keyframes sheet-down {
     from {
         transform: translateY(-10px);
@@ -3083,8 +3078,53 @@ html.prefs.in-app .modal {
 }
 
 .detail-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
     font-size: 0.78rem;
     color: var(--muted);
+}
+.detail-note-line {
+    flex: 1;
+    min-width: 0;
+}
+.help-pop {
+    position: relative;
+    flex-shrink: 0;
+}
+.help-pop-btn {
+    list-style: none;
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--muted);
+    padding: 0.05rem 0.2rem;
+    border-radius: 4px;
+}
+.help-pop-btn::-webkit-details-marker {
+    display: none;
+}
+.help-pop-btn::marker {
+    content: "";
+}
+.help-pop[open] > .help-pop-btn {
+    color: var(--text);
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+.help-pop-body {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 6;
+    width: min(18rem, 70vw);
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface, var(--bg));
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
 }
 
 /* A torrent is a bundle you can take part of, so its file rows are ticked.
@@ -3112,21 +3152,12 @@ html.prefs.in-app .modal {
     border-radius: 6px;
     padding: 0.1rem 0.25rem;
 }
-.detail-seed,
 .detail-limit-custom,
 .detail-folder {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.45rem 0.6rem;
-}
-.detail-seed {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
 }
 .detail-seed-row,
 .detail-limit-custom {

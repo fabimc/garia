@@ -3121,6 +3121,7 @@ function detailShape(data) {
   ].join(":"));
   return (canLimit(data) ? "cap|" : "")
     + (canSchedule(data) ? "when|" : "")
+    + (data.parts.some((p) => p.status?.bittorrent) ? "seed|" : "")
     + (data.job ? "job|" : "")
     + parts.join("|");
 }
@@ -3276,8 +3277,6 @@ function setDetailTab(sec, tab) {
   for (const panel of sec.querySelectorAll("[data-tab-panel]")) {
     panel.classList.toggle("hidden", panel.dataset.tabPanel !== tab);
   }
-  const trackerNote = sec.querySelector(".detail-tracker-note");
-  if (trackerNote) trackerNote.classList.toggle("hidden", tab !== "trackers");
 }
 
 function buildPart(part) {
@@ -3354,6 +3353,7 @@ function buildPart(part) {
   if (bt) filesTable.dataset.pick = "true";
   if (bt) {
     const filter = el("div", "detail-file-filter");
+    filter.dataset.tabPanel = "files";
     const input = el("input", "field-input detail-file-filter-input");
     input.type = "search";
     input.placeholder = "Filter files…";
@@ -3370,6 +3370,7 @@ function buildPart(part) {
     sec.appendChild(filter);
 
     const bulk = el("div", "playlist-bar detail-priority-bulk");
+    bulk.dataset.tabPanel = "files";
     bulk.appendChild(el("span", "playlist-count", "Set every file"));
     for (const tier of FILE_PRIORITY_TIERS) {
       const btn = el("button", "playlist-pick", formatFilePriorityLabel(tier));
@@ -3382,30 +3383,39 @@ function buildPart(part) {
   sec.appendChild(filesTable);
   if (bt) {
     const bulk = el("div", "detail-file-bulk");
+    bulk.dataset.tabPanel = "files";
     bulk.dataset.gid = part.gid;
     sec.appendChild(bulk);
     const bar = el("div", "detail-select hidden");
+    bar.dataset.tabPanel = "files";
     bar.appendChild(el("p", "detail-note detail-select-note"));
     const apply = el("button", "btn-secondary detail-select-apply", "Apply");
     apply.type = "button";
     apply.dataset.gid = part.gid;
     bar.appendChild(apply);
     sec.appendChild(bar);
-    sec.appendChild(buildSeedBlock(part.gid));
     const trackers = buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]);
     trackers.dataset.tabPanel = "trackers";
     sec.appendChild(trackers);
-    sec.appendChild(el("p", "detail-note detail-tracker-note"));
+    const trackerNote = el("p", "detail-note detail-tracker-note");
+    trackerNote.dataset.tabPanel = "trackers";
+    sec.appendChild(trackerNote);
   }
   const folder = el("div", "detail-folder hidden");
+  if (bt) folder.dataset.tabPanel = "files";
   const change = el("button", "btn-secondary detail-folder-change", "Change folder");
   change.type = "button";
   change.dataset.gid = part.gid;
   folder.appendChild(change);
-  folder.appendChild(el("p", "detail-note detail-folder-note",
-    "Every file in this download goes to the same folder. aria2 only moves a download it is not working on, so a running one is paused and started again."));
+  folder.appendChild(buildHelpNote(
+    "detail-folder-note",
+    "Every file in this download goes to the same folder.",
+    "aria2 only moves a download it is not working on, so a running one is paused and started again.",
+  ));
   sec.appendChild(folder);
-  sec.appendChild(buildTable("servers", "Live connections", ["Server", "Speed"]));
+  const servers = buildTable("servers", "Live connections", ["Server", "Speed"]);
+  if (bt) servers.dataset.tabPanel = "files";
+  sec.appendChild(servers);
   if (bt) {
     const peers = buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]);
     peers.dataset.tabPanel = "peers";
@@ -3520,6 +3530,40 @@ function updateCheckBlock(sec, part) {
 // is usually to do something about how fast it is going.
 const MODE_SHORT = { full: "Full", medium: "Medium", light: "Light" };
 
+// One line in the panel; the rest behind ⓘ so the inspector stays scannable.
+function buildHelpNote(className, shortText, longText) {
+  const note = el("p", className ? `detail-note ${className}` : "detail-note");
+  setHelpNote(note, shortText, longText);
+  return note;
+}
+
+function setHelpNote(note, shortText, longText) {
+  if (!note) return;
+  let line = note.querySelector(".detail-note-line");
+  if (!line) {
+    note.textContent = "";
+    line = el("span", "detail-note-line");
+    note.appendChild(line);
+  }
+  if (line.textContent !== shortText) line.textContent = shortText || "";
+  let pop = note.querySelector(".help-pop");
+  if (longText) {
+    if (!pop) {
+      pop = el("details", "help-pop");
+      const sum = el("summary", "help-pop-btn", "ⓘ");
+      sum.title = "More about this";
+      sum.setAttribute("aria-label", "More about this");
+      pop.appendChild(sum);
+      pop.appendChild(el("div", "help-pop-body"));
+      note.appendChild(pop);
+    }
+    const body = pop.querySelector(".help-pop-body");
+    if (body.textContent !== longText) body.textContent = longText;
+  } else if (pop) {
+    pop.remove();
+  }
+}
+
 function buildLimitBlock() {
   const sec = el("section", "detail-part detail-limit");
   sec.appendChild(el("h3", "detail-part-title", "Speed limit"));
@@ -3548,13 +3592,13 @@ function buildLimitBlock() {
   custom.appendChild(set);
   sec.appendChild(custom);
 
-  sec.appendChild(el("p", "detail-note"));
+  sec.appendChild(buildHelpNote(null, "", ""));
   return sec;
 }
 
 function buildSeedBlock(gid) {
-  const sec = el("div", "detail-seed");
-  sec.appendChild(el("h4", null, "Seed until"));
+  const sec = el("section", "detail-part detail-seed");
+  sec.appendChild(el("h3", "detail-part-title", "Seed until"));
   const row = el("div", "detail-seed-row");
   const ratio = el("input", "field-input detail-seed-ratio");
   ratio.type = "number";
@@ -3576,7 +3620,7 @@ function buildSeedBlock(gid) {
   save.dataset.gid = gid;
   row.appendChild(save);
   sec.appendChild(row);
-  sec.appendChild(el("p", "detail-note detail-seed-note"));
+  sec.appendChild(buildHelpNote("detail-seed-note", "", ""));
   return sec;
 }
 
@@ -3614,7 +3658,7 @@ function updateLimitBlock(sec, data) {
     }
   }
   said.push("The number is for this download, not each socket, and aria2 keeps it in the session.");
-  sec.querySelector(".detail-note").textContent = said.join(" ");
+  setHelpNote(sec.querySelector(".detail-note"), said[0], said.slice(1).join(" "));
 }
 
 // Only a download still going anywhere can be limited: aria2 takes the option
@@ -3653,7 +3697,7 @@ function buildStartBlock(gid) {
   row.appendChild(clear);
   sec.appendChild(row);
 
-  sec.appendChild(el("p", "detail-note detail-start-note"));
+  sec.appendChild(buildHelpNote("detail-start-note", "", ""));
   return sec;
 }
 
@@ -3700,7 +3744,23 @@ function updateStartBlock(sec, data) {
   } else {
     said.push("Give this one download an hour of its own. It is paused until then, and started when it comes round — or when Garia is next running after it.");
   }
-  sec.querySelector(".detail-start-note").textContent = said.join(" ");
+  setHelpNote(sec.querySelector(".detail-start-note"), said[0], said.slice(1).join(" "));
+}
+
+function updateSeedBlock(sec) {
+  if (!sec) return;
+  if (document.activeElement !== sec.querySelector(".detail-seed-ratio")
+      && document.activeElement !== sec.querySelector(".detail-seed-minutes")) {
+    sec.querySelector(".detail-seed-ratio").value = String(Number(settings.seedRatio) || 0);
+    sec.querySelector(".detail-seed-minutes").value = String(Number(settings.seedTimeMinutes) || 0);
+  }
+  setHelpNote(
+    sec.querySelector(".detail-seed-note"),
+    seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes),
+    "Saved with the other settings and applied to torrents added after this. "
+      + "This one keeps the rule it started with — aria2 will not replace it on a torrent that is already running. "
+      + "0 means don’t stop for that reason. Whichever comes first.",
+  );
 }
 
 // The next round hour, which is what an empty field should be offering: a
@@ -4028,19 +4088,6 @@ function updatePart(sec, part) {
       cells(tr, [hostOf(row.url) || row.url, String(row.tier), trackerState]);
       tr.children[0].title = row.url;
     });
-    const seed = sec.querySelector(".detail-seed");
-    if (seed && document.activeElement !== seed.querySelector(".detail-seed-ratio")
-        && document.activeElement !== seed.querySelector(".detail-seed-minutes")) {
-      seed.querySelector(".detail-seed-ratio").value = String(Number(settings.seedRatio) || 0);
-      seed.querySelector(".detail-seed-minutes").value = String(Number(settings.seedTimeMinutes) || 0);
-    }
-    const seedNote = sec.querySelector(".detail-seed-note");
-    if (seedNote) {
-      seedNote.textContent = `${seedUntilLabel(settings.seedRatio, settings.seedTimeMinutes)}. `
-        + "Saved with the other settings and applied to torrents added after this. "
-        + "This one keeps the rule it started with — aria2 will not replace it on a torrent that is already running. "
-        + "0 means don’t stop for that reason. Whichever comes first.";
-    }
   }
 
   const folder = sec.querySelector(".detail-folder");
@@ -4184,16 +4231,22 @@ async function renderDetail() {
         parts: detailGids.map((id) => ({ status: snapshot.get(id) || null })),
       };
       updateLimitBlock(sections[i++], fake);
-      const note = sections[i - 1].querySelector(".detail-note");
-      if (note) note.textContent = "One speed cap is applied to every selected download.";
+      setHelpNote(
+        sections[i - 1].querySelector(".detail-note"),
+        "One speed cap is applied to every selected download.",
+        "",
+      );
     }
     if (sections[i]?.classList.contains("detail-start")) {
       const sec = sections[i++];
       const input = sec.querySelector(".detail-start-input");
       if (input && document.activeElement !== input) input.value = localInputValue(defaultStart());
       sec.querySelector(".detail-start-clear")?.classList.add("hidden");
-      const note = sec.querySelector(".detail-start-note");
-      if (note) note.textContent = "Set one hold time and apply it to every selected download.";
+      setHelpNote(
+        sec.querySelector(".detail-start-note"),
+        "Set one hold time and apply it to every selected download.",
+        "",
+      );
     }
     const note = sections[i]?.querySelector(".detail-note");
     if (note) {
@@ -4221,6 +4274,7 @@ async function renderDetail() {
     for (const part of data.parts) body.appendChild(buildPart(part));
     if (canLimit(data)) body.appendChild(buildLimitBlock());
     if (canSchedule(data)) body.appendChild(buildStartBlock(data.gid));
+    if (data.parts.some((p) => p.status?.bittorrent)) body.appendChild(buildSeedBlock(data.gid));
   }
 
   const title = data.row ? fileName(data.row) : gid;
@@ -4243,6 +4297,7 @@ async function renderDetail() {
   for (const part of data.parts) updatePart(sections[i++], part);
   if (sections[i]?.classList.contains("detail-limit")) updateLimitBlock(sections[i++], data);
   if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
+  if (sections[i]?.classList.contains("detail-seed")) updateSeedBlock(sections[i++]);
 
   const path = revealPath(data);
   const reveal = document.getElementById("detail-reveal");
@@ -4325,21 +4380,34 @@ async function applyFileSelection(gid, sec) {
 function openDetail(gidOrGids) {
   const targets = Array.isArray(gidOrGids) ? gidOrGids.filter(Boolean) : [gidOrGids].filter(Boolean);
   if (!targets.length) return;
-  detailGids = [...new Set(targets)];
-  detailGid = detailGids[0];
+  const next = [...new Set(targets)];
   const pane = document.getElementById("detail-pane");
+  const alreadyOpen = pane && !pane.classList.contains("hidden");
+  // Same single gid already shown: keep drafts and skip the wipe.
+  if (alreadyOpen && next.length === 1 && detailGids.length === 1 && detailGids[0] === next[0]) {
+    return;
+  }
+  const keep = new Set(next);
+  for (const gid of [...fileSelection.keys()]) {
+    if (!keep.has(gid)) fileSelection.delete(gid);
+  }
+  for (const gid of [...filePriorityDraft.keys()]) {
+    if (!keep.has(gid)) filePriorityDraft.delete(gid);
+  }
+  detailGids = next;
+  detailGid = detailGids[0];
   const body = document.getElementById("detail-body");
   // A fresh panel every time: the shape marker is what decides whether the
   // next tick rebuilds, and the last download's shape is not this one's.
   body.dataset.shape = "";
   body.textContent = "";
-  fileSelection.clear();
-  filePriorityDraft.clear();
   const row = snapshot.get(detailGid);
   document.getElementById("detail-title").textContent = row ? fileName(row) : detailGid;
   document.getElementById("detail-reveal").classList.add("hidden");
   pane.classList.remove("hidden");
-  document.getElementById("inspector-toggle")?.classList.add("is-active");
+  const toggle = document.getElementById("inspector-toggle");
+  toggle?.classList.add("is-active");
+  toggle?.setAttribute("aria-pressed", "true");
   refreshDetail();
 }
 
@@ -4351,7 +4419,9 @@ function closeDetail() {
   detailGid = null;
   detailGids = [];
   document.getElementById("detail-pane")?.classList.add("hidden");
-  document.getElementById("inspector-toggle")?.classList.remove("is-active");
+  const toggle = document.getElementById("inspector-toggle");
+  toggle?.classList.remove("is-active");
+  toggle?.setAttribute("aria-pressed", "false");
 }
 
 // Through Rust when there is a Rust to go through: the webview's clipboard
@@ -5408,7 +5478,13 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
       return;
     }
+    const nameClick = e.target.closest(".dl-name");
     selectRow(row, e);
+    // Name click opens the inspector (journeys + issue entry points); modifiers
+    // stay selection-only — selectRow already follows an open pane.
+    if (nameClick && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      openDetail(row.dataset.gid);
+    }
   });
 
   listEl.addEventListener("dblclick", (e) => {
@@ -5460,6 +5536,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!columnsMenu.classList.contains("hidden")) { closeColumnsMenu(); closed = true; }
     if (!trafficMenu.classList.contains("hidden")) { closeTrafficMenu(); closed = true; }
     if (!rowMenu.classList.contains("hidden")) { closeRowMenu(); closed = true; }
+    for (const pop of document.querySelectorAll(".help-pop[open]")) {
+      pop.open = false;
+      closed = true;
+    }
     return closed;
   }
 
@@ -6059,11 +6139,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       when.disabled = true;
       try {
-        for (const gid of detailGids.length ? detailGids : [when.dataset.gid]) {
-          schedule = await window.__TAURI__.core.invoke("set_download_start", { gid, at });
+        const invoke = window.__TAURI__?.core?.invoke;
+        if (typeof invoke === "function") {
+          for (const gid of detailGids.length ? detailGids : [when.dataset.gid]) {
+            schedule = await invoke("set_download_start", { gid, at });
+          }
+          heldGids = new Set(schedule.held || []);
+          renderSchedule();
         }
-        heldGids = new Set(schedule.held || []);
-        renderSchedule();
       } catch (err) {
         console.error(err);
         note.textContent = String(err?.message || err);
@@ -6545,6 +6628,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (closePopups()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (detailPane && !detailPane.classList.contains("hidden")) {
+      closeDetail();
       e.preventDefault();
       e.stopPropagation();
     }
