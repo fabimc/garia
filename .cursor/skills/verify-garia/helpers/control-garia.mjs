@@ -255,6 +255,8 @@ async function cmdLaunch() {
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-extensions",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
       "--window-size=1280,800",
       // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
       ...(process.env.GARIA_HEADED === "1" ? [] : ["--headless=new"]),
