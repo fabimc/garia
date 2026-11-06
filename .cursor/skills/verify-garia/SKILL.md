@@ -132,9 +132,23 @@ After failed iterations, run cleanup before relaunching so `:6800` and the UI po
 | --- | --- |
 | `helpers/control-garia` | `./helpers/control-garia <launch\|doctor\|cleanup\|browser\|rpc> …` |
 | `helpers/control-garia.mjs` | Same, via `node` (wrapper ensures `npm install` in `helpers/`) |
+| `helpers/ux-visual-baselines` | CDP screenshots after `launch` (see Visual baselines) |
 | `helpers/package.json` | Pins `playwright` for the driver |
 
 All helpers are executable / runnable as shown above. Logs for a live run: `.run/mock.log`, `.run/ui.log`.
+
+## Visual baselines
+
+Optional UX review captures (issue #82). **Requires** a working `control-garia` launcher — land **#83 / PR #88** first. Output is written under `evidence/ux-baselines/` (gitignored) or `--out tmp/ux-baselines`; **not** checked into git and **not** run in CI.
+
+```bash
+cd .cursor/skills/verify-garia
+./helpers/control-garia launch
+./helpers/ux-visual-baselines                 # or: --out /path/to/tmp/ux-baselines
+./helpers/control-garia cleanup
+```
+
+Per theme (`light` / `dark`) and width (`1280` / `760`): main list, each sidebar filter, Add (single + multi-line batch), detail, Settings. Inspector **focus-order / trap** a11y still needs the inspector pane (#80 / **PR #90**) — this script does not substitute for that checklist.
 
 ## Feature map
 
