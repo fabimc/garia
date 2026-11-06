@@ -775,8 +775,8 @@ export function intakeReviewHint(rows) {
   }
   if (videos || archives) {
     const bits = [];
-    if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
     if (archives) bits.push(archives === 1 ? "1 archive" : `${archives} archives`);
+    if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
     parts.push(`In this dump: ${bits.join(", ")}.`);
   }
   if (queued) parts.push(`${queued} already in the list.`);
