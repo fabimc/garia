@@ -17,6 +17,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -149,6 +150,55 @@ function spawnDetached(command, args, { cwd, logPath, env } = {}) {
   return child.pid;
 }
 
+export function resolveChromiumExecutable({
+  env = process.env,
+  playwrightExecutablePath = chromium.executablePath(),
+  fileExists = existsSync,
+  listDir = readdirSync,
+  fail = die,
+} = {}) {
+  const override = env.GARIA_CHROME || env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (override) {
+    if (fileExists(override)) return override;
+    fail(
+      `Chromium override path does not exist: ${override}. ` +
+        `Set GARIA_CHROME or PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a valid executable.`,
+    );
+  }
+
+  const bundledExecutable = playwrightExecutablePath;
+  if (fileExists(bundledExecutable)) return bundledExecutable;
+
+  const fallbackRoot = env.PLAYWRIGHT_BROWSERS_PATH;
+  const checked = [bundledExecutable];
+  if (fallbackRoot) {
+    const candidates = [
+      join(fallbackRoot, "chromium", "chrome-linux", "chrome"),
+      join(fallbackRoot, "chromium", "chrome-linux64", "chrome"),
+    ];
+    try {
+      for (const entry of listDir(fallbackRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith("chromium-")) continue;
+        candidates.push(join(fallbackRoot, entry.name, "chrome-linux", "chrome"));
+        candidates.push(join(fallbackRoot, entry.name, "chrome-linux64", "chrome"));
+      }
+    } catch {
+      // ignore directory read errors; final error below includes base path context
+    }
+    for (const candidate of candidates) {
+      checked.push(candidate);
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+
+  fail(
+    `Chromium executable not found. Bundled Playwright expected ${bundledExecutable}, ` +
+      `${fallbackRoot ? `and no executable was found under PLAYWRIGHT_BROWSERS_PATH=${fallbackRoot}` : `and PLAYWRIGHT_BROWSERS_PATH is not set`}. ` +
+      `Set GARIA_CHROME or PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a valid Chromium binary. ` +
+      `Checked: ${checked.join(", ")}`,
+  );
+}
+
 function publicState(state) {
   return {
     runId: state.runId,
@@ -247,8 +297,9 @@ async function cmdLaunch() {
 
   const userDataDir = join(RUN_DIR, "chrome-profile");
   mkdirSync(userDataDir, { recursive: true });
+  const chromeExecutable = resolveChromiumExecutable();
   const chromePid = spawnDetached(
-    chromium.executablePath(),
+    chromeExecutable,
     [
       `--remote-debugging-port=${cdpPort}`,
       `--user-data-dir=${userDataDir}`,
@@ -720,7 +771,9 @@ Environment:
   die(`Unknown command: ${cmd}`);
 }
 
-main().catch((err) => {
-  console.error(err?.stack || String(err));
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err?.stack || String(err));
+    process.exit(1);
+  });
+}
