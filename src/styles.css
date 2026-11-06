@@ -742,10 +742,6 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-item.is-dragging .dl-grip {
     opacity: 1;
 }
-/* The icon under it is file-type only; queued rows still drag from here. */
-.queue-reorderable .dl-item[data-status="waiting"]:not(.is-dragging) .dl-lead:hover .dl-grip {
-    opacity: 0;
-}
 
 /* While a row is in hand: the ones it passes slide out of the way instead of
    jumping, so the gap it will drop into is always the one under it. */
