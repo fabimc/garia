@@ -663,7 +663,7 @@ async function cmdBrowser(argv) {
     if (!name) die("pause-named requires --name");
     await withPage(async (page) => {
       const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
-      await row.locator('button.dl-icon[aria-label="Pause"]').click();
+      await row.locator('.dl-actions [data-action="stop"]').click();
       await sleep(800);
       const status = await row.getAttribute("data-status");
       console.log(JSON.stringify({ ok: status === "paused", name, status }, null, 2));
