@@ -554,16 +554,18 @@ test("queue scan words only surface row modifiers", () => {
   assert.equal(formatQueueScan("error").label, "");
   assert.equal(formatQueueScan("active", { stalled: true }).label, "");
   assert.equal(formatQueueScan("active", { slow: true }).label, "");
-  assert.equal(formatQueueScan("active", { scheduled: true }).label, "Scheduled");
+  // Scheduled / Merging live in the status cell — never also as a scan chip.
+  assert.equal(formatQueueScan("active", { scheduled: true }).label, "");
+  assert.equal(formatQueueScan("merging").label, "");
   assert.equal(formatQueueScan("paused", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("waiting", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("paused", { scheduleHeld: true }).label, "Held");
   assert.equal(formatQueueScan("paused").label, "");
-  assert.equal(formatQueueScan("merging").label, "Merging");
-  // A start time wins over Stop Queue so the chip still says when it runs.
+  // Stop Queue still surfaces as a modifier even when a start time is set;
+  // the status line already says Scheduled.
   assert.equal(
     formatQueueScan("paused", { scheduled: true, queueStopped: true }).label,
-    "Scheduled",
+    "Stopped",
   );
 });
 

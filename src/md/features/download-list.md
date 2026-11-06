@@ -17,6 +17,10 @@ aria2's statuses are not enough for the UI:
 - **Stopped** — Stop Queue (or the daily window) held the row. Distinct from a hand pause.
 - **Held / Scheduled** — waiting for a named start time or for the window to open.
 
+The status cell carries the single state line (including Scheduled and Merging).
+`.dl-scan` chips are modifiers only — Held, Stopped — never a second copy of the
+same word already shown as status. Verified / Checking stay on `.dl-verified`.
+
 ## Categories
 
 - Default kinds: Video, Music, Documents, Archives (extension match).

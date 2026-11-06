@@ -961,8 +961,8 @@ export function captureTargetsFromPage({
 }
 
 // The row badge is for modifiers only; the state itself lives in the status
-// cell. A user pause, a Stop Queue, and a schedule hold are three different
-// waits — say so on the chip, not only in the tooltip.
+// cell. Scheduled and Merging already appear as the status line, so they are
+// never repeated here — only Held / Stopped (and sibling modifiers elsewhere).
 export function formatQueueScan(status, {
   stalled = false,
   slow = false,
@@ -970,14 +970,12 @@ export function formatQueueScan(status, {
   queueStopped = false,
   scheduleHeld = false,
 } = {}) {
-  if (scheduled) return { key: "scheduled", label: "Scheduled" };
   if (queueStopped && (status === "paused" || status === "waiting")) {
     return { key: "stopped", label: "Stopped" };
   }
   if (scheduleHeld && status === "paused") {
     return { key: "held", label: "Held" };
   }
-  if (status === "merging") return { key: "merging", label: "Merging" };
   return { key: "", label: "" };
 }
 
