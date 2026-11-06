@@ -287,7 +287,9 @@ test("empty queue copy follows filter and connection state", () => {
   const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
   assert.equal(fresh.title, "No downloads yet");
   assert.match(fresh.sub, /⌘N/);
+  assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
+  assert.equal(formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true }).action?.id, "start-queue");
   assert.equal(formatEmptyQueueState({ connError: true }).title, "Can't reach aria2");
 });
 
@@ -1029,4 +1031,5 @@ test("desktop housekeeping matches Download menu verbs", () => {
   );
   assert.equal(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).title, "No failed downloads");
   assert.match(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).sub, /Retry Failed/);
+  assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });

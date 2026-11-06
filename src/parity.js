@@ -321,6 +321,7 @@ export function formatEmptyQueueState({
     return {
       title: "Can't reach aria2",
       sub: "Start aria2 and garia will reconnect on its own",
+      action: null,
     };
   }
   if (hasAnyDownloads) {
@@ -328,40 +329,54 @@ export function formatEmptyQueueState({
       return {
         title: "Nothing in this category",
         sub: "Downloads that land in this folder show up here",
+        action: null,
       };
     }
     if (String(filter).startsWith("pkg:")) {
       return {
         title: "Nothing left in this package",
         sub: "Finished or removed downloads drop out of the package list",
+        action: null,
       };
     }
     if (filter === "torrents") {
       return {
         title: "No torrents",
         sub: "Magnets and .torrent files show up here — File → Open Torrent, or drop one on the window",
+        action: { id: "new-download", label: "Add torrent or link" },
+      };
+    }
+    if (filter === "waiting") {
+      return {
+        title: "No queued downloads",
+        sub: "Queued rows appear here before they start",
+        action: { id: "start-queue", label: "Start Queue" },
       };
     }
     if (filter === "error") {
       return {
         title: "No failed downloads",
         sub: "When a row fails, Retry on the row or Download → Retry Failed brings it back",
+        action: { id: "retry-all", label: "Retry all failed" },
       };
     }
     if (filter === "complete") {
       return {
         title: "Nothing completed yet",
         sub: "Finished downloads land here — Clear Completed clears the list without deleting files",
+        action: { id: "open-folder", label: "Open download folder" },
       };
     }
     return {
       title: "Nothing matches this view",
       sub: "Try a different filter or clear the search field",
+      action: { id: "clear-search", label: "Clear search" },
     };
   }
   return {
     title: "No downloads yet",
     sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}, or install the browser extension to catch links and video pages`,
+    action: { id: "new-download", label: `New download (${modNHint})` },
   };
 }
 

@@ -371,6 +371,27 @@
                         >
                             Stop Queue
                         </button>
+                        <button class="pill hidden" id="move-top" title="Move selected queued downloads to the top">
+                            Move to top
+                        </button>
+                        <button class="pill hidden" id="move-end" title="Move selected queued downloads to the end">
+                            Move to end
+                        </button>
+                        <button class="pill hidden" id="retry-all" title="Retry all failed downloads">
+                            Retry all
+                        </button>
+                        <button class="pill hidden" id="clear-failed" title="Clear failed downloads from the list">
+                            Clear failed
+                        </button>
+                        <button class="pill hidden" id="clear-completed" title="Clear completed downloads from the list">
+                            Clear completed
+                        </button>
+                        <button class="pill hidden" id="open-download-folder" title="Open the download folder">
+                            Open download folder
+                        </button>
+                        <button class="pill hidden" id="stop-seeding" title="Stop all seeding torrents">
+                            Stop seeding
+                        </button>
                         <button
                             class="pill"
                             id="columns-btn"
@@ -476,6 +497,7 @@
                             Drag a URL or .torrent file anywhere, copy a file
                             link, or hit ⌘N
                         </p>
+                        <button type="button" class="btn-primary hidden" id="empty-action"></button>
                     </div>
                 </div>
                 <div id="catch-banner" class="catch-banner hidden" role="status">
