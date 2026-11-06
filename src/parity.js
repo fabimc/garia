@@ -613,8 +613,15 @@ export function contentKindLabel(content) {
   return CONTENT_LABELS[content] || CONTENT_LABELS.other;
 }
 
+function resolveDirectFilePredicate(isDirectFile) {
+  if (typeof isDirectFile === "function") return isDirectFile;
+  if (typeof isDirectFile === "boolean") return () => isDirectFile;
+  return () => false;
+}
+
 export function classifyIntakeUrl(url, isDirectFile = () => false) {
   const raw = String(url ?? "").trim();
+  const directFile = resolveDirectFilePredicate(isDirectFile);
   if (/^magnet:/i.test(raw)) {
     return {
       kind: "magnet",
@@ -627,7 +634,7 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
     };
   }
   if (/^ftps?:\/\//i.test(raw)) {
-    const file = isDirectFile(raw);
+    const file = directFile(raw);
     const content = file ? contentKindFromUrl(raw) : "other";
     const ext = file ? extensionOfUrl(raw) : "";
     return {
@@ -641,7 +648,7 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
     };
   }
   if (/^https?:\/\//i.test(raw)) {
-    const file = isDirectFile(raw);
+    const file = directFile(raw);
     if (!file) {
       return {
         kind: "page",
@@ -680,11 +687,12 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
 export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
   const seen = new Set();
   const rows = [];
+  const directFile = resolveDirectFilePredicate(isDirectFile);
   for (const url of urls || []) {
     const raw = String(url ?? "").trim();
     if (!raw || seen.has(raw)) continue;
     seen.add(raw);
-    const kind = classifyIntakeUrl(raw, isDirectFile);
+    const kind = classifyIntakeUrl(raw, directFile);
     const queued = Boolean(alreadyHave?.(raw));
     rows.push({
       url: raw,
