@@ -69,7 +69,7 @@ Prefer feature recipes under `features/`. Stable handles from this repo:
 | `#filter-bar .nav-item` + label (`All Downloads`, `Active`, `Queued`, `Torrents`, …) | Sidebar filters; sets `#view-title` |
 | `#download-list` `role=listbox` / children `role=option` with `data-gid`, `data-name`, `data-status` | Download rows |
 | `button.dl-icon[aria-label="Pause"]` / `Resume` | Per-row pause/resume |
-| `.dl-name` click | Opens `#detail-overlay` |
+| `.dl-name` click | Opens `#detail-pane` |
 | `#name-filter` / `#name-filter-clear` | In-list name filter |
 | `#conn-text` | Connection proof |
 

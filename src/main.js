@@ -2931,6 +2931,7 @@ const FACTS_BT = ["status", "health", "connections", "seeders", "leechers",
 // The gid whose details are on screen, or null. Also the guard that stops a
 // reply arriving after the dialog closed from painting into a dead panel.
 let detailGid = null;
+let detailGids = [];
 let detailBusy = false;
 
 // Which files inside a torrent the user has ticked but not yet applied, per
@@ -3268,6 +3269,17 @@ function buildTable(name, title, columns) {
   return wrap;
 }
 
+function setDetailTab(sec, tab) {
+  for (const btn of sec.querySelectorAll("[data-detail-tab]")) {
+    btn.setAttribute("aria-pressed", String(btn.dataset.detailTab === tab));
+  }
+  for (const panel of sec.querySelectorAll("[data-tab-panel]")) {
+    panel.classList.toggle("hidden", panel.dataset.tabPanel !== tab);
+  }
+  const trackerNote = sec.querySelector(".detail-tracker-note");
+  if (trackerNote) trackerNote.classList.toggle("hidden", tab !== "trackers");
+}
+
 function buildPart(part) {
   const sec = el("section", "detail-part");
   sec.dataset.gid = part.gid;
@@ -3317,8 +3329,26 @@ function buildPart(part) {
   // exactly the kind of change detailShape exists to keep out of a rebuild.
   if (!bt && part.solo) sec.appendChild(buildCheckBlock(part.gid));
 
+  if (bt) {
+    const tabs = el("div", "detail-tabs");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Torrent inspector tabs");
+    for (const tab of [
+      { id: "files", label: "Files" },
+      { id: "peers", label: "Peers" },
+      { id: "trackers", label: "Trackers" },
+    ]) {
+      const btn = el("button", "detail-tab", tab.label);
+      btn.type = "button";
+      btn.dataset.detailTab = tab.id;
+      tabs.appendChild(btn);
+    }
+    sec.appendChild(tabs);
+  }
+
   const filesTable = buildTable("files", "Files",
     bt ? ["Take", "File", "Size", "Done", "Priority"] : ["File", "Size", "Done"]);
+  if (bt) filesTable.dataset.tabPanel = "files";
   // The tick column pushes the name along one, and the name is the only column
   // in these tables that isn't a measurement.
   if (bt) filesTable.dataset.pick = "true";
@@ -3362,7 +3392,9 @@ function buildPart(part) {
     bar.appendChild(apply);
     sec.appendChild(bar);
     sec.appendChild(buildSeedBlock(part.gid));
-    sec.appendChild(buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]));
+    const trackers = buildTable("trackers", "Trackers", ["Tracker", "Tier", "Status"]);
+    trackers.dataset.tabPanel = "trackers";
+    sec.appendChild(trackers);
     sec.appendChild(el("p", "detail-note detail-tracker-note"));
   }
   const folder = el("div", "detail-folder hidden");
@@ -3374,7 +3406,12 @@ function buildPart(part) {
     "Every file in this download goes to the same folder. aria2 only moves a download it is not working on, so a running one is paused and started again."));
   sec.appendChild(folder);
   sec.appendChild(buildTable("servers", "Live connections", ["Server", "Speed"]));
-  if (bt) sec.appendChild(buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]));
+  if (bt) {
+    const peers = buildTable("peers", "Peers", ["Peer", "Has", "Down", "Up"]);
+    peers.dataset.tabPanel = "peers";
+    sec.appendChild(peers);
+    setDetailTab(sec, "files");
+  }
   sec.appendChild(el("p", "detail-note detail-resume hidden"));
 
   sec.appendChild(el("p", "detail-error hidden"));
@@ -4121,21 +4158,69 @@ function revealPath(data) {
 }
 
 async function renderDetail() {
-  const gid = detailGid;
-  if (!gid) return;
+  if (!detailGids.length) return;
+  const gid = detailGids[0];
+  const pane = document.getElementById("detail-pane");
+  if (pane?.classList.contains("hidden")) return;
+
+  if (detailGids.length > 1) {
+    const body = document.getElementById("detail-body");
+    if (body.dataset.shape !== "multi") {
+      body.dataset.shape = "multi";
+      body.textContent = "";
+      const rows = detailGids.map((id) => snapshot.get(id)).filter(Boolean);
+      if (rows.some((row) => LIMITABLE.has(row.status))) body.appendChild(buildLimitBlock());
+      if (rows.some((row) => SCHEDULABLE.has(row.status))) body.appendChild(buildStartBlock(gid));
+      const sec = el("section", "detail-part");
+      sec.appendChild(el("h3", "detail-part-title", "Overview"));
+      sec.appendChild(el("p", "detail-note"));
+      body.appendChild(sec);
+    }
+    const sections = [...body.children];
+    let i = 0;
+    if (sections[i]?.classList.contains("detail-limit")) {
+      const fake = {
+        gid,
+        parts: detailGids.map((id) => ({ status: snapshot.get(id) || null })),
+      };
+      updateLimitBlock(sections[i++], fake);
+      const note = sections[i - 1].querySelector(".detail-note");
+      if (note) note.textContent = "One speed cap is applied to every selected download.";
+    }
+    if (sections[i]?.classList.contains("detail-start")) {
+      const sec = sections[i++];
+      const input = sec.querySelector(".detail-start-input");
+      if (input && document.activeElement !== input) input.value = localInputValue(defaultStart());
+      sec.querySelector(".detail-start-clear")?.classList.add("hidden");
+      const note = sec.querySelector(".detail-start-note");
+      if (note) note.textContent = "Set one hold time and apply it to every selected download.";
+    }
+    const note = sections[i]?.querySelector(".detail-note");
+    if (note) {
+      note.textContent = `${detailGids.length} downloads selected. Controls here apply to all selected rows.`;
+    }
+    const titleEl = document.getElementById("detail-title");
+    titleEl.textContent = `${detailGids.length} downloads`;
+    titleEl.title = titleEl.textContent;
+    document.getElementById("detail-badge")?.classList.add("hidden");
+    const reveal = document.getElementById("detail-reveal");
+    reveal.classList.add("hidden");
+    reveal.dataset.path = "";
+    return;
+  }
 
   const data = await detailData(gid);
-  if (detailGid !== gid) return;   // closed, or moved on, while aria2 answered
+  if (detailGid !== gid || detailGids.length !== 1) return;   // moved while aria2 answered
 
   const body = document.getElementById("detail-body");
   const shape = detailShape(data);
   if (body.dataset.shape !== shape) {
     body.dataset.shape = shape;
     body.textContent = "";
-    if (canLimit(data)) body.appendChild(buildLimitBlock());
-    if (canSchedule(data)) body.appendChild(buildStartBlock(data.gid));
     if (data.job) body.appendChild(buildJobBlock());
     for (const part of data.parts) body.appendChild(buildPart(part));
+    if (canLimit(data)) body.appendChild(buildLimitBlock());
+    if (canSchedule(data)) body.appendChild(buildStartBlock(data.gid));
   }
 
   const title = data.row ? fileName(data.row) : gid;
@@ -4154,10 +4239,10 @@ async function renderDetail() {
 
   const sections = [...body.children];
   let i = 0;
-  if (sections[i]?.classList.contains("detail-limit")) updateLimitBlock(sections[i++], data);
-  if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
   if (data.job) updateJobBlock(sections[i++], data);
   for (const part of data.parts) updatePart(sections[i++], part);
+  if (sections[i]?.classList.contains("detail-limit")) updateLimitBlock(sections[i++], data);
+  if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
 
   const path = revealPath(data);
   const reveal = document.getElementById("detail-reveal");
@@ -4168,7 +4253,7 @@ async function renderDetail() {
 // Fired off the poll tick, never awaited by it: aria2 answering slowly must
 // not hold up the list, and two refreshes must not interleave.
 function refreshDetail() {
-  if (!detailGid || detailBusy) return;
+  if (!detailGids.length || detailBusy) return;
   detailBusy = true;
   renderDetail()
     .catch((err) => console.error(err))
@@ -4237,9 +4322,12 @@ async function applyFileSelection(gid, sec) {
   filePriorityDraft.delete(gid);
 }
 
-function openDetail(gid) {
-  if (!gid) return;
-  detailGid = gid;
+function openDetail(gidOrGids) {
+  const targets = Array.isArray(gidOrGids) ? gidOrGids.filter(Boolean) : [gidOrGids].filter(Boolean);
+  if (!targets.length) return;
+  detailGids = [...new Set(targets)];
+  detailGid = detailGids[0];
+  const pane = document.getElementById("detail-pane");
   const body = document.getElementById("detail-body");
   // A fresh panel every time: the shape marker is what decides whether the
   // next tick rebuilds, and the last download's shape is not this one's.
@@ -4247,10 +4335,11 @@ function openDetail(gid) {
   body.textContent = "";
   fileSelection.clear();
   filePriorityDraft.clear();
-  const row = snapshot.get(gid);
-  document.getElementById("detail-title").textContent = row ? fileName(row) : gid;
+  const row = snapshot.get(detailGid);
+  document.getElementById("detail-title").textContent = row ? fileName(row) : detailGid;
   document.getElementById("detail-reveal").classList.add("hidden");
-  openOverlay(document.getElementById("detail-overlay"), { close: closeDetail });
+  pane.classList.remove("hidden");
+  document.getElementById("inspector-toggle")?.classList.add("is-active");
   refreshDetail();
 }
 
@@ -4260,7 +4349,9 @@ function closeDetail() {
   filePriorityDraft.clear();
   detailCache.delete(detailGid);
   detailGid = null;
-  closeOverlay(document.getElementById("detail-overlay"));
+  detailGids = [];
+  document.getElementById("detail-pane")?.classList.add("hidden");
+  document.getElementById("inspector-toggle")?.classList.remove("is-active");
 }
 
 // Through Rust when there is a Rust to go through: the webview's clipboard
@@ -4859,6 +4950,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       selectAnchor = [...selected][0] || null;
     }
     if (pruned) paintSelection();
+    if (!selected.size && detailPane && !detailPane.classList.contains("hidden")) closeDetail();
   }
   afterPoll = pruneSelection;
   onFilterApplied = paintSelection;
@@ -4886,6 +4978,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     paintSelection();
     row.focus({ preventScroll: true });
+    if (!document.getElementById("detail-pane")?.classList.contains("hidden")) {
+      const gids = [...selected];
+      if (gids.length) openDetail(gids.length > 1 ? gids : gids[0]);
+      else closeDetail();
+    }
   }
 
   function selectedDownloads() {
@@ -5099,8 +5196,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     if (action === "details") {
-      const gid = selectAnchor || gids[0];
-      if (gid) openDetail(gid);
+      if (gids.length > 1) openDetail(gids);
+      else {
+        const gid = selectAnchor || gids[0];
+        if (gid) openDetail(gid);
+      }
       return;
     }
     if (action === "retry-all") {
@@ -5304,6 +5404,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         selected.clear();
         selectAnchor = null;
         paintSelection();
+        if (detailPane && !detailPane.classList.contains("hidden")) closeDetail();
       }
       return;
     }
@@ -5726,7 +5827,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   // ── Detail panel ─────────────────────────────────────────────────────────
-  const detailOverlay = document.getElementById("detail-overlay");
+  const detailPane = document.getElementById("detail-pane");
+  const inspectorToggle = document.getElementById("inspector-toggle");
 
   function refreshTorrentFiles(sec) {
     const gid = sec?.dataset.gid;
@@ -5743,11 +5845,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  detailOverlay.addEventListener("input", (e) => {
+  detailPane.addEventListener("input", (e) => {
     if (!e.target.closest(".detail-file-filter-input")) return;
     refreshTorrentFiles(e.target.closest(".detail-part"));
   });
-  detailOverlay.addEventListener("change", (e) => {
+  detailPane.addEventListener("change", (e) => {
     if (e.target.closest(".detail-file-filter-checked")) {
       refreshTorrentFiles(e.target.closest(".detail-part"));
       return;
@@ -5764,7 +5866,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     updateSelectBar(sec);
   });
 
-  detailOverlay.addEventListener("click", async (e) => {
+  detailPane.addEventListener("click", async (e) => {
+    const tab = e.target.closest("[data-detail-tab]");
+    if (tab) {
+      const sec = tab.closest(".detail-part");
+      if (sec) setDetailTab(sec, tab.dataset.detailTab);
+      return;
+    }
+
     const bulkBtn = e.target.closest("[data-bulk-priority]");
     if (bulkBtn) {
       const sec = bulkBtn.closest(".detail-part");
@@ -5813,15 +5922,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     // dead in between: a second click while aria2 is still answering the first
     // would leave the two halves of a merged row on different limits.
     const limitBtn = e.target.closest("[data-limit-mode]");
-    if (limitBtn && detailGid) {
-      const gid = detailGid;
+    if (limitBtn && detailGids.length) {
+      const gids = [...detailGids];
       const seg = limitBtn.closest(".seg");
       const buttons = [...seg.querySelectorAll("button")];
       for (const b of buttons) b.disabled = true;
       try {
-        await setRowLimit(gid, modeLimit(limitBtn.dataset.limitMode));
+        await Promise.all(gids.map((gid) => setRowLimit(gid, modeLimit(limitBtn.dataset.limitMode))));
       } catch (err) {
-        failed("Couldn't change this download's speed", err);
+        failed("Couldn't change the selected downloads' speed", err);
       }
       for (const b of buttons) b.disabled = false;
       refreshDetail();
@@ -5830,18 +5939,18 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     const limitSet = e.target.closest(".detail-limit-set");
-    if (limitSet && detailGid) {
+    if (limitSet && detailGids.length) {
       const input = limitSet.closest(".detail-limit").querySelector(".detail-limit-input");
       const bytes = parseKilobytes(input?.value);
       if (bytes === null) {
-        failed("Couldn't change this download's speed", "Enter a number of kilobytes per second.");
+        failed("Couldn't change the selected downloads' speed", "Enter a number of kilobytes per second.");
         return;
       }
       limitSet.disabled = true;
       try {
-        await setRowLimit(detailGid, bytes);
+        await Promise.all(detailGids.map((gid) => setRowLimit(gid, bytes)));
       } catch (err) {
-        failed("Couldn't change this download's speed", err);
+        failed("Couldn't change the selected downloads' speed", err);
       }
       limitSet.disabled = false;
       refreshDetail();
@@ -5950,8 +6059,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       when.disabled = true;
       try {
-        schedule = await window.__TAURI__.core.invoke("set_download_start",
-          { gid: when.dataset.gid, at });
+        for (const gid of detailGids.length ? detailGids : [when.dataset.gid]) {
+          schedule = await window.__TAURI__.core.invoke("set_download_start", { gid, at });
+        }
         heldGids = new Set(schedule.held || []);
         renderSchedule();
       } catch (err) {
@@ -6026,11 +6136,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       setTimeout(() => { copy.textContent = "Copy"; }, 1200);
       return;
     }
-    if (e.target === detailOverlay) closeDetail();
   });
 
   document.getElementById("detail-close").addEventListener("click", closeDetail);
-  document.getElementById("detail-done").addEventListener("click", closeDetail);
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
     if (!path) return;
@@ -6038,6 +6146,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       await window.__TAURI__.opener.revealItemInDir(path);
     } catch (err) {
       failed("Couldn't show it in Finder", err);
+    }
+  });
+  inspectorToggle?.addEventListener("click", () => {
+    if (detailPane?.classList.contains("hidden")) {
+      const gids = [...selected];
+      if (gids.length) openDetail(gids.length > 1 ? gids : gids[0]);
+    } else {
+      closeDetail();
     }
   });
 
@@ -6456,6 +6572,17 @@ window.addEventListener("DOMContentLoaded", async () => {
       e.preventDefault();
       nameSearch.focus();
       nameSearch.select();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && key === "i") {
+      e.preventDefault();
+      const gids = [...selected];
+      if (document.getElementById("detail-pane")?.classList.contains("hidden")) {
+        if (gids.length > 1) openDetail(gids);
+        else if (gids.length === 1) openDetail(gids[0]);
+      } else {
+        closeDetail();
+      }
       return;
     }
     if ((e.metaKey || e.ctrlKey) && (key === "?" || (key === "/" && e.shiftKey))) {

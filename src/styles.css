@@ -437,6 +437,11 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     border-color: var(--border-strong);
     color: var(--muted);
 }
+.pill.is-active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
 
 .search-field {
     display: flex;
@@ -488,8 +493,16 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 
 .content-body {
     flex: 1;
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    min-height: 0;
     padding: 0;
+}
+
+.content-main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
@@ -2768,11 +2781,30 @@ html.prefs.in-app .modal {
 }
 
 /* ── Detail panel ────────────────────────────────────────────────────── */
-/* Wider than the add dialog and taller than the screen on a torrent with a
-   hundred peers, so the body scrolls and the header and footer don't. */
-.modal.modal-lg {
-    width: min(620px, 92vw);
-    max-height: 86vh;
+.detail-pane {
+    width: min(38vw, 460px);
+    min-width: 320px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.detail-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.1rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    gap: 0.8rem;
+}
+
+.detail-pane-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.8rem 1.1rem 1rem;
+    border-top: 1px solid var(--border);
 }
 
 .detail-priority-bulk {
@@ -2795,8 +2827,11 @@ html.prefs.in-app .modal {
 }
 
 .detail-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     gap: 1.4rem;
+    padding: 0.9rem 1.1rem;
 }
 
 .detail-part {
@@ -2818,6 +2853,33 @@ html.prefs.in-app .modal {
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--muted);
+}
+
+.detail-tabs {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--bg);
+}
+
+.detail-tab {
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+}
+
+.detail-tab[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
 }
 
 .detail-bar-track {
@@ -3265,4 +3327,18 @@ html.prefs.in-app .modal {
 .detail-start-set,
 .detail-start-clear {
     flex-shrink: 0;
+}
+
+@media (max-width: 1100px) {
+    .content-body {
+        flex-direction: column;
+    }
+
+    .detail-pane {
+        width: 100%;
+        min-width: 0;
+        max-height: 46%;
+        border-left: none;
+        border-top: 1px solid var(--border);
+    }
 }

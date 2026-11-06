@@ -651,7 +651,7 @@ async function cmdBrowser(argv) {
     await withPage(async (page) => {
       const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
       await row.locator(".dl-name").click();
-      await page.locator("#detail-overlay:not(.hidden)").waitFor({ timeout: 8000 });
+      await page.locator("#detail-pane:not(.hidden)").waitFor({ timeout: 8000 });
       const title = await page.locator("#detail-title").textContent();
       console.log(JSON.stringify({ ok: true, detailTitle: title }, null, 2));
     });
