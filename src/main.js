@@ -34,7 +34,6 @@ import {
   formatDetailBadge,
   formatIntegrityFailureReason,
   formatQueueScan,
-  housekeepingActions,
   formatRestartResumeNote,
   formatUnsupportedMerge,
   formatUnplayableMediaNote,
@@ -1801,6 +1800,9 @@ function columnOn(id) {
 }
 
 function formatFinishedAt(dl) {
+  // aria2 tellStatus has no completedTime; until Garia stores its own finish
+  // timestamp, this stays empty and the cell shows "—". Deferred: product
+  // decision on where to persist completion time.
   const secs = Number(dl.completedTime);
   if (!(secs > 0)) return "";
   const at = new Date(secs * 1000);
@@ -1920,7 +1922,7 @@ function renderColHead() {
 
     const status = document.createElement("div");
     status.className = "col-head-label col-head-status";
-    status.textContent = "Status";
+    status.textContent = activeFilter === "error" ? "Reason" : "Status";
     head.appendChild(status);
 
     paintColLabels(head);
@@ -2531,6 +2533,8 @@ function applyFilter(listEl) {
       hasAnyDownloads: items.length > 0,
       connError: connState === "error",
       modNHint: `${modGlyph()}N`,
+      hasSearch: Boolean(nameFilter),
+      queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
     });
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
@@ -2579,6 +2583,13 @@ function renderHousekeeping(tally) {
     }
   }
   host.classList.toggle("hidden", items.length === 0);
+}
+
+// Assigned from DOMContentLoaded once toolbar DOM + filter state exist.
+// renderCounts (module scope, every poll) calls this safely before then.
+let renderToolbarImpl = () => {};
+function renderToolbar() {
+  renderToolbarImpl();
 }
 
 function renderCounts(tally) {
@@ -4937,7 +4948,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  function renderToolbar() {
+  renderToolbarImpl = function renderToolbarReady() {
     const tally = viewTally();
     const key = activeFilter.startsWith("cat:") || activeFilter.startsWith("pkg:") ? "all" : activeFilter;
     const inAll = key === "all" || key === "active";
@@ -4976,7 +4987,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (toolbarButtons.clearCompleted) toolbarButtons.clearCompleted.disabled = tally.complete < 1;
     if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.opener?.openPath;
     if (toolbarButtons.stopSeeding) toolbarButtons.stopSeeding.disabled = tally.seeding < 1;
-  }
+  };
 
   filterBar.addEventListener("click", (e) => {
     const btn = e.target.closest(".nav-item");
@@ -5015,6 +5026,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   async function runEmptyStateAction(action) {
     if (action === "new-download") {
       openModal();
+      return;
+    }
+    if (action === "view-all") {
+      setFilter("all");
       return;
     }
     if (action === "start-queue") {
@@ -5601,19 +5616,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!trafficMenu.classList.contains("hidden")) { closeTrafficMenu(); closed = true; }
     if (!rowMenu.classList.contains("hidden")) { closeRowMenu(); closed = true; }
     return closed;
-  }
-
-  function queueHousekeeping(selectedRows) {
-    let failed = 0;
-    let completed = 0;
-    for (const dl of snapshot.values()) {
-      if (dl.status === "complete") completed += 1;
-      if (dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length)) failed += 1;
-    }
-    const failedSelected = (selectedRows || []).filter(
-      (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
-    ).length;
-    return housekeepingActions({ failed, failedSelected, completed });
   }
 
   function menuSpecFor(dls) {
@@ -6804,7 +6806,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   async function clearFailed() {
     const gids = [...snapshot.values()].filter((dl) => dl.status === "error").map((dl) => dl.gid);
     if (!gids.length) return;
-    await removeDownloads(gids, false);
+    openConfirm(gids, {
+      keepFiles: true,
+      title: "Clear failed",
+      name: gids.length === 1
+        ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
+        : `${gids.length} failed downloads leave the list. The files stay on disk.`,
+    });
   }
 
   async function clearCompleted() {

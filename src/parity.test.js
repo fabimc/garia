@@ -289,7 +289,26 @@ test("empty queue copy follows filter and connection state", () => {
   assert.match(fresh.sub, /⌘N/);
   assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
-  assert.equal(formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true }).action?.id, "start-queue");
+  assert.equal(
+    formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true, queueStopped: true }).action?.id,
+    "start-queue",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true, queueStopped: false }).action?.id,
+    "new-download",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "active", hasAnyDownloads: true, hasSearch: true }).action?.id,
+    "clear-search",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "paused", hasAnyDownloads: true, hasSearch: false }).action?.id,
+    "view-all",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "seeding", hasAnyDownloads: true, hasSearch: false }).action?.id,
+    "view-all",
+  );
   assert.equal(formatEmptyQueueState({ connError: true }).title, "Can't reach aria2");
 });
 
@@ -1029,7 +1048,9 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  assert.equal(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).title, "No failed downloads");
-  assert.match(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).sub, /Retry Failed/);
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  assert.equal(failedEmpty.title, "No failed downloads");
+  assert.equal(failedEmpty.action?.id, "new-download");
+  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });

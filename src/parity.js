@@ -316,6 +316,8 @@ export function formatEmptyQueueState({
   hasAnyDownloads = false,
   connError = false,
   modNHint = "⌘N",
+  hasSearch = false,
+  queueStopped = false,
 } = {}) {
   if (connError) {
     return {
@@ -347,17 +349,24 @@ export function formatEmptyQueueState({
       };
     }
     if (filter === "waiting") {
+      if (queueStopped) {
+        return {
+          title: "No queued downloads",
+          sub: "The queue is stopped — Start Queue lets waiting downloads run",
+          action: { id: "start-queue", label: "Start Queue" },
+        };
+      }
       return {
         title: "No queued downloads",
         sub: "Queued rows appear here before they start",
-        action: { id: "start-queue", label: "Start Queue" },
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "error") {
       return {
         title: "No failed downloads",
-        sub: "When a row fails, Retry on the row or Download → Retry Failed brings it back",
-        action: { id: "retry-all", label: "Retry all failed" },
+        sub: `Drop a link or press ${modNHint} to add a download`,
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "complete") {
@@ -367,10 +376,19 @@ export function formatEmptyQueueState({
         action: { id: "open-folder", label: "Open download folder" },
       };
     }
+    if (hasSearch) {
+      return {
+        title: "Nothing matches this view",
+        sub: "Try a different filter or clear the search field",
+        action: { id: "clear-search", label: "Clear search" },
+      };
+    }
     return {
       title: "Nothing matches this view",
-      sub: "Try a different filter or clear the search field",
-      action: { id: "clear-search", label: "Clear search" },
+      sub: "Switch to All, or add a download",
+      action: filter === "all"
+        ? { id: "new-download", label: `New download (${modNHint})` }
+        : { id: "view-all", label: "Show all downloads" },
     };
   }
   return {
