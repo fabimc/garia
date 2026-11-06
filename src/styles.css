@@ -79,7 +79,8 @@
         --brand: #38a0b5;
 
         --accent: #e08a52;
-        --accent-dk: #cf6a3a;        --accent-soft: rgba(224, 138, 82, 0.2);
+        --accent-dk: #cf6a3a;
+        --accent-soft: rgba(224, 138, 82, 0.2);
         --accent-mid: rgba(224, 138, 82, 0.32);
 
         --success: #7dae88;
