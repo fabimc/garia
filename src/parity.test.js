@@ -124,8 +124,9 @@ test("disk-image extensions are labelled as such and archive hints stay readable
   const rows = [
     { file: true, content: "archive", queued: false },
     { file: true, content: "video", queued: false },
+    { file: true, content: "disk", queued: false },
   ];
-  assert.match(intakeReviewHint(rows), /In this dump: 1 archive, 1 video\./);
+  assert.match(intakeReviewHint(rows), /In this dump: 1 archive, 1 video, 1 disk image\./);
 });
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -371,7 +372,8 @@ test("bulk intake selects files and leaves pages off", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).mime, "application/zip");
   assert.match(intakeReviewHint(rows), /3 files start selected/);
   assert.match(intakeReviewHint(rows), /2 other links stay off/);
-  assert.match(intakeReviewHint(rows), /archive/);
+  assert.match(intakeReviewHint(rows), /1 archive/);
+  assert.match(intakeReviewHint(rows), /1 disk image/);
   assert.match(
     intakeReviewHint([{ file: true, queued: false }, { file: false, queued: false }]),
     /1 file starts selected\. 1 other link stays off/,

@@ -167,20 +167,18 @@ export function initAddDialog(api) {
       modalLogin.classList.add("hidden");
     }
     modalOk.classList.toggle("hidden", mode === "busy");
-    // The playlist and the FTP list each count what is ticked.
+    // Playlist and FTP set their own count labels after render.
     if (mode !== "playlist" && mode !== "ftp") {
-      modalOk.textContent = mode === "video" ? "Download" : primaryActionLabel();
+      modalOk.textContent = primaryActionLabel();
       modalOk.disabled = false;
     }
-    const optionsToggle = document.getElementById("add-options-toggle");
-    if (optionsToggle) optionsToggle.classList.toggle("hidden", mode !== "url");
+    // Options holds Start at (and url-only Mirrors/Checksum). Keep it for every
+    // mode that can queue, not only the URL sheet.
     const details = document.getElementById("add-options");
-    if (details) details.classList.toggle("hidden", mode !== "url");
+    if (details) details.classList.toggle("hidden", mode === "busy");
     addWhen.classList.toggle("hidden", mode === "busy");
-    const addStart = document.getElementById("add-start");
-    if (addStart) addStart.classList.toggle("hidden", mode === "busy");
     modalTitle.textContent = MODAL_TITLES[mode] || MODAL_TITLES.url;
-    // Last, and after the OK button has been re-enabled above: the hash is the
+    // Last, and after the primary has been re-enabled above: the hash is the
     // one thing in the dialog that can disable it again.
     renderChecksum();
   }
@@ -222,7 +220,7 @@ export function initAddDialog(api) {
   }
 
   // Three things to say and one field to say them in: nothing yet, the digest
-  // aria2 will check against, or why what is there cannot be one. The OK button
+  // aria2 will check against, or why what is there cannot be one. The primary
   // goes with it — a hash aria2 would refuse is a download that never starts,
   // and finding that out on submit is a worse place to find it out.
   function paintBatchCounts() {
@@ -231,9 +229,7 @@ export function initAddDialog(api) {
       if (box.checked) on++;
     }
     batchCount.textContent = on === 1 ? "1 selected" : `${on} selected`;
-    modalOk.textContent = addWhen.querySelector('input[value="queue"]').checked
-      ? "Add to queue"
-      : (on ? `Download ${on}` : "Download");
+    modalOk.textContent = primaryActionLabel(on);
     modalOk.disabled = on === 0;
   }
 
@@ -400,12 +396,14 @@ export function initAddDialog(api) {
     mirrorsRow.classList.toggle("hidden", !show);
   }
 
-  function primaryActionLabel() {
-    if (modalMode === "video") return "Download";
-    if (addWhen.querySelector('input[value="queue"]').checked) return "Add to queue";
-    const batch = [...batchEntries.querySelectorAll("input[type=checkbox]")]
-      .filter((box) => box.checked).length;
-    return batch > 1 ? `Download ${batch}` : "Download";
+  // Primary never says "OK": queue → "Add to queue", else "Download" / "Download N".
+  function primaryActionLabel(count = null) {
+    if (addWhen.querySelector('input[value="queue"]')?.checked) return "Add to queue";
+    const n = count != null
+      ? count
+      : [...batchEntries.querySelectorAll("input[type=checkbox]")]
+        .filter((box) => box.checked).length;
+    return n > 0 && !batchPanel.classList.contains("hidden") ? `Download ${n}` : "Download";
   }
 
   function renderChecksum() {
@@ -445,10 +443,11 @@ export function initAddDialog(api) {
 
   function renderDir() {
     const url = plainFileUrl();
-    const dirPlaceholder = (typeof settings !== "undefined" && settings?.downloadDir) || "Download folder";
-    modalDir.placeholder = dirPlaceholder;
     modalDirRow.classList.toggle("hidden", !url);
-    if (url && !dirEdited) modalDir.value = targetDir(url) || (typeof settings !== "undefined" && settings?.downloadDir) || "";
+    // targetDir already falls back to the download folder when categories miss.
+    // TODO(#81): if downloadDir is passed into initAddDialog, use it as the
+    // Save-to placeholder so an empty field still shows the real folder path.
+    if (url && !dirEdited) modalDir.value = targetDir(url) || "";
   }
 
   function chosenDir(url) {
@@ -514,6 +513,17 @@ export function initAddDialog(api) {
   document.getElementById("modal-dir-browse").addEventListener("click", () => chooseFolderInto(modalDir));
   addStartAt.addEventListener("input", renderStartHint);
   document.getElementById("add-start-on").addEventListener("change", renderStartHint);
+  addWhen.addEventListener("change", () => {
+    if (modalMode === "url" && !batchPanel.classList.contains("hidden")) {
+      paintBatchCounts();
+    } else if (modalMode === "playlist") {
+      renderPlaylistCount();
+    } else if (modalMode === "ftp") {
+      renderFtpCount();
+    } else {
+      modalOk.textContent = primaryActionLabel();
+    }
+  });
   document.getElementById("open-modal-btn").addEventListener("click", () => openModal());
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
@@ -647,8 +657,8 @@ export function initAddDialog(api) {
 
   async function submitUrl() {
     const raw = modalUrlInput.value.trim();
-    // A still-unexpanded sequence is treated as a batch once the user hits OK,
-    // so they do not have to press Expand first.
+    // A still-unexpanded sequence is treated as a batch once the user hits
+    // Download, so they do not have to press Expand first.
     if (parseUrlSequence(raw) && parseDownloadUrls(raw).length <= 1) {
       const expanded = expandUrlSequence(raw);
       if (expanded.length > 1) {
@@ -898,8 +908,10 @@ export function initAddDialog(api) {
     const picked = playlist.checked.size;
     const total = playlist.info.entries.length;
     playlistCount.textContent = `${picked} of ${total} selected`;
+    modalOk.textContent = addWhen.querySelector('input[value="queue"]')?.checked
+      ? "Add to queue"
+      : (picked ? `Download ${picked}` : "Download");
     modalOk.disabled = picked === 0;
-    modalOk.textContent = picked ? `Download ${picked}` : "Download";
   }
 
   playlistEntries.addEventListener("change", (e) => {
@@ -1039,7 +1051,9 @@ export function initAddDialog(api) {
     ftpCount.textContent = files
       ? (on === 1 ? "1 selected" : `${on} selected`)
       : "No files in this folder";
-    modalOk.textContent = on ? `Download ${on}` : "Download";
+    modalOk.textContent = addWhen.querySelector('input[value="queue"]')?.checked
+      ? "Add to queue"
+      : (on ? `Download ${on}` : "Download");
     modalOk.disabled = on === 0;
   }
 
