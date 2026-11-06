@@ -172,6 +172,10 @@ export function initAddDialog(api) {
       modalOk.textContent = mode === "video" ? "Download" : "OK";
       modalOk.disabled = false;
     }
+    const optionsToggle = document.getElementById("add-options-toggle");
+    if (optionsToggle) optionsToggle.classList.toggle("hidden", mode !== "url");
+    const details = document.getElementById("add-options");
+    if (details) details.classList.toggle("hidden", mode !== "url");
     addWhen.classList.toggle("hidden", mode === "busy");
     const addStart = document.getElementById("add-start");
     if (addStart) addStart.classList.toggle("hidden", mode === "busy");
@@ -429,7 +433,7 @@ export function initAddDialog(api) {
   function renderDir() {
     const url = plainFileUrl();
     modalDirRow.classList.toggle("hidden", !url);
-    if (url && !dirEdited) modalDir.value = targetDir(url);
+  if (url && !dirEdited) modalDir.value = targetDir(url) || (typeof settings !== "undefined" && settings?.downloadDir) || "";
   }
 
   function chosenDir(url) {

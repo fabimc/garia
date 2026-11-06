@@ -115,6 +115,19 @@ import {
   formatSpeedLimitScope,
 } from "./parity.js";
 
+test("disk-image extensions are labelled as such and archive hints stay readable", () => {
+  assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
+  assert.equal(classifyIntakeUrl("https://ex.test/app.dmg", true).content, "disk");
+  assert.equal(classifyIntakeUrl("https://ex.test/app.img", true).contentLabel, "Disk image");
+  assert.equal(contentKindFromUrl("https://cdn.test/iso.app"), "other");
+  assert.equal(mimeHintFromExt("dmg"), "application/x-apple-diskimage");
+  const rows = [
+    { file: true, content: "archive", queued: false },
+    { file: true, content: "video", queued: false },
+  ];
+  assert.match(intakeReviewHint(rows), /In this dump: 1 archive, 1 video\./);
+});
+
 test("a torrent is recognised by its metainfo or its info hash", () => {
   assert.equal(isTorrentDownload({ bittorrent: { info: { name: "a" } } }), true);
   assert.equal(isTorrentDownload({ infoHash: "abc" }), true);

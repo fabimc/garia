@@ -547,9 +547,10 @@ const CONTENT_EXTS = {
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
     "rtf", "txt", "csv", "epub", "mobi", "djvu",
   ]),
+  disk: new Set(["iso", "dmg", "img", "xip"]),
   archive: new Set([
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
-    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "xip",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "pkg",
+    "exe", "msi", "deb", "rpm", "apk", "jar", "bin",
   ]),
 };
 
@@ -559,6 +560,7 @@ const MIME_BY_EXT = {
   m4a: "audio/mp4", ogg: "audio/ogg", pdf: "application/pdf", zip: "application/zip",
   rar: "application/vnd.rar", "7z": "application/x-7z-compressed", tar: "application/x-tar",
   gz: "application/gzip", iso: "application/x-iso9660-image", dmg: "application/x-apple-diskimage",
+  img: "application/octet-stream", xip: "application/x-xip",
   exe: "application/vnd.microsoft.portable-executable", torrent: "application/x-bittorrent",
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
   txt: "text/plain", csv: "text/csv", json: "application/json", xml: "application/xml",
@@ -568,6 +570,7 @@ const CONTENT_LABELS = {
   video: "Video",
   audio: "Audio",
   archive: "Archive",
+  disk: "Disk image",
   document: "Document",
   magnet: "Magnet",
   torrent: "Torrent",
@@ -588,7 +591,7 @@ export function mimeHintFromExt(ext) {
   if (!key) return "";
   return MIME_BY_EXT[key] || (CONTENT_EXTS.video.has(key) ? `video/${key}`
     : CONTENT_EXTS.audio.has(key) ? `audio/${key}`
-      : CONTENT_EXTS.archive.has(key) ? `application/${key}`
+      : CONTENT_EXTS.archive.has(key) || CONTENT_EXTS.disk.has(key) ? `application/${key}`
         : CONTENT_EXTS.document.has(key) ? `application/${key}`
           : "");
 }
@@ -600,6 +603,7 @@ export function contentKindFromUrl(url) {
   if (ext === "torrent") return "torrent";
   if (CONTENT_EXTS.video.has(ext)) return "video";
   if (CONTENT_EXTS.audio.has(ext)) return "audio";
+  if (CONTENT_EXTS.disk.has(ext)) return "disk";
   if (CONTENT_EXTS.archive.has(ext)) return "archive";
   if (CONTENT_EXTS.document.has(ext)) return "document";
   return "other";
@@ -701,7 +705,7 @@ export function applyIntakePick(rows, mode) {
     if (mode === "none") return { ...row, selected: false };
     if (mode === "all") return { ...row, selected: true };
     if (mode === "files") return { ...row, selected: Boolean(row.file) };
-    if (mode === "video" || mode === "archive" || mode === "audio" || mode === "document") {
+    if (mode === "video" || mode === "archive" || mode === "disk" || mode === "audio" || mode === "document") {
       return { ...row, selected: row.content === mode };
     }
     return { ...row };
