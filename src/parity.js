@@ -960,10 +960,9 @@ export function captureTargetsFromPage({
   return out;
 }
 
-// A stable word for the row, beside the percentage. The status cell changes
-// every second; this one does not, so Active, Queued, and Done can be scanned
-// without reading the bar. A user pause, a Stop Queue, and a schedule hold
-// are three different waits — say so on the chip, not only in the tooltip.
+// The row badge is for modifiers only; the state itself lives in the status
+// cell. A user pause, a Stop Queue, and a schedule hold are three different
+// waits — say so on the chip, not only in the tooltip.
 export function formatQueueScan(status, {
   stalled = false,
   slow = false,
@@ -978,16 +977,7 @@ export function formatQueueScan(status, {
   if (scheduleHeld && status === "paused") {
     return { key: "held", label: "Held" };
   }
-  if (status === "error") return { key: "failed", label: "Failed" };
-  if (status === "complete") return { key: "done", label: "Done" };
-  if (status === "seeding") return { key: "seeding", label: "Seeding" };
-  if (status === "paused") return { key: "paused", label: "Paused" };
-  if (status === "waiting") return { key: "queued", label: "Queued" };
   if (status === "merging") return { key: "merging", label: "Merging" };
-  if (status === "removed") return { key: "removed", label: "Removed" };
-  if (status === "active" && stalled) return { key: "stalled", label: "Stalled" };
-  if (status === "active" && slow) return { key: "slow", label: "Slow" };
-  if (status === "active") return { key: "active", label: "Active" };
   return { key: "", label: "" };
 }
 

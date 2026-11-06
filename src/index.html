@@ -506,8 +506,7 @@
                 <span id="conn-dot" class="conn-dot conn-waiting"></span>
                 <span id="conn-text">Connecting…</span>
                 <span class="status-sep">·</span>
-                <span id="stat-counts">no downloads</span>
-                <span id="stat-housekeeping" class="status-housekeeping hidden"></span>
+                <span id="stat-counts" class="status-chip">no downloads</span>
                 <!-- Only there when a schedule is. A window that is holding
                      downloads back has to say so somewhere always visible, or
                      the app just looks broken. -->
@@ -518,7 +517,7 @@
                 <button
                     type="button"
                     id="traffic-btn"
-                    class="traffic-btn"
+                    class="traffic-btn status-chip"
                     aria-haspopup="true"
                     aria-expanded="false"
                     aria-controls="traffic-menu"
@@ -526,7 +525,7 @@
                 >
                     Full speed
                 </button>
-                <span id="stat-speed" class="status-right"></span>
+                <span id="stat-speed" class="status-right status-chip"></span>
                 <span class="kbd-hint"><kbd>&#8984;F</kbd> search</span>
             </footer>
 

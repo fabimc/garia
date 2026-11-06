@@ -547,18 +547,19 @@ test("page capture lists embedded media before links and drops the page itself",
   ]);
 });
 
-test("queue scan words stay stable across progress", () => {
-  assert.deepEqual(formatQueueScan("active"), { key: "active", label: "Active" });
-  assert.equal(formatQueueScan("waiting").label, "Queued");
-  assert.equal(formatQueueScan("complete").label, "Done");
-  assert.equal(formatQueueScan("error").label, "Failed");
-  assert.equal(formatQueueScan("active", { stalled: true }).label, "Stalled");
-  assert.equal(formatQueueScan("active", { slow: true }).label, "Slow");
+test("queue scan words only surface row modifiers", () => {
+  assert.deepEqual(formatQueueScan("active"), { key: "", label: "" });
+  assert.equal(formatQueueScan("waiting").label, "");
+  assert.equal(formatQueueScan("complete").label, "");
+  assert.equal(formatQueueScan("error").label, "");
+  assert.equal(formatQueueScan("active", { stalled: true }).label, "");
+  assert.equal(formatQueueScan("active", { slow: true }).label, "");
   assert.equal(formatQueueScan("active", { scheduled: true }).label, "Scheduled");
   assert.equal(formatQueueScan("paused", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("waiting", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("paused", { scheduleHeld: true }).label, "Held");
-  assert.equal(formatQueueScan("paused").label, "Paused");
+  assert.equal(formatQueueScan("paused").label, "");
+  assert.equal(formatQueueScan("merging").label, "Merging");
   // A start time wins over Stop Queue so the chip still says when it runs.
   assert.equal(
     formatQueueScan("paused", { scheduled: true, queueStopped: true }).label,
@@ -870,7 +871,6 @@ test("queue groups keep Active/Queued/Paused/Seeding aligned with scan chips", (
   assert.equal(queueGroupMeta("paused").scanKey, "paused");
   assert.equal(queueGroupMeta("seeding").sidebarFilter, "seeding");
   assert.equal(queueGroupMeta("merging").sidebarFilter, "active");
-  assert.equal(formatQueueScan("active").label, queueGroupMeta("active").sectionLabel);
   // removed must not map to "all" — tally.all is pre-seeded, so "all" would
   // double-count removed rows in the All Downloads badge.
   assert.equal(queueGroupMeta("removed").sidebarFilter, "removed");

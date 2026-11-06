@@ -1446,6 +1446,21 @@ function fileName(download) {
   return uri.split("/").pop() || uri || download.gid;
 }
 
+function middleTruncateName(raw, {
+  max = 54,
+  tail = 18,
+  minHead = 12,
+} = {}) {
+  const name = String(raw || "");
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const keepTail = ext ? Math.max(tail, ext.length + 6) : tail;
+  const head = Math.max(minHead, max - keepTail - 1);
+  if (name.length <= head + keepTail + 1) return name;
+  return `${name.slice(0, head)}…${name.slice(-keepTail)}`;
+}
+
 function isTorrent(dl) {
   if (isTorrentDownload(dl)) return true;
   return sourceUrl(dl).startsWith("magnet:");
@@ -1510,30 +1525,15 @@ function fileKind(dl) {
 }
 
 function rowIcon(dl) {
-  if (dl.status === "merging") return { svg: ROW_ICONS.video, kind: "video" };
-  const cls = statusClass(dl.status);
-  if (cls === "active") return { svg: ROW_ICONS.pause, kind: "active" };
-  if (cls === "paused") return { svg: ROW_ICONS.play, kind: "paused" };
-  // A queued row says it is waiting until the pointer is on it, then what a
-  // click does.
-  if (cls === "waiting") {
-    return {
-      svg: `<span class="dl-icon-rest">${ROW_ICONS.clock}</span><span class="dl-icon-hover">${ROW_ICONS.pause}</span>`,
-      kind: "waiting",
-    };
-  }
-  if (cls === "error") return { svg: ROW_ICONS.error, kind: "error" };
-  if (cls === "seeding") return { svg: ROW_ICONS.folder, kind: "seeding" };
   const kind = fileKind(dl);
   return { svg: ROW_ICONS[kind] || ROW_ICONS.file, kind };
 }
 
-function iconAction(dl) {
+function rowPrimaryAction(dl) {
   if (dl.status === "active" || dl.status === "waiting") return "stop";
   if (dl.status === "paused") return "resume";
   if (dl.status === "error" && dl.job?.webpageUrl) return "reprobe";
   if (dl.status === "error" && retryUris(dl).length) return "retry";
-  if ((dl.status === "complete" || dl.status === "seeding") && rowPath(dl)) return "reveal";
   return "";
 }
 
@@ -1709,16 +1709,16 @@ function errorLabel(dl) {
   return errorReason(dl);
 }
 
-// Each row's primary verb lives on the icon (pause, resume, reveal). The
-// trailing buttons are extras: stop-seeding, reveal, and delete.
+// Row actions live at the right edge. The leading icon is always file type.
 function actionsFor(dl) {
   const out = [];
-  const primary = iconAction(dl);
+  const primary = rowPrimaryAction(dl);
   const path = dl.job && !dl.onDisk ? "" : dl.files?.[0]?.path || "";
+  if (primary) out.push({ action: primary, kind: "icon" });
   if (dl.status === "seeding") {
     out.push({ action: "unseed", kind: "icon" });
   }
-  if (path && primary !== "reveal") {
+  if (path) {
     out.push({ action: "reveal", kind: "icon" });
   }
   out.push({ action: "remove", kind: "icon" });
@@ -1944,7 +1944,7 @@ function createItemEl(dl) {
   li.tabIndex = -1;
   li.innerHTML = `
     <div class="dl-lead">
-      <button type="button" class="dl-icon"></button>
+      <span class="dl-icon" aria-hidden="true"></span>
       <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
     </div>
     <div class="dl-name-cell">
@@ -2018,27 +2018,13 @@ function updateItemEl(li, dl) {
     iconEl.dataset.kind = icon.kind;
     iconEl.innerHTML = icon.svg;
   }
-  const act = iconAction(dl);
-  if (act) {
-    iconEl.dataset.action = act;
-    iconEl.dataset.gid = dl.gid;
-    iconEl.title = ACTION_TITLES[act];
-    iconEl.setAttribute("aria-label", ACTION_TITLES[act]);
-  } else {
-    delete iconEl.dataset.action;
-    iconEl.removeAttribute("title");
-    iconEl.removeAttribute("aria-label");
-  }
-  if (act === "reveal") iconEl.dataset.path = rowPath(dl);
-  else delete iconEl.dataset.path;
-  if (act === "reprobe") iconEl.dataset.url = dl.job?.webpageUrl || "";
-  else delete iconEl.dataset.url;
 
   const nameEl = li.querySelector(".dl-name");
-  if (nameEl.textContent !== name) {
-    nameEl.textContent = name;
-    nameEl.title = name;
+  const displayName = middleTruncateName(name);
+  if (nameEl.textContent !== displayName) {
+    nameEl.textContent = displayName;
   }
+  if (nameEl.title !== name) nameEl.title = name;
 
   // A capped row is slower than the line on purpose, and the row is where that
   // has to be said — the alternative is a download that looks stuck.
@@ -2097,20 +2083,24 @@ function updateItemEl(li, dl) {
   fill.style.transform = isIndeterminate ? "" : `translateX(${pct - 100}%)`;
 
   let statusText = "";
+  const speed = formatSpeed(dl.downloadSpeed);
   if (held) statusText = "Scheduled";
-  else if (dl.status === "complete") statusText = "Complete";
+  else if (dl.status === "complete") statusText = "Done";
   else if (dl.status === "error") statusText = errorLabel(dl);
   else if (dl.status === "seeding") {
     const totalUp = Number(dl.totalLength) || 0;
     const shared = Number(dl.uploadLength) || 0;
     statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
-  } else if (isStalled(dl)) statusText = "Stalled";
-  else if (isSlowDownload(dl)) statusText = "Slow";
-  else if (dl.status === "waiting" && !showBar) statusText = "Queued";
+  } else if (dl.status === "active" && isStalled(dl)) statusText = "Stalled";
+  else if (dl.status === "active" && isSlowDownload(dl)) statusText = "Slow";
   else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
-  else if (isIndeterminate) statusText = "";
-  else if (showBar) statusText = `${pct}%`;
+  else if (dl.status === "active" && isIndeterminate) statusText = speed ? `Downloading · ${speed}` : "Downloading";
+  else if (dl.status === "active" && showBar) statusText = speed ? `${pct}% · ${speed}` : `${pct}%`;
+  else if (dl.status === "paused" && showBar) statusText = `${pct}% · Paused`;
+  else if (dl.status === "waiting" && showBar) statusText = `${pct}% · Queued`;
+  else if (dl.status === "waiting") statusText = "Queued";
+  else if (dl.status === "paused") statusText = "Paused";
   else statusText = statusLabel(dl.status);
 
   const queueIsStopped = schedule.queueStopped === true || settings.queueStopped === true;
@@ -2159,7 +2149,7 @@ function updateItemEl(li, dl) {
       jobError: dl.job?.state === "failed" ? dl.job?.error : "",
     })
     : "";
-  statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
+  statusEl.classList.toggle("is-progress", dl.status === "active" && showBar && !held && dl.status !== "merging");
   statusEl.classList.toggle("is-error", dl.status === "error");
   statusEl.classList.toggle("is-checksum", failKind === "checksum");
   statusEl.classList.toggle("is-seeding", dl.status === "seeding");
@@ -2222,8 +2212,8 @@ function updateItemEl(li, dl) {
 }
 
 // ── Section headers ──────────────────────────────────────────────────────
-// Active/Queued/Paused/Seeding match the scan chips — Folx users scan those
-// words, so the section header must not say "Downloading" for Active rows.
+// Active/Queued/Paused/Seeding are the words users scan for in this view, so
+// the section header must not say "Downloading" for Active rows.
 const SECTION_LABELS = {
   active: queueGroupMeta("active").sectionLabel,
   merging: queueGroupMeta("merging").sectionLabel,
@@ -2467,8 +2457,6 @@ function renderCounts(tally) {
   if (tally.error) bits.push(`${tally.error} failed`);
   document.getElementById("stat-counts").textContent =
     bits.length ? bits.join(" · ") : "no downloads";
-  renderHousekeeping(tally);
-
   const down = formatSpeed(tally.speed);
   const up = formatSpeed(tally.upspeed);
   document.getElementById("stat-speed").textContent =
@@ -6066,12 +6054,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("pause-all").addEventListener("click", pauseAll);
   document.getElementById("resume-all").addEventListener("click", resumeAll);
-  document.getElementById("stat-housekeeping")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    if (btn.dataset.action === "retry-all") retryFailed();
-    if (btn.dataset.action === "clear-completed") clearCompleted();
-  });
   document.getElementById("queue-toggle").addEventListener("click", () => {
     const stopped = schedule.queueStopped === true || settings.queueStopped === true;
     setQueueStopped(!stopped).then(() => pollAndSync());
@@ -6107,8 +6089,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (e.button !== 0 || !listEl.classList.contains("queue-reorderable")) return;
     const row = e.target.closest(".dl-item");
     if (!row || row.dataset.status !== "waiting") return;
-    // The trailing buttons are buttons, not a handle. The icon is both: a
-    // click pauses, and a press that moves drags like the rest of the row.
+    // The trailing buttons are buttons, not a handle. The file-type icon drags
+    // like the rest of the row.
     if (e.target.closest(".dl-actions")) return;
     const rows = queuedRows();
     if (rows.length < 2 || !rows.includes(row)) return;

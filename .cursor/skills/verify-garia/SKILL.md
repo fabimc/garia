@@ -68,7 +68,7 @@ Prefer feature recipes under `features/`. Stable handles from this repo:
 | `#modal-url-input`, `#modal-ok`, `#modal-cancel` | Add dialog fields |
 | `#filter-bar .nav-item` + label (`All Downloads`, `Active`, `Queued`, `Torrents`, …) | Sidebar filters; sets `#view-title` |
 | `#download-list` `role=listbox` / children `role=option` with `data-gid`, `data-name`, `data-status` | Download rows |
-| `button.dl-icon[aria-label="Pause"]` / `Resume` | Per-row pause/resume |
+| `.dl-actions [data-action="stop"]` / `[data-action="resume"]` | Per-row pause/resume |
 | `.dl-name` click | Opens `#detail-overlay` |
 | `#name-filter` / `#name-filter-clear` | In-list name filter |
 | `#conn-text` | Connection proof |

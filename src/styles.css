@@ -43,6 +43,10 @@
     --warning-soft: rgba(168, 121, 31, 0.12);
     --danger-soft: rgba(179, 38, 30, 0.12);
     --brand-soft: rgba(12, 108, 132, 0.1);
+    --state-active: #3b7ddd;
+    --state-queued: #8b8075;
+    --state-done: #3f7d4f;
+    --state-failed: #b3261e;
 
     /* Neutral interaction tint (warm, unlike the old white overlays) */
     --tint: rgba(43, 37, 32, 0.05);
@@ -91,6 +95,10 @@
         --warning-soft: rgba(212, 164, 74, 0.16);
         --danger-soft: rgba(224, 106, 98, 0.16);
         --brand-soft: rgba(56, 160, 181, 0.16);
+        --state-active: #6d9fff;
+        --state-queued: #9a8c7c;
+        --state-done: #7dae88;
+        --state-failed: #e06a62;
 
         --tint: rgba(240, 230, 216, 0.06);
         --tint-strong: rgba(240, 230, 216, 0.1);
@@ -661,54 +669,20 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 
 .dl-icon {
-    appearance: none;
     width: 22px;
     height: 22px;
-    padding: 0;
-    border: none;
     border-radius: 4px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
     color: var(--text);
-    cursor: default;
-}
-.dl-icon[data-action] {
-    cursor: pointer;
-}
-.dl-icon:hover[data-action] {
-    background: var(--tint-strong);
+    background: transparent;
 }
 .dl-icon svg {
     display: block;
     width: 16px;
     height: 16px;
-}
-
-.dl-icon[data-kind="active"],
-.dl-icon[data-kind="paused"] {
-    color: var(--text);
-}
-.dl-icon[data-kind="waiting"] {
-    color: var(--muted);
-}
-.dl-icon[data-kind="waiting"]:hover {
-    color: var(--text);
-}
-.dl-icon-rest,
-.dl-icon-hover {
-    display: flex;
-}
-.dl-icon-hover,
-.dl-icon:hover .dl-icon-rest,
-.dl-icon:focus-visible .dl-icon-rest {
-    display: none;
-}
-.dl-icon:hover .dl-icon-hover,
-.dl-icon:focus-visible .dl-icon-hover {
-    display: flex;
 }
 .dl-icon[data-kind="folder"] {
     color: #3b7ddd;
@@ -768,8 +742,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-item.is-dragging .dl-grip {
     opacity: 1;
 }
-/* The icon under it is a pause button, and has to look like one when the
-   pointer is on it. It still drags. */
+/* The icon under it is file-type only; queued rows still drag from here. */
 .queue-reorderable .dl-item[data-status="waiting"]:not(.is-dragging) .dl-lead:hover .dl-grip {
     opacity: 0;
 }
@@ -1033,7 +1006,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 
 .dl-item[data-status="paused"] .dl-bar-fill {
-    background: color-mix(in srgb, #3b7ddd 55%, var(--muted));
+    background: color-mix(in srgb, var(--state-queued) 58%, transparent);
 }
 
 .dl-status-text {
@@ -1049,8 +1022,27 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--text);
     min-width: 2.6rem;
 }
+.dl-item[data-status="active"] .dl-status-text {
+    color: var(--state-active);
+}
+.dl-item[data-status="waiting"] .dl-status-text,
+.dl-item[data-status="paused"] .dl-status-text {
+    color: var(--state-queued);
+}
+.dl-item[data-status="complete"] .dl-status-text,
+.dl-item[data-status="seeding"] .dl-status-text {
+    color: var(--state-done);
+}
+.dl-item[data-status="error"] .dl-status-text {
+    color: var(--state-failed);
+}
 .dl-status-text.is-error {
     color: var(--danger);
+    white-space: normal;
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 .dl-status-text.is-checksum {
     color: var(--danger);
@@ -1061,6 +1053,20 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .dl-status-text.is-stalled {
     color: var(--warning);
+}
+.dl-item[data-status="active"] .dl-bar-fill,
+.dl-item[data-status="merging"] .dl-bar-fill {
+    background: var(--state-active);
+}
+.dl-item[data-status="waiting"] .dl-bar-fill {
+    background: color-mix(in srgb, var(--state-queued) 42%, transparent);
+}
+.dl-item[data-status="complete"] .dl-bar-fill,
+.dl-item[data-status="seeding"] .dl-bar-fill {
+    background: var(--state-done);
+}
+.dl-item[data-status="error"] .dl-bar-fill {
+    background: var(--state-failed);
 }
 .dl-verified.is-checking {
     background: var(--warning-soft);
@@ -1230,8 +1236,8 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding: 0.35rem 0.9rem;
     background: var(--sidebar-bg);
     border-top: 1px solid var(--border-strong);
-    font-family: var(--mono);
-    font-size: 0.7rem;
+    font-family: inherit;
+    font-size: 0.75rem;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -1256,24 +1262,34 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     opacity: 0.5;
 }
 
-/* The traffic mode reads as a word in the bar until it is hovered — a control
-   that looked like a button would compete with the row buttons above it. */
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--muted) 22%, transparent);
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
 .traffic-btn {
     font: inherit;
-    color: var(--muted);
-    background: none;
-    border: none;
-    border-radius: 5px;
-    padding: 0.1rem 0.4rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    padding: 0.12rem 0.55rem;
     cursor: pointer;
     transition:
         background 0.15s,
-        color 0.15s;
+        color 0.15s,
+        border-color 0.15s;
 }
 .traffic-btn:hover,
 .traffic-btn[aria-expanded="true"] {
     background: var(--accent-soft);
     color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 /* Anything but full speed is why a download is slower than the line, so it
    says so in the bar's one accent colour. */
