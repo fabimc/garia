@@ -653,10 +653,10 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     background: var(--tint);
 }
 .dl-item.is-selected {
-    background: color-mix(in srgb, #3b7ddd 14%, var(--bg));
+    background: color-mix(in srgb, var(--state-active) 14%, var(--bg));
 }
 .dl-item.is-selected:hover {
-    background: color-mix(in srgb, #3b7ddd 18%, var(--bg));
+    background: color-mix(in srgb, var(--state-active) 18%, var(--bg));
 }
 .dl-item.is-file-draggable {
     cursor: grab;
@@ -685,7 +685,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     height: 16px;
 }
 .dl-icon[data-kind="folder"] {
-    color: #3b7ddd;
+    color: var(--state-active);
 }
 .dl-icon[data-kind="video"] {
     color: var(--accent);
@@ -925,29 +925,6 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding: 0.2rem 0.45rem;
 }
 
-.status-housekeeping {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-left: 0.35rem;
-}
-
-.status-housekeeping-btn {
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0;
-    cursor: pointer;
-}
-
-.status-housekeeping-btn:hover {
-    text-decoration: underline;
-}
-
 .dl-status-text.is-slow {
     color: var(--warning, #b8860b);
 }
@@ -996,7 +973,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     width: 100%;
     height: 100%;
     border-radius: 999px;
-    background: #3b7ddd;
+    background: var(--state-active);
     transform: translateX(-100%);
     transition: transform 0.4s ease;
 }

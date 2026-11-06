@@ -87,7 +87,6 @@ import {
   formatTorrentHealthNote,
   formatQualityChoiceDetail,
   formatMediaRowExplain,
-  desktopHousekeepingItems,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -2412,33 +2411,6 @@ function applyFilter(listEl) {
   }
 
   onFilterApplied();
-}
-
-function renderHousekeeping(tally) {
-  const host = document.getElementById("stat-housekeeping");
-  if (!host) return;
-  const items = desktopHousekeepingItems({
-    failed: tally.error || 0,
-    failedSelected: 0,
-    completed: tally.complete || 0,
-  });
-  const key = items.map((item) => item.action).join("|");
-  if (host.dataset.actions !== key) {
-    host.dataset.actions = key;
-    host.textContent = "";
-    for (const item of items) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "status-housekeeping-btn";
-      btn.dataset.action = item.action;
-      btn.textContent = item.label;
-      btn.title = item.action === "retry-all"
-        ? "Same as Download → Retry Failed"
-        : "Same as Download → Clear Completed";
-      host.appendChild(btn);
-    }
-  }
-  host.classList.toggle("hidden", items.length === 0);
 }
 
 function renderCounts(tally) {
