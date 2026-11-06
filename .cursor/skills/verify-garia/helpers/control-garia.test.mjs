@@ -49,6 +49,16 @@ test('falls back to versioned chromium directory under PLAYWRIGHT_BROWSERS_PATH'
   assert.equal(executable, '/opt/pw-browsers/chromium-9999/chrome-linux64/chrome');
 });
 
+test('falls back to system google-chrome when Playwright paths are missing', () => {
+  const executable = resolveChromiumExecutable({
+    env: {},
+    playwrightExecutablePath: '/missing/bundled/chrome',
+    fileExists: setExists(['/usr/local/bin/google-chrome']),
+    listDir: () => [],
+  });
+  assert.equal(executable, '/usr/local/bin/google-chrome');
+});
+
 test('fails with clear guidance when no executable exists', () => {
   let message = '';
   assert.throws(
@@ -67,4 +77,5 @@ test('fails with clear guidance when no executable exists', () => {
   );
   assert.match(message, /GARIA_CHROME/);
   assert.match(message, /PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH/);
+  assert.match(message, /system Chrome/);
 });

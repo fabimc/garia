@@ -169,8 +169,8 @@ export function resolveChromiumExecutable({
   const bundledExecutable = playwrightExecutablePath;
   if (fileExists(bundledExecutable)) return bundledExecutable;
 
-  const fallbackRoot = env.PLAYWRIGHT_BROWSERS_PATH;
   const checked = [bundledExecutable];
+  const fallbackRoot = env.PLAYWRIGHT_BROWSERS_PATH;
   if (fallbackRoot) {
     const candidates = [
       join(fallbackRoot, "chromium", "chrome-linux", "chrome"),
@@ -191,9 +191,23 @@ export function resolveChromiumExecutable({
     }
   }
 
+  // Cloud / CI images often ship a system Chrome when Playwright's build is absent.
+  const systemCandidates = [
+    "/usr/local/bin/google-chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ];
+  for (const candidate of systemCandidates) {
+    checked.push(candidate);
+    if (fileExists(candidate)) return candidate;
+  }
+
   fail(
     `Chromium executable not found. Bundled Playwright expected ${bundledExecutable}, ` +
-      `${fallbackRoot ? `and no executable was found under PLAYWRIGHT_BROWSERS_PATH=${fallbackRoot}` : `and PLAYWRIGHT_BROWSERS_PATH is not set`}. ` +
+      `${fallbackRoot ? `and no executable was found under PLAYWRIGHT_BROWSERS_PATH=${fallbackRoot}` : `and PLAYWRIGHT_BROWSERS_PATH is not set`}, ` +
+      `and no system Chrome/Chromium was found. ` +
       `Set GARIA_CHROME or PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a valid Chromium binary. ` +
       `Checked: ${checked.join(", ")}`,
   );
@@ -306,6 +320,9 @@ async function cmdLaunch() {
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-extensions",
+      // Restricted / container Linux runners (no /dev/shm, no user namespace).
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
       "--window-size=1280,800",
       // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
       ...(process.env.GARIA_HEADED === "1" ? [] : ["--headless=new"]),

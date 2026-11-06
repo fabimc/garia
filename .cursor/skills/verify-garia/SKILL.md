@@ -39,6 +39,9 @@ Chromium executable selection order:
 1. `GARIA_CHROME` (or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) if explicitly set.
 2. The bundled Playwright executable from `helpers/node_modules/playwright`.
 3. Fallback search under `PLAYWRIGHT_BROWSERS_PATH` (for example `/opt/pw-browsers/chromium` or `/opt/pw-browsers/chromium-*/chrome-linux*/chrome`).
+4. Common system binaries (`google-chrome`, `chromium`, …) when Playwright’s build is not on disk.
+
+Launch always passes `--disable-dev-shm-usage` and `--no-sandbox` so Chromium can start in restricted Linux containers.
 
 If none exist, launch exits with a clear error and the checked paths.
 
