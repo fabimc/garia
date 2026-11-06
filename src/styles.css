@@ -20,7 +20,7 @@
 
     /* Ink */
     --text: #2b2520;
-    --muted: #8b8075;
+    --muted: #4c463f;
     --on-accent: #fff;
 
     /* Brand */
@@ -34,13 +34,13 @@
     --bar-end: #e08a52;
 
     /* Semantic */
-    --success: #3f7d4f;
-    --warning: #a8791f;
+    --success: #275b3a;
+    --warning: #71550a;
     --danger: #b3261e;
     --danger-dk: #8f1e17;
-    --success-soft: rgba(63, 125, 79, 0.12);
-    --success-mid: rgba(63, 125, 79, 0.2);
-    --warning-soft: rgba(168, 121, 31, 0.12);
+    --success-soft: rgba(39, 91, 58, 0.12);
+    --success-mid: rgba(39, 91, 58, 0.2);
+    --warning-soft: rgba(113, 85, 10, 0.12);
     --danger-soft: rgba(179, 38, 30, 0.12);
     --brand-soft: rgba(12, 108, 132, 0.1);
 
@@ -74,12 +74,12 @@
         --border-strong: #52483e;
 
         --text: #f0e6d8;
-        --muted: #9a8c7c;
+        --muted: #d0b7a1;
 
         --brand: #38a0b5;
+
         --accent: #e08a52;
-        --accent-dk: #cf6a3a;
-        --accent-soft: rgba(224, 138, 82, 0.2);
+        --accent-dk: #cf6a3a;        --accent-soft: rgba(224, 138, 82, 0.2);
         --accent-mid: rgba(224, 138, 82, 0.32);
 
         --success: #7dae88;
@@ -1161,6 +1161,11 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-item.is-selected .dl-actions,
 .dl-item:focus-within .dl-actions {
     opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+    .dl-actions {
+        transition: none;
+    }
 }
 
 .dl-btn {
