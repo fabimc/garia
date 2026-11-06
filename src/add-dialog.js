@@ -169,7 +169,7 @@ export function initAddDialog(api) {
     modalOk.classList.toggle("hidden", mode === "busy");
     // The playlist and the FTP list each count what is ticked.
     if (mode !== "playlist" && mode !== "ftp") {
-      modalOk.textContent = mode === "video" ? "Download" : "OK";
+      modalOk.textContent = mode === "video" ? "Download" : primaryActionLabel();
       modalOk.disabled = false;
     }
     const optionsToggle = document.getElementById("add-options-toggle");
@@ -231,7 +231,9 @@ export function initAddDialog(api) {
       if (box.checked) on++;
     }
     batchCount.textContent = on === 1 ? "1 selected" : `${on} selected`;
-    modalOk.textContent = on ? `Download ${on}` : "Download";
+    modalOk.textContent = addWhen.querySelector('input[value="queue"]').checked
+      ? "Add to queue"
+      : (on ? `Download ${on}` : "Download");
     modalOk.disabled = on === 0;
   }
 
@@ -284,7 +286,7 @@ export function initAddDialog(api) {
     if (!show) {
       lastBatchKey = "";
       if (batchHint) batchHint.classList.add("hidden");
-      if (modalMode === "url") modalOk.textContent = "OK";
+      if (modalMode === "url") modalOk.textContent = primaryActionLabel();
       return;
     }
     const key = urls.join("\n");
@@ -398,6 +400,14 @@ export function initAddDialog(api) {
     mirrorsRow.classList.toggle("hidden", !show);
   }
 
+  function primaryActionLabel() {
+    if (modalMode === "video") return "Download";
+    if (addWhen.querySelector('input[value="queue"]').checked) return "Add to queue";
+    const batch = [...batchEntries.querySelectorAll("input[type=checkbox]")]
+      .filter((box) => box.checked).length;
+    return batch > 1 ? `Download ${batch}` : "Download";
+  }
+
   function renderChecksum() {
     const urls = parseDownloadUrls(modalUrlInput.value);
     const forFile = urls.length === 1 && takesChecksum(urls[0]);
@@ -411,7 +421,10 @@ export function initAddDialog(api) {
         ? parsed.error
         : `${parsed.label}. The download fails rather than finishing if what lands doesn't match.`;
 
-    if (modalMode === "url") modalOk.disabled = Boolean(parsed?.error);
+    if (modalMode === "url") {
+      modalOk.textContent = primaryActionLabel();
+      modalOk.disabled = Boolean(parsed?.error);
+    }
     renderBatch();
     renderDir();
     renderSequence();
@@ -432,8 +445,10 @@ export function initAddDialog(api) {
 
   function renderDir() {
     const url = plainFileUrl();
+    const dirPlaceholder = (typeof settings !== "undefined" && settings?.downloadDir) || "Download folder";
+    modalDir.placeholder = dirPlaceholder;
     modalDirRow.classList.toggle("hidden", !url);
-  if (url && !dirEdited) modalDir.value = targetDir(url) || (typeof settings !== "undefined" && settings?.downloadDir) || "";
+    if (url && !dirEdited) modalDir.value = targetDir(url) || (typeof settings !== "undefined" && settings?.downloadDir) || "";
   }
 
   function chosenDir(url) {

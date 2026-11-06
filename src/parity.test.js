@@ -371,7 +371,7 @@ test("bulk intake selects files and leaves pages off", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).mime, "application/zip");
   assert.match(intakeReviewHint(rows), /3 files start selected/);
   assert.match(intakeReviewHint(rows), /2 other links stay off/);
-  assert.match(intakeReviewHint(rows), /archives/);
+  assert.match(intakeReviewHint(rows), /archive/);
   assert.match(
     intakeReviewHint([{ file: true, queued: false }, { file: false, queued: false }]),
     /1 file starts selected\. 1 other link stays off/,
