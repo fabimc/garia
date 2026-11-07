@@ -1,16 +1,16 @@
 # Pause and resume
 
-Pause and resume lets a user stop an active download from its row icon and later start it again, with the row status updating to match.
+Pause and resume lets a user stop an active download from its row action buttons and later start it again, with the row status updating to match.
 
 ## Sub-features
 
 - `pause-row` pauses one active download via the row Pause control.
 - `pause-status` shows `data-status=paused` after pause.
-- `resume-row` resumes a paused download via the row Resume control (when the icon offers it).
+- `resume-row` resumes a paused download via the row Resume control in the action group.
 
 ## How to get to it (user POV)
 
-- On an active row, choose the Pause control on the row icon (aria-label `Pause`).
+- On an active row, choose the Pause control in the row action group (aria-label `Pause`).
 - On a paused row, choose Resume (aria-label `Resume`).
 - Choose `Pause all` in the header — bulk path; map it only when proving that control.
 - Press Space with a row selected — keyboard path.
@@ -32,4 +32,4 @@ Preconditions:
 - Pause the seeded Ubuntu ISO, not a seeding torrent — Garia models stop-seeding as remove, not pause.
 - After pause, the row leaves the Active filter; assert in All Downloads or Paused.
 - `Pause all` requires enabled header buttons and selected/global semantics — do not treat a disabled `#pause-all` as a pass.
-- Resume after pause is supported by the mock (`aria2.unpause`); if the row icon does not expose Resume yet, report the unmet control rather than clicking elsewhere.
+- Resume after pause is supported by the mock (`aria2.unpause`); if the row action group does not expose Resume yet, report the unmet control rather than clicking elsewhere.

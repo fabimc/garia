@@ -316,11 +316,14 @@ export function formatEmptyQueueState({
   hasAnyDownloads = false,
   connError = false,
   modNHint = "⌘N",
+  hasSearch = false,
+  queueStopped = false,
 } = {}) {
   if (connError) {
     return {
       title: "Can't reach aria2",
       sub: "Start aria2 and garia will reconnect on its own",
+      action: null,
     };
   }
   if (hasAnyDownloads) {
@@ -328,40 +331,70 @@ export function formatEmptyQueueState({
       return {
         title: "Nothing in this category",
         sub: "Downloads that land in this folder show up here",
+        action: null,
       };
     }
     if (String(filter).startsWith("pkg:")) {
       return {
         title: "Nothing left in this package",
         sub: "Finished or removed downloads drop out of the package list",
+        action: null,
       };
     }
     if (filter === "torrents") {
       return {
         title: "No torrents",
         sub: "Magnets and .torrent files show up here — File → Open Torrent, or drop one on the window",
+        action: { id: "new-download", label: "Add torrent or link" },
+      };
+    }
+    if (filter === "waiting") {
+      if (queueStopped) {
+        return {
+          title: "No queued downloads",
+          sub: "The queue is stopped — Start Queue lets waiting downloads run",
+          action: { id: "start-queue", label: "Start Queue" },
+        };
+      }
+      return {
+        title: "No queued downloads",
+        sub: "Queued rows appear here before they start",
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "error") {
       return {
         title: "No failed downloads",
-        sub: "When a row fails, Retry on the row or Download → Retry Failed brings it back",
+        sub: `Drop a link or press ${modNHint} to add a download`,
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "complete") {
       return {
         title: "Nothing completed yet",
         sub: "Finished downloads land here — Clear Completed clears the list without deleting files",
+        action: { id: "open-folder", label: "Open download folder" },
+      };
+    }
+    if (hasSearch) {
+      return {
+        title: "Nothing matches this view",
+        sub: "Try a different filter or clear the search field",
+        action: { id: "clear-search", label: "Clear search" },
       };
     }
     return {
       title: "Nothing matches this view",
-      sub: "Try a different filter or clear the search field",
+      sub: "Switch to All, or add a download",
+      action: filter === "all"
+        ? { id: "new-download", label: `New download (${modNHint})` }
+        : { id: "view-all", label: "Show all downloads" },
     };
   }
   return {
     title: "No downloads yet",
     sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}, or install the browser extension to catch links and video pages`,
+    action: { id: "new-download", label: `New download (${modNHint})` },
   };
 }
 
@@ -547,9 +580,10 @@ const CONTENT_EXTS = {
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
     "rtf", "txt", "csv", "epub", "mobi", "djvu",
   ]),
+  disk: new Set(["iso", "dmg", "img", "xip"]),
   archive: new Set([
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
-    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "xip",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "pkg",
+    "exe", "msi", "deb", "rpm", "apk", "jar", "bin",
   ]),
 };
 
@@ -559,6 +593,7 @@ const MIME_BY_EXT = {
   m4a: "audio/mp4", ogg: "audio/ogg", pdf: "application/pdf", zip: "application/zip",
   rar: "application/vnd.rar", "7z": "application/x-7z-compressed", tar: "application/x-tar",
   gz: "application/gzip", iso: "application/x-iso9660-image", dmg: "application/x-apple-diskimage",
+  img: "application/octet-stream", xip: "application/x-xip",
   exe: "application/vnd.microsoft.portable-executable", torrent: "application/x-bittorrent",
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
   txt: "text/plain", csv: "text/csv", json: "application/json", xml: "application/xml",
@@ -568,6 +603,7 @@ const CONTENT_LABELS = {
   video: "Video",
   audio: "Audio",
   archive: "Archive",
+  disk: "Disk image",
   document: "Document",
   magnet: "Magnet",
   torrent: "Torrent",
@@ -588,7 +624,7 @@ export function mimeHintFromExt(ext) {
   if (!key) return "";
   return MIME_BY_EXT[key] || (CONTENT_EXTS.video.has(key) ? `video/${key}`
     : CONTENT_EXTS.audio.has(key) ? `audio/${key}`
-      : CONTENT_EXTS.archive.has(key) ? `application/${key}`
+      : CONTENT_EXTS.archive.has(key) || CONTENT_EXTS.disk.has(key) ? `application/${key}`
         : CONTENT_EXTS.document.has(key) ? `application/${key}`
           : "");
 }
@@ -600,6 +636,7 @@ export function contentKindFromUrl(url) {
   if (ext === "torrent") return "torrent";
   if (CONTENT_EXTS.video.has(ext)) return "video";
   if (CONTENT_EXTS.audio.has(ext)) return "audio";
+  if (CONTENT_EXTS.disk.has(ext)) return "disk";
   if (CONTENT_EXTS.archive.has(ext)) return "archive";
   if (CONTENT_EXTS.document.has(ext)) return "document";
   return "other";
@@ -609,8 +646,16 @@ export function contentKindLabel(content) {
   return CONTENT_LABELS[content] || CONTENT_LABELS.other;
 }
 
-export function classifyIntakeUrl(url, isDirectFile = () => false) {
+// `direct` / `isDirectFile` may be a boolean or a URL → bool predicate.
+function resolveDirectFilePredicate(isDirectFile) {
+  if (typeof isDirectFile === "function") return isDirectFile;
+  if (typeof isDirectFile === "boolean") return () => isDirectFile;
+  return () => false;
+}
+
+export function classifyIntakeUrl(url, isDirectFile = false) {
   const raw = String(url ?? "").trim();
+  const directFile = resolveDirectFilePredicate(isDirectFile);
   if (/^magnet:/i.test(raw)) {
     return {
       kind: "magnet",
@@ -623,7 +668,7 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
     };
   }
   if (/^ftps?:\/\//i.test(raw)) {
-    const file = isDirectFile(raw);
+    const file = Boolean(directFile(raw));
     const content = file ? contentKindFromUrl(raw) : "other";
     const ext = file ? extensionOfUrl(raw) : "";
     return {
@@ -637,7 +682,7 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
     };
   }
   if (/^https?:\/\//i.test(raw)) {
-    const file = isDirectFile(raw);
+    const file = Boolean(directFile(raw));
     if (!file) {
       return {
         kind: "page",
@@ -676,11 +721,12 @@ export function classifyIntakeUrl(url, isDirectFile = () => false) {
 export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
   const seen = new Set();
   const rows = [];
+  const directFile = resolveDirectFilePredicate(isDirectFile);
   for (const url of urls || []) {
     const raw = String(url ?? "").trim();
     if (!raw || seen.has(raw)) continue;
     seen.add(raw);
-    const kind = classifyIntakeUrl(raw, isDirectFile);
+    const kind = classifyIntakeUrl(raw, directFile);
     const queued = Boolean(alreadyHave?.(raw));
     rows.push({
       url: raw,
@@ -693,15 +739,15 @@ export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
 }
 
 // "All" and "Files" skip anything already in the list. A manual tick can
-// still put one back; the shortcuts should not. Video / Archive / Audio only
-// tick that content kind — pages stay off.
+// still put one back; the shortcuts should not. Video / Archive / Disk /
+// Audio only tick that content kind — pages stay off.
 export function applyIntakePick(rows, mode) {
   return (rows || []).map((row) => {
     if (row.queued) return { ...row, selected: false };
     if (mode === "none") return { ...row, selected: false };
     if (mode === "all") return { ...row, selected: true };
     if (mode === "files") return { ...row, selected: Boolean(row.file) };
-    if (mode === "video" || mode === "archive" || mode === "audio" || mode === "document") {
+    if (mode === "video" || mode === "archive" || mode === "disk" || mode === "audio" || mode === "document") {
       return { ...row, selected: row.content === mode };
     }
     return { ...row };
@@ -749,6 +795,7 @@ export function intakeReviewHint(rows) {
   const queued = list.filter((row) => row.queued).length;
   const videos = list.filter((row) => row.content === "video" && !row.queued).length;
   const archives = list.filter((row) => row.content === "archive" && !row.queued).length;
+  const disks = list.filter((row) => row.content === "disk" && !row.queued).length;
   const parts = [];
   if (files && others) {
     const fileBit = files === 1 ? "1 file starts selected" : `${files} files start selected`;
@@ -761,11 +808,12 @@ export function intakeReviewHint(rows) {
   } else if (files) {
     parts.push("Every link already names a file. Untick any you do not want.");
   }
-  if (videos || archives) {
+  if (videos || archives || disks) {
     const bits = [];
-    if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
     if (archives) bits.push(archives === 1 ? "1 archive" : `${archives} archives`);
-    parts.push(`In this dump: ${bits.join(", ")}.`);
+    if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
+    if (disks) bits.push(disks === 1 ? "1 disk image" : `${disks} disk images`);
+    parts.push(`In this batch: ${bits.join(", ")}.`);
   }
   if (queued) parts.push(`${queued} already in the list.`);
   return parts.join(" ");
@@ -960,10 +1008,9 @@ export function captureTargetsFromPage({
   return out;
 }
 
-// A stable word for the row, beside the percentage. The status cell changes
-// every second; this one does not, so Active, Queued, and Done can be scanned
-// without reading the bar. A user pause, a Stop Queue, and a schedule hold
-// are three different waits — say so on the chip, not only in the tooltip.
+// The row badge is for modifiers only; the state itself lives in the status
+// cell. Scheduled and Merging already appear as the status line, so they are
+// never repeated here — only Held / Stopped (and sibling modifiers elsewhere).
 export function formatQueueScan(status, {
   stalled = false,
   slow = false,
@@ -971,24 +1018,45 @@ export function formatQueueScan(status, {
   queueStopped = false,
   scheduleHeld = false,
 } = {}) {
-  if (scheduled) return { key: "scheduled", label: "Scheduled" };
   if (queueStopped && (status === "paused" || status === "waiting")) {
     return { key: "stopped", label: "Stopped" };
   }
   if (scheduleHeld && status === "paused") {
     return { key: "held", label: "Held" };
   }
-  if (status === "error") return { key: "failed", label: "Failed" };
-  if (status === "complete") return { key: "done", label: "Done" };
-  if (status === "seeding") return { key: "seeding", label: "Seeding" };
-  if (status === "paused") return { key: "paused", label: "Paused" };
-  if (status === "waiting") return { key: "queued", label: "Queued" };
-  if (status === "merging") return { key: "merging", label: "Merging" };
-  if (status === "removed") return { key: "removed", label: "Removed" };
-  if (status === "active" && stalled) return { key: "stalled", label: "Stalled" };
-  if (status === "active" && slow) return { key: "slow", label: "Slow" };
-  if (status === "active") return { key: "active", label: "Active" };
   return { key: "", label: "" };
+}
+
+// Status line for a paused+held row. Chip carries Stopped/Held; only a named
+// start time may print "Scheduled" here so the same word never appears twice.
+export function heldStatusLabel({
+  held = false,
+  startHeld = false,
+  queueStopped = false,
+  scheduleWindowHeld = false,
+  showBar = false,
+  pct = 0,
+} = {}) {
+  if (!held) return "";
+  if (startHeld) return "Scheduled";
+  if (queueStopped || scheduleWindowHeld) {
+    return showBar ? `${pct}% · Paused` : "Paused";
+  }
+  return "Scheduled";
+}
+
+// Split a filename so CSS can middle-ellipsis on the head while the tail
+// (extension + short stem) stays fully visible at any column width.
+export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 } = {}) {
+  const name = String(raw || "");
+  if (name.length <= minSplit) return { head: name, tail: "" };
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot) : "";
+  const keepTail = ext
+    ? Math.min(Math.max(ext.length + extPad, tail), name.length - 4)
+    : Math.min(tail, name.length - 4);
+  if (keepTail <= 0 || keepTail >= name.length) return { head: name, tail: "" };
+  return { head: name.slice(0, -keepTail), tail: name.slice(-keepTail) };
 }
 
 // Housekeeping that is about the whole queue, not only the rows under the
