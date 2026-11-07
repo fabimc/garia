@@ -34,6 +34,8 @@ import {
   formatDetailBadge,
   formatIntegrityFailureReason,
   formatQueueScan,
+  heldStatusLabel,
+  splitNameForDisplay,
   housekeepingActions,
   formatRestartResumeNote,
   formatUnsupportedMerge,
@@ -1445,19 +1447,25 @@ function fileName(download) {
   return uri.split("/").pop() || uri || download.gid;
 }
 
-function middleTruncateName(raw, {
-  max = 54,
-  tail = 18,
-  minHead = 12,
-} = {}) {
+function applyDisplayName(nameEl, raw) {
   const name = String(raw || "");
-  if (name.length <= max) return name;
-  const dot = name.lastIndexOf(".");
-  const ext = dot > 0 ? name.slice(dot) : "";
-  const keepTail = ext ? Math.max(tail, ext.length + 6) : tail;
-  const head = Math.max(minHead, max - keepTail - 1);
-  if (name.length <= head + keepTail + 1) return name;
-  return `${name.slice(0, head)}…${name.slice(-keepTail)}`;
+  const { head, tail } = splitNameForDisplay(name);
+  let headEl = nameEl.querySelector(".dl-name-head");
+  let tailEl = nameEl.querySelector(".dl-name-tail");
+  if (!headEl) {
+    nameEl.textContent = "";
+    headEl = document.createElement("span");
+    headEl.className = "dl-name-head";
+    nameEl.appendChild(headEl);
+  }
+  if (!tailEl) {
+    tailEl = document.createElement("span");
+    tailEl.className = "dl-name-tail";
+    nameEl.appendChild(tailEl);
+  }
+  if (headEl.textContent !== head) headEl.textContent = head;
+  if (tailEl.textContent !== tail) tailEl.textContent = tail;
+  tailEl.hidden = !tail;
 }
 
 function isTorrent(dl) {
@@ -1466,7 +1474,7 @@ function isTorrent(dl) {
 }
 
 function statusLabel(status) {
-  const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Complete", error: "Error", removed: "Removed" };
+  const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Done", error: "Error", removed: "Removed" };
   return map[status] || status;
 }
 
@@ -2019,10 +2027,7 @@ function updateItemEl(li, dl) {
   }
 
   const nameEl = li.querySelector(".dl-name");
-  const displayName = middleTruncateName(name);
-  if (nameEl.textContent !== displayName) {
-    nameEl.textContent = displayName;
-  }
+  applyDisplayName(nameEl, name);
   if (nameEl.title !== name) nameEl.title = name;
 
   // A capped row is slower than the line on purpose, and the row is where that
@@ -2081,9 +2086,25 @@ function updateItemEl(li, dl) {
   fill.classList.toggle("indeterminate", isIndeterminate);
   fill.style.transform = isIndeterminate ? "" : `translateX(${pct - 100}%)`;
 
+  const queueIsStopped = schedule.queueStopped === true || settings.queueStopped === true;
+  const startHeld = Boolean(startAt(dl.gid));
+  const scheduleWindowHeld = Boolean(held)
+    && !startHeld
+    && !queueIsStopped
+    && schedule.enabled === true
+    && schedule.open === false;
+
   let statusText = "";
   const speed = formatSpeed(dl.downloadSpeed);
-  if (held) statusText = "Scheduled";
+  const heldLine = heldStatusLabel({
+    held: Boolean(held),
+    startHeld,
+    queueStopped: queueIsStopped,
+    scheduleWindowHeld,
+    showBar,
+    pct,
+  });
+  if (heldLine) statusText = heldLine;
   else if (dl.status === "complete") statusText = "Done";
   else if (dl.status === "error") statusText = errorLabel(dl);
   else if (dl.status === "seeding") {
@@ -2102,13 +2123,6 @@ function updateItemEl(li, dl) {
   else if (dl.status === "paused") statusText = "Paused";
   else statusText = statusLabel(dl.status);
 
-  const queueIsStopped = schedule.queueStopped === true || settings.queueStopped === true;
-  const startHeld = Boolean(startAt(dl.gid));
-  const scheduleWindowHeld = Boolean(held)
-    && !startHeld
-    && !queueIsStopped
-    && schedule.enabled === true
-    && schedule.open === false;
   const scan = formatQueueScan(dl.status, {
     stalled: isStalled(dl),
     slow: isSlowDownload(dl),

@@ -47,6 +47,8 @@ import {
   mimeHintFromExt,
   captureTargetsFromPage,
   formatQueueScan,
+  heldStatusLabel,
+  splitNameForDisplay,
   housekeepingActions,
   formatRestartResumeNote,
   formatMediaOutputName,
@@ -567,6 +569,32 @@ test("queue scan words only surface row modifiers", () => {
     formatQueueScan("paused", { scheduled: true, queueStopped: true }).label,
     "Stopped",
   );
+});
+
+test("held status line does not compete with Stopped/Held chips", () => {
+  assert.equal(
+    heldStatusLabel({ held: true, startHeld: true }),
+    "Scheduled",
+  );
+  assert.equal(
+    heldStatusLabel({ held: true, queueStopped: true }),
+    "Paused",
+  );
+  assert.equal(
+    heldStatusLabel({ held: true, scheduleWindowHeld: true, showBar: true, pct: 42 }),
+    "42% · Paused",
+  );
+  assert.equal(heldStatusLabel({ held: false }), "");
+});
+
+test("splitNameForDisplay keeps extension in a non-shrinking tail", () => {
+  const short = splitNameForDisplay("readme.txt");
+  assert.equal(short.head, "readme.txt");
+  assert.equal(short.tail, "");
+  const long = splitNameForDisplay("Ubuntu.24.04.Desktop.amd64.iso");
+  assert.ok(long.tail.endsWith(".iso"));
+  assert.ok(long.head.length > 0);
+  assert.equal(long.head + long.tail, "Ubuntu.24.04.Desktop.amd64.iso");
 });
 
 test("uGet-style URL sequences expand with padding", () => {

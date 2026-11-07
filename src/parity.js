@@ -979,6 +979,38 @@ export function formatQueueScan(status, {
   return { key: "", label: "" };
 }
 
+// Status line for a paused+held row. Chip carries Stopped/Held; only a named
+// start time may print "Scheduled" here so the same word never appears twice.
+export function heldStatusLabel({
+  held = false,
+  startHeld = false,
+  queueStopped = false,
+  scheduleWindowHeld = false,
+  showBar = false,
+  pct = 0,
+} = {}) {
+  if (!held) return "";
+  if (startHeld) return "Scheduled";
+  if (queueStopped || scheduleWindowHeld) {
+    return showBar ? `${pct}% · Paused` : "Paused";
+  }
+  return "Scheduled";
+}
+
+// Split a filename so CSS can middle-ellipsis on the head while the tail
+// (extension + short stem) stays fully visible at any column width.
+export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 } = {}) {
+  const name = String(raw || "");
+  if (name.length <= minSplit) return { head: name, tail: "" };
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot) : "";
+  const keepTail = ext
+    ? Math.min(Math.max(ext.length + extPad, tail), name.length - 4)
+    : Math.min(tail, name.length - 4);
+  if (keepTail <= 0 || keepTail >= name.length) return { head: name, tail: "" };
+  return { head: name.slice(0, -keepTail), tail: name.slice(-keepTail) };
+}
+
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
 // failure — Retry covers that. Labels match Download menu / dock verbs when

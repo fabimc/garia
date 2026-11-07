@@ -19,7 +19,12 @@ aria2's statuses are not enough for the UI:
 
 The status cell carries the single state line (including Scheduled and Merging).
 `.dl-scan` chips are modifiers only — Held, Stopped — never a second copy of the
-same word already shown as status. Verified / Checking stay on `.dl-verified`.
+same word already shown as status. Queue-stop and daily-window holds keep status
+as Paused (chip = Stopped / Held); only a named start time prints Scheduled.
+Verified / Checking stay on `.dl-verified`.
+
+Long names use a head + tail split so the extension stays visible at any Name
+column width (CSS ellipsis on the head; tail never shrinks).
 
 ## Categories
 
