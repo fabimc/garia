@@ -34,6 +34,17 @@ What it starts (and records under `.cursor/skills/verify-garia/.run/state.json`)
 2. `python3 -m http.server <port> --directory src --bind 127.0.0.1` — static frontend (preferred port `8765`, or next free; override with `GARIA_UI_PORT`).
 3. Playwright's Chromium with `--remote-debugging-port` (preferred `9222`, override with `GARIA_CDP_PORT`) so every `browser` command attaches to the **same** page and UI state (filters, dialogs) persists across calls.
 
+Chromium executable selection order:
+
+1. `GARIA_CHROME` (or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) if explicitly set.
+2. The bundled Playwright executable from `helpers/node_modules/playwright`.
+3. Fallback search under `PLAYWRIGHT_BROWSERS_PATH` (for example `/opt/pw-browsers/chromium` or `/opt/pw-browsers/chromium-*/chrome-linux*/chrome`).
+4. Common system binaries (`google-chrome`, `chromium`, …) when Playwright’s build is not on disk.
+
+Launch always passes `--disable-dev-shm-usage` and `--no-sandbox` so Chromium can start in restricted Linux containers.
+
+If none exist, launch exits with a clear error and the checked paths.
+
 **Ready** means all of:
 
 - Mock answers `aria2.getGlobalStat`.
