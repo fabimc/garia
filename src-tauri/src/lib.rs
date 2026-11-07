@@ -3696,6 +3696,74 @@ fn aria2_args(
     args
 }
 
+/// A session entry whose only sources are aria2's `[METADATA]….torrent`
+/// files. aria2 already skips a download that has `followedBy` when it
+/// writes the session; this drops a leftover that an older run saved as its
+/// own URI, which would otherwise come back as a second row.
+fn is_metadata_session_uri(uri: &str) -> bool {
+    let bare = uri.trim();
+    if bare.is_empty() || bare.starts_with("magnet:") {
+        return false;
+    }
+    let name = bare.rsplit(['/', '\\']).next().unwrap_or(bare);
+    name.starts_with("[METADATA]")
+        || name.starts_with("%5BMETADATA%5D")
+        || name.starts_with("%5bMETADATA%5d")
+}
+
+fn metadata_session_entry(uri_line: &str) -> bool {
+    let uris: Vec<&str> = uri_line
+        .trim()
+        .split('\t')
+        .filter(|uri| !uri.is_empty())
+        .collect();
+    !uris.is_empty() && uris.iter().all(|uri| is_metadata_session_uri(uri))
+}
+
+/// Drop stray metadata-file entries. A magnet URI is kept: that is the
+/// download still being fetched, and it is the one row the list should show.
+fn strip_metadata_session(text: &str) -> String {
+    if !text.contains("[METADATA]")
+        && !text.contains("%5BMETADATA%5D")
+        && !text.contains("%5bMETADATA%5d")
+    {
+        return text.to_string();
+    }
+    let mut entries: Vec<Vec<&str>> = Vec::new();
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\n', '\r']);
+        let starts_entry = !body.starts_with(' ') && !body.is_empty();
+        if starts_entry || entries.is_empty() {
+            entries.push(Vec::new());
+        }
+        entries.last_mut().unwrap().push(line);
+    }
+    let mut out = String::new();
+    for entry in entries {
+        let uri_line = entry.first().copied().unwrap_or("");
+        if metadata_session_entry(uri_line) {
+            continue;
+        }
+        for line in entry {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
+fn sanitize_session_file(path: &Path) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    let next = strip_metadata_session(&text);
+    if next == text {
+        return;
+    }
+    if let Err(e) = fs::write(path, next) {
+        eprintln!("[garia] Could not update {}: {e}", path.display());
+    }
+}
+
 fn spawn_aria2(
     port: u16,
     secret: &str,
@@ -3703,6 +3771,7 @@ fn spawn_aria2(
     netrc_file: &Path,
     settings: &Settings,
 ) -> Option<Child> {
+    sanitize_session_file(session_file);
     for bin in aria2c_candidates() {
         if bin.contains('/') && !Path::new(&bin).exists() {
             continue;
@@ -4507,6 +4576,27 @@ mod tests {
         assert!(t.elapsed() < Duration::from_millis(1500), "and promptly");
         let out = steady.join().unwrap().unwrap();
         assert!(out.status.success(), "a run that cannot be cancelled finishes");
+    }
+
+    #[test]
+    fn a_metadata_torrent_file_does_not_come_back_from_the_session() {
+        let magnet = "\
+magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny\t
+ gid=aaaaaaaaaaaaaaaa
+ dir=/tmp/Downloads
+";
+        let stray = "\
+/tmp/Downloads/[METADATA]Big+Buck+Bunny.torrent\t
+ gid=bbbbbbbbbbbbbbbb
+ dir=/tmp/Downloads
+";
+        let session = format!("{magnet}{stray}");
+        assert_eq!(strip_metadata_session(&session), magnet);
+        // An in-progress magnet is the download, not a stray row.
+        assert_eq!(strip_metadata_session(magnet), magnet);
+        assert_eq!(strip_metadata_session(""), "");
+        let encoded = "/tmp/Downloads/%5BMETADATA%5Dnotes.torrent\t\n gid=cc\n";
+        assert_eq!(strip_metadata_session(encoded), "");
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "result": {
+    "count": 1,
+    "rows": [
+      {
+        "name": "verify-garia-magnet.mp4",
+        "status": "active",
+        "text": "12%",
+        "gid": "f999960611"
+      }
+    ],
+    "notice": "That magnet link is already in the list",
+    "noticeHidden": false,
+    "items": "25 items"
+  }
+}

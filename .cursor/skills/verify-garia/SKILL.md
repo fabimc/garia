@@ -79,7 +79,8 @@ Prefer feature recipes under `features/`. Stable handles from this repo:
 | `#modal-url-input`, `#modal-ok`, `#modal-cancel` | Add dialog fields |
 | `#filter-bar .nav-item` + label (`All Downloads`, `Active`, `Queued`, `Torrents`, …) | Sidebar filters; sets `#view-title` |
 | `#download-list` `role=listbox` / children `role=option` with `data-gid`, `data-name`, `data-status` | Download rows |
-| `.dl-actions [data-action="stop"]` / `[data-action="resume"]` | Per-row pause/resume |
+| `.dl-actions [data-action="stop"]` / `[data-action="resume"]` / `[data-action="remove"]` | Per-row pause/resume/remove |
+| `browser click-named --name '…' --action resume` | Click one row action by visible name |
 | `.dl-name` click | Opens `#detail-pane` |
 | `#name-filter` / `#name-filter-clear` | In-list name filter |
 | `#conn-text` | Connection proof |
@@ -92,6 +93,7 @@ Examples:
 ./helpers/control-garia browser add-url --url 'https://proof.ovh.net/files/1Mb.dat'
 ./helpers/control-garia browser open-detail --name 'Ubuntu 24.04 Desktop.iso'
 ./helpers/control-garia browser pause-named --name 'Ubuntu 24.04 Desktop.iso'
+./helpers/control-garia browser click-named --name 'Ubuntu 24.04 Desktop.iso' --action resume
 ./helpers/control-garia browser click --css '#open-modal-btn'
 ./helpers/control-garia browser fill --css '#modal-url-input' --value 'https://example.com/a.zip'
 ./helpers/control-garia browser snapshot --path browse-library/active.aria.txt
