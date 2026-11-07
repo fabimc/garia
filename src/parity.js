@@ -316,11 +316,14 @@ export function formatEmptyQueueState({
   hasAnyDownloads = false,
   connError = false,
   modNHint = "⌘N",
+  hasSearch = false,
+  queueStopped = false,
 } = {}) {
   if (connError) {
     return {
       title: "Can't reach aria2",
       sub: "Start aria2 and garia will reconnect on its own",
+      action: null,
     };
   }
   if (hasAnyDownloads) {
@@ -328,40 +331,70 @@ export function formatEmptyQueueState({
       return {
         title: "Nothing in this category",
         sub: "Downloads that land in this folder show up here",
+        action: null,
       };
     }
     if (String(filter).startsWith("pkg:")) {
       return {
         title: "Nothing left in this package",
         sub: "Finished or removed downloads drop out of the package list",
+        action: null,
       };
     }
     if (filter === "torrents") {
       return {
         title: "No torrents",
         sub: "Magnets and .torrent files show up here — File → Open Torrent, or drop one on the window",
+        action: { id: "new-download", label: "Add torrent or link" },
+      };
+    }
+    if (filter === "waiting") {
+      if (queueStopped) {
+        return {
+          title: "No queued downloads",
+          sub: "The queue is stopped — Start Queue lets waiting downloads run",
+          action: { id: "start-queue", label: "Start Queue" },
+        };
+      }
+      return {
+        title: "No queued downloads",
+        sub: "Queued rows appear here before they start",
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "error") {
       return {
         title: "No failed downloads",
-        sub: "When a row fails, Retry on the row or Download → Retry Failed brings it back",
+        sub: `Drop a link or press ${modNHint} to add a download`,
+        action: { id: "new-download", label: `New download (${modNHint})` },
       };
     }
     if (filter === "complete") {
       return {
         title: "Nothing completed yet",
         sub: "Finished downloads land here — Clear Completed clears the list without deleting files",
+        action: { id: "open-folder", label: "Open download folder" },
+      };
+    }
+    if (hasSearch) {
+      return {
+        title: "Nothing matches this view",
+        sub: "Try a different filter or clear the search field",
+        action: { id: "clear-search", label: "Clear search" },
       };
     }
     return {
       title: "Nothing matches this view",
-      sub: "Try a different filter or clear the search field",
+      sub: "Switch to All, or add a download",
+      action: filter === "all"
+        ? { id: "new-download", label: `New download (${modNHint})` }
+        : { id: "view-all", label: "Show all downloads" },
     };
   }
   return {
     title: "No downloads yet",
     sub: `Drag a URL or .torrent file anywhere, copy a file link, or hit ${modNHint}, or install the browser extension to catch links and video pages`,
+    action: { id: "new-download", label: `New download (${modNHint})` },
   };
 }
 
@@ -975,10 +1008,9 @@ export function captureTargetsFromPage({
   return out;
 }
 
-// A stable word for the row, beside the percentage. The status cell changes
-// every second; this one does not, so Active, Queued, and Done can be scanned
-// without reading the bar. A user pause, a Stop Queue, and a schedule hold
-// are three different waits — say so on the chip, not only in the tooltip.
+// The row badge is for modifiers only; the state itself lives in the status
+// cell. Scheduled and Merging already appear as the status line, so they are
+// never repeated here — only Held / Stopped (and sibling modifiers elsewhere).
 export function formatQueueScan(status, {
   stalled = false,
   slow = false,
@@ -986,24 +1018,45 @@ export function formatQueueScan(status, {
   queueStopped = false,
   scheduleHeld = false,
 } = {}) {
-  if (scheduled) return { key: "scheduled", label: "Scheduled" };
   if (queueStopped && (status === "paused" || status === "waiting")) {
     return { key: "stopped", label: "Stopped" };
   }
   if (scheduleHeld && status === "paused") {
     return { key: "held", label: "Held" };
   }
-  if (status === "error") return { key: "failed", label: "Failed" };
-  if (status === "complete") return { key: "done", label: "Done" };
-  if (status === "seeding") return { key: "seeding", label: "Seeding" };
-  if (status === "paused") return { key: "paused", label: "Paused" };
-  if (status === "waiting") return { key: "queued", label: "Queued" };
-  if (status === "merging") return { key: "merging", label: "Merging" };
-  if (status === "removed") return { key: "removed", label: "Removed" };
-  if (status === "active" && stalled) return { key: "stalled", label: "Stalled" };
-  if (status === "active" && slow) return { key: "slow", label: "Slow" };
-  if (status === "active") return { key: "active", label: "Active" };
   return { key: "", label: "" };
+}
+
+// Status line for a paused+held row. Chip carries Stopped/Held; only a named
+// start time may print "Scheduled" here so the same word never appears twice.
+export function heldStatusLabel({
+  held = false,
+  startHeld = false,
+  queueStopped = false,
+  scheduleWindowHeld = false,
+  showBar = false,
+  pct = 0,
+} = {}) {
+  if (!held) return "";
+  if (startHeld) return "Scheduled";
+  if (queueStopped || scheduleWindowHeld) {
+    return showBar ? `${pct}% · Paused` : "Paused";
+  }
+  return "Scheduled";
+}
+
+// Split a filename so CSS can middle-ellipsis on the head while the tail
+// (extension + short stem) stays fully visible at any column width.
+export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 } = {}) {
+  const name = String(raw || "");
+  if (name.length <= minSplit) return { head: name, tail: "" };
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot) : "";
+  const keepTail = ext
+    ? Math.min(Math.max(ext.length + extPad, tail), name.length - 4)
+    : Math.min(tail, name.length - 4);
+  if (keepTail <= 0 || keepTail >= name.length) return { head: name, tail: "" };
+  return { head: name.slice(0, -keepTail), tail: name.slice(-keepTail) };
 }
 
 // Housekeeping that is about the whole queue, not only the rows under the
