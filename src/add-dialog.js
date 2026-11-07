@@ -492,6 +492,7 @@ export function initAddDialog(api) {
   document.getElementById("batch-files").addEventListener("click", () => pickBatch("files"));
   document.getElementById("batch-video").addEventListener("click", () => pickBatch("video"));
   document.getElementById("batch-archive").addEventListener("click", () => pickBatch("archive"));
+  document.getElementById("batch-disk").addEventListener("click", () => pickBatch("disk"));
   document.getElementById("batch-none").addEventListener("click", () => pickBatch("none"));
   sequenceExpand?.addEventListener("click", () => {
     const expanded = expandUrlSequence(modalUrlInput.value.trim());

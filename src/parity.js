@@ -739,8 +739,8 @@ export function reviewIntake(urls, { isDirectFile, alreadyHave } = {}) {
 }
 
 // "All" and "Files" skip anything already in the list. A manual tick can
-// still put one back; the shortcuts should not. Video / Archive / Audio only
-// tick that content kind — pages stay off.
+// still put one back; the shortcuts should not. Video / Archive / Disk /
+// Audio only tick that content kind — pages stay off.
 export function applyIntakePick(rows, mode) {
   return (rows || []).map((row) => {
     if (row.queued) return { ...row, selected: false };
@@ -813,7 +813,7 @@ export function intakeReviewHint(rows) {
     if (archives) bits.push(archives === 1 ? "1 archive" : `${archives} archives`);
     if (videos) bits.push(videos === 1 ? "1 video" : `${videos} videos`);
     if (disks) bits.push(disks === 1 ? "1 disk image" : `${disks} disk images`);
-    parts.push(`In this dump: ${bits.join(", ")}.`);
+    parts.push(`In this batch: ${bits.join(", ")}.`);
   }
   if (queued) parts.push(`${queued} already in the list.`);
   return parts.join(" ");

@@ -128,7 +128,7 @@ test("disk-image extensions are labelled as such and archive hints stay readable
     { file: true, content: "video", queued: false },
     { file: true, content: "disk", queued: false },
   ];
-  assert.match(intakeReviewHint(rows), /In this dump: 1 archive, 1 video, 1 disk image\./);
+  assert.match(intakeReviewHint(rows), /In this batch: 1 archive, 1 video, 1 disk image\./);
 });
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
@@ -403,24 +403,29 @@ test("bulk intake selects files and leaves pages off", () => {
   );
 });
 
-test("intake content kinds and filters name video and archive links", () => {
+test("intake content kinds and filters name video, archive, and disk links", () => {
   assert.equal(contentKindFromUrl("https://cdn.test/clip.mp4"), "video");
   assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
+  assert.equal(contentKindFromUrl("https://cdn.test/os.iso"), "disk");
   assert.equal(mimeHintFromExt("mp4"), "video/mp4");
-  const isFile = (url) => /\.(mp4|zip|pdf)(\?|$)/i.test(url);
+  const isFile = (url) => /\.(mp4|zip|pdf|iso|dmg)(\?|$)/i.test(url);
   const rows = reviewIntake([
     "https://cdn.test/clip.mp4",
     "https://cdn.test/pack.zip",
+    "https://cdn.test/os.iso",
     "https://cdn.test/notes.pdf",
     "https://cdn.test/about",
   ], { isDirectFile: isFile });
-  assert.deepEqual(rows.map((row) => row.content), ["video", "archive", "document", "page"]);
-  assert.deepEqual(applyIntakePick(rows, "video").map((row) => row.selected), [true, false, false, false]);
-  assert.deepEqual(applyIntakePick(rows, "archive").map((row) => row.selected), [false, true, false, false]);
+  assert.deepEqual(rows.map((row) => row.content), ["video", "archive", "disk", "document", "page"]);
+  assert.deepEqual(applyIntakePick(rows, "video").map((row) => row.selected), [true, false, false, false, false]);
+  assert.deepEqual(applyIntakePick(rows, "archive").map((row) => row.selected), [false, true, false, false, false]);
+  assert.deepEqual(applyIntakePick(rows, "disk").map((row) => row.selected), [false, false, true, false, false]);
   assert.equal(filterIntake(rows, { content: "video" }).length, 1);
-  assert.equal(filterIntake(rows, { host: "cdn.test", fileOnly: true }).length, 3);
+  assert.equal(filterIntake(rows, { content: "disk" }).length, 1);
+  assert.equal(filterIntake(rows, { host: "cdn.test", fileOnly: true }).length, 4);
   assert.equal(formatIntakeMeta(rows[0]).mime, "video/mp4");
   assert.equal(formatIntakeMeta(rows[0]).contentLabel, "Video");
+  assert.equal(formatIntakeMeta(rows[2]).contentLabel, "Disk image");
 });
 
 test("a link already in the list stays unticked, including All and Files", () => {
