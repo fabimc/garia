@@ -1743,7 +1743,9 @@ const COLUMNS = [
   { id: "ratio", label: "Ratio", width: "4.8rem", numeric: true },
   { id: "finished", label: "Finished at", width: "9.6rem", numeric: false },
   { id: "saved", label: "Saved to", width: "11.2rem", numeric: false },
-  { id: "open", label: "Open", width: "4.8rem", numeric: false },
+  // A reveal, not an open: opener:default grants revealItemInDir, not
+  // openPath on arbitrary files, so the button says what it does.
+  { id: "open", label: "Show", width: "4.8rem", numeric: false },
   { id: "connections", label: "Sockets", width: "4.4rem", numeric: true },
   { id: "source", label: "Source", width: "8.6rem", numeric: false },
   { id: "category", label: "Category", width: "6.4rem", numeric: false },
@@ -1752,8 +1754,9 @@ const DEFAULT_COLUMNS = ["size", "speed", "eta"];
 const VIEW_COLUMN_DEFAULTS = {
   all: ["size", "speed", "eta"],
   active: ["size", "speed", "eta"],
-  waiting: ["size", "eta"],
-  paused: ["size", "eta"],
+  // eta is only computed for active rows; here it would be a column of dashes.
+  waiting: ["size"],
+  paused: ["size"],
   complete: ["size", "saved", "open"],
   error: ["size"],
   seeding: ["size", "upspeed", "ratio"],
@@ -1802,8 +1805,27 @@ let columnsByView = loadColumnsByView();
 if (!columnsByView.all) columnsByView.all = loadColumns();
 let visibleCols = columnsByView[viewColumnKey("all")] || loadColumns();
 
-function columnOn(id) {
+// When the list itself is narrow (a small window, or the inspector docked
+// beside it) the measurement columns go and Status carries the speed instead,
+// so Name keeps enough room to be read. The user's column choice is left
+// alone; only what is painted changes.
+const COMPACT_LIST_PX = 720;
+const COMPACT_HIDDEN = new Set(["speed", "eta", "upspeed", "connections", "source", "category", "saved"]);
+let compactList = false;
+
+function columnChosen(id) {
   return visibleCols.includes(id);
+}
+
+function columnOn(id) {
+  if (compactList && COMPACT_HIDDEN.has(id)) return false;
+  return columnChosen(id);
+}
+
+function setCompactList(next) {
+  if (next === compactList) return;
+  compactList = next;
+  applyViewColumns(true);
 }
 
 function formatFinishedAt(dl) {
@@ -1869,7 +1891,7 @@ function columnValue(id, dl) {
     const folder = containingFolderOf({ dir: destDirOf(dl) || dl.dir, path: rowPath(dl) });
     return folder || "";
   }
-  if (id === "open") return rowPath(dl) ? "Open" : "";
+  if (id === "open") return rowPath(dl) ? "Show" : "";
   if (id === "category") return categoryNameFor(dl);
   return "";
 }
@@ -1881,13 +1903,18 @@ function extraColSpecs() {
 function syncColLayout() {
   const table = document.querySelector(".dl-table");
   if (!table) return;
-  const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)" : "minmax(10.5rem, 12rem)";
+  // Compact: Status also carries the speed, so it shares the spare width with
+  // Name instead of being pinned at 12rem and cutting "81% · 2…".
+  const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)"
+    : compactList ? "minmax(10.5rem, 0.9fr)"
+    : "minmax(10.5rem, 12rem)";
   const tracks = ["22px", "minmax(10rem, 1fr)"];
   if (columnOn("size")) tracks.push("7.4rem");
   tracks.push(statusTrack);
   for (const spec of extraColSpecs()) tracks.push(spec.width);
   tracks.push("max-content");
   table.style.gridTemplateColumns = tracks.join(" ");
+  table.classList.toggle("is-compact", compactList);
 }
 
 function paintColLabels(host) {
@@ -1963,7 +1990,9 @@ function fillCols(li, dl) {
         btn = document.createElement("button");
         btn.type = "button";
         btn.className = "dl-col-btn";
-        btn.textContent = "Open";
+        btn.textContent = "Show";
+        btn.title = revealLabel();
+        btn.setAttribute("aria-label", revealLabel());
         btn.dataset.action = "reveal";
         cell.textContent = "";
         cell.appendChild(btn);
@@ -2017,7 +2046,7 @@ function applyViewColumns(force = false) {
 }
 
 function toggleColumn(id) {
-  if (columnOn(id)) setColumns(visibleCols.filter((c) => c !== id));
+  if (columnChosen(id)) setColumns(visibleCols.filter((c) => c !== id));
   else setColumns([...visibleCols, id]);
 }
 
@@ -2030,7 +2059,7 @@ function renderColumnsMenu() {
     btn.type = "button";
     btn.className = "traffic-option";
     btn.setAttribute("role", "menuitemcheckbox");
-    btn.setAttribute("aria-checked", String(columnOn(spec.id)));
+    btn.setAttribute("aria-checked", String(columnChosen(spec.id)));
     btn.dataset.col = spec.id;
     btn.innerHTML = `<span class="traffic-option-name">${spec.label}</span>`;
     menu.appendChild(btn);
@@ -2228,8 +2257,12 @@ function updateItemEl(li, dl) {
   else if (dl.status === "active" && isSlowDownload(dl)) statusText = "Slow";
   else if (merging) statusText = `Merging ${pct}%`;
   else if (dl.status === "merging") statusText = "Merging";
-  else if (dl.status === "active" && isIndeterminate) statusText = speed ? `Downloading · ${speed}` : "Downloading";
-  else if (dl.status === "active" && showBar) statusText = speed ? `${pct}% · ${speed}` : `${pct}%`;
+  // Speed has its own column; say it here only when that column is off.
+  else if (dl.status === "active" && isIndeterminate) {
+    statusText = speed && !columnOn("speed") ? `Downloading · ${speed}` : "Downloading";
+  } else if (dl.status === "active" && showBar) {
+    statusText = speed && !columnOn("speed") ? `${pct}% · ${speed}` : `${pct}%`;
+  }
   else if (dl.status === "paused" && showBar) statusText = `${pct}% · Paused`;
   else if (dl.status === "waiting" && showBar) statusText = `${pct}% · Queued`;
   else if (dl.status === "waiting") statusText = "Queued";
@@ -2539,7 +2572,9 @@ function applyFilter(listEl) {
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
     if (emptyAction) {
-      if (action?.id && action?.label) {
+      const runnable = action?.id !== "open-folder"
+        || (Boolean(settings.downloadDir) && typeof window.__TAURI__?.opener?.openPath === "function");
+      if (action?.id && action?.label && runnable) {
         emptyAction.classList.remove("hidden");
         emptyAction.dataset.action = action.id;
         emptyAction.textContent = action.label;
@@ -5106,28 +5141,25 @@ window.addEventListener("DOMContentLoaded", async () => {
     const inQueued = key === "waiting";
     const inFailed = key === "error";
     const inComplete = key === "complete";
+    const inPaused = key === "paused";
     const inSeeding = key === "seeding" || key === "torrents";
     const show = inAll
       ? ["pauseAll", "resumeAll", "queueToggle"]
       : inQueued
         ? ["queueToggle", "moveTop", "moveEnd"]
-        : inFailed
-          ? ["retryAll", "clearFailed"]
-          : inComplete
-            ? ["clearCompleted", "openFolder"]
-            : inSeeding
-              ? ["stopSeeding"]
-              : [];
+        : inPaused
+          ? ["resumeAll"]
+          : inFailed
+            ? ["retryAll", "clearFailed"]
+            : inComplete
+              ? ["clearCompleted", "openFolder"]
+              : inSeeding
+                ? ["stopSeeding"]
+                : [];
     showToolbarButtons(show);
     if (toolbarButtons.pauseAll) toolbarButtons.pauseAll.disabled = tally.active < 1;
     if (toolbarButtons.resumeAll) toolbarButtons.resumeAll.disabled = tally.paused < 1;
-    const stopped = schedule.queueStopped === true || settings.queueStopped === true;
-    if (toolbarButtons.queueToggle && inQueued) {
-      toolbarButtons.queueToggle.textContent = "Start Queue";
-      toolbarButtons.queueToggle.title = "Let downloads run again";
-      toolbarButtons.queueToggle.classList.toggle("is-stopped", stopped);
-      toolbarButtons.queueToggle.disabled = !stopped;
-    } else if (toolbarButtons.queueToggle) {
+    if (toolbarButtons.queueToggle) {
       toolbarButtons.queueToggle.disabled = false;
       renderQueueToggle();
     }
@@ -5819,7 +5851,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
     items.push({ action: "move-top", label: "Move to Top", disabled: !canMoveTop });
     items.push({ action: "move-end", label: "Move to End", disabled: !canMoveEnd });
-    items.push({ action: "details", label: "Details", shortcut: "↩", disabled: dls.length !== 1 });
+    items.push({ action: "details", label: "Details", shortcut: "↩", disabled: dls.length < 1 });
+    // A contextual menu hides what doesn't apply (the menu bar dims instead),
+    // so a finished row isn't followed by a column of greyed-out verbs.
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      if (items[i].disabled) items.splice(i, 1);
+    }
     const bulk = queueBulkExtras({
       selected: dls.length,
       active: dls.filter((d) => d.status === "active").length,
@@ -6231,17 +6268,33 @@ window.addEventListener("DOMContentLoaded", async () => {
     // The row's own cap. Sent before the panel is redrawn, and the buttons go
     // dead in between: a second click while aria2 is still answering the first
     // would leave the two halves of a merged row on different limits.
+    // A multi-selection can hold finished or failed rows. aria2 refuses
+    // changeOption on those, and Rust would keep a start time for them that
+    // nothing ever releases — so only rows that can still run are touched,
+    // and one refusal does not hide that the others took the change.
+    function detailTargets(statuses) {
+      return detailGids.filter((gid) => statuses.has(snapshot.get(gid)?.status));
+    }
+    async function limitTargets(bytes) {
+      const gids = detailTargets(LIMITABLE);
+      const results = await Promise.allSettled(gids.map((gid) => setRowLimit(gid, bytes)));
+      const bad = results.filter((r) => r.status === "rejected");
+      if (bad.length) {
+        failed(
+          bad.length === results.length
+            ? "Couldn't change the selected downloads' speed"
+            : `Changed ${results.length - bad.length} of ${results.length}; the rest refused`,
+          bad[0].reason,
+        );
+      }
+    }
+
     const limitBtn = e.target.closest("[data-limit-mode]");
     if (limitBtn && detailGids.length) {
-      const gids = [...detailGids];
       const seg = limitBtn.closest(".seg");
       const buttons = [...seg.querySelectorAll("button")];
       for (const b of buttons) b.disabled = true;
-      try {
-        await Promise.all(gids.map((gid) => setRowLimit(gid, modeLimit(limitBtn.dataset.limitMode))));
-      } catch (err) {
-        failed("Couldn't change the selected downloads' speed", err);
-      }
+      await limitTargets(modeLimit(limitBtn.dataset.limitMode));
       for (const b of buttons) b.disabled = false;
       refreshDetail();
       await pollAndSync();   // the chip on the row behind the panel
@@ -6257,11 +6310,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         return;
       }
       limitSet.disabled = true;
-      try {
-        await Promise.all(detailGids.map((gid) => setRowLimit(gid, bytes)));
-      } catch (err) {
-        failed("Couldn't change the selected downloads' speed", err);
-      }
+      await limitTargets(bytes);
       limitSet.disabled = false;
       refreshDetail();
       await pollAndSync();
@@ -6371,7 +6420,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       try {
         const invoke = window.__TAURI__?.core?.invoke;
         if (typeof invoke === "function") {
-          for (const gid of detailGids.length ? detailGids : [when.dataset.gid]) {
+          // Setting: only rows that can still run. Clearing: every selected
+          // row, which also drops a stale start left on a finished one.
+          const targets = !detailGids.length ? [when.dataset.gid]
+            : clearing ? detailGids : detailTargets(SCHEDULABLE);
+          for (const gid of targets) {
             schedule = await invoke("set_download_start", { gid, at });
           }
           heldGids = new Set(schedule.held || []);
@@ -6505,10 +6558,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("open-download-folder")?.addEventListener("click", () => openDownloadFolder());
   document.getElementById("stop-seeding")?.addEventListener("click", () => stopSeedingAll());
   document.getElementById("queue-toggle").addEventListener("click", () => {
-    if (activeFilter === "waiting") {
-      setQueueStopped(false).then(() => pollAndSync());
-      return;
-    }
     const stopped = schedule.queueStopped === true || settings.queueStopped === true;
     setQueueStopped(!stopped).then(() => pollAndSync());
   });
@@ -6864,6 +6913,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    // A dialog on top owns Escape (overlays.js closes it). Both listeners sit
+    // on document in the capture phase, so stopPropagation there does not
+    // keep this one from also closing the inspector underneath.
+    if (overlayOpen()) return;
     if (closePopups()) {
       e.preventDefault();
       e.stopPropagation();
@@ -6880,6 +6933,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderColumnsMenu();
   applyViewColumns(true);
   syncViewMenu();
+  const listPane = document.querySelector(".content-main");
+  if (listPane && typeof ResizeObserver === "function") {
+    new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect?.width || 0;
+      if (width > 0) setCompactList(width < COMPACT_LIST_PX);
+    }).observe(listPane);
+  }
 
   // Coming back to the window is the user seeing the list, so the badge has
   // nothing left to tell them.

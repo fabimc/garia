@@ -44,7 +44,11 @@
     --danger-soft: rgba(179, 38, 30, 0.12);
     --brand-soft: rgba(12, 108, 132, 0.1);
     --state-active: #3b7ddd;
-    --state-queued: #8b8075;
+    /* Text tokens: the fill colors above are for bars and tints. Text in a
+       state color has to clear 4.5:1 on --bg and on the selected-row tint. */
+    --state-active-text: #255aa8;
+    --state-queued: #695f55;
+    --accent-text: #94421f;
     --state-done: #3f7d4f;
     --state-failed: #b3261e;
 
@@ -97,7 +101,9 @@
         --danger-soft: rgba(224, 106, 98, 0.16);
         --brand-soft: rgba(56, 160, 181, 0.16);
         --state-active: #6d9fff;
+        --state-active-text: #6d9fff;
         --state-queued: #9a8c7c;
+        --accent-text: var(--accent);
         --state-done: #7dae88;
         --state-failed: #e06a62;
 
@@ -308,7 +314,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .nav-item.active {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
 }
 
@@ -332,7 +338,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     flex-shrink: 0;
 }
 .nav-item.active .nav-count {
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 /* Settings is not a filter, so it lives below them, pinned to the bottom. */
@@ -804,15 +810,19 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     overflow: hidden;
 }
 /* Width-aware middle ellipsis: head shrinks with end-ellipsis; tail (ext) never clips. */
+/* `pre`, not `nowrap`: each span is its own flex item, and nowrap would
+   collapse a space that falls on the head/tail seam ("Ubuntu 24.04Desktop").
+   The head keeps room for at least a couple of glyphs plus the ellipsis, so a
+   crowded row (badges) reads "a…x86_64.iso" rather than a clipped sliver. */
 .dl-name-head {
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
+    white-space: pre;
+    min-width: 2.5ch;
 }
 .dl-name-tail {
     flex-shrink: 0;
-    white-space: nowrap;
+    white-space: pre;
 }
 
 /* Why this row is slower than the rest of them, said on the row rather than
@@ -902,7 +912,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     border-radius: 999px;
     white-space: nowrap;
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 .dl-priority {
@@ -993,6 +1003,12 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     overflow: hidden;
     position: relative;
 }
+/* Compact list (see setCompactList): Status also carries the speed, so the
+   bar gives up width to the text rather than cutting it. */
+.dl-table.is-compact .dl-bar-track {
+    width: 48px;
+    flex-basis: 48px;
+}
 
 /* Full width and slid into place, rather than sized: a width is a layout on
    every frame of the transition, for every running row, every second. The
@@ -1024,7 +1040,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     min-width: 2.6rem;
 }
 .dl-item[data-status="active"] .dl-status-text {
-    color: var(--state-active);
+    color: var(--state-active-text);
 }
 .dl-item[data-status="waiting"] .dl-status-text,
 .dl-item[data-status="paused"] .dl-status-text {
@@ -2732,9 +2748,21 @@ html.in-app .prefs-main {
     .sidebar {
         padding-inline: 0.4rem;
     }
-    .sidebar .nav-label,
-    .sidebar .wordmark {
+    .sidebar .wordmark,
+    .sidebar .nav-group-label {
         display: none;
+    }
+    /* Visually hidden, not display:none — the label is the button's
+       accessible name once only the icon shows. */
+    .sidebar .nav-label,
+    .sidebar .add-btn-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
     }
     .nav-item,
     .add-btn {
@@ -2754,10 +2782,8 @@ html.in-app .prefs-main {
         max-width: 100%;
         flex-wrap: wrap;
     }
-    .dl-table {
-        grid-template-columns: minmax(0, 1fr) 6rem 5.7rem 5.4rem max-content;
-        column-gap: 0.8rem;
-    }
+    /* Column tracks are set inline by syncColLayout (main.js), which also
+       drops columns when the list is narrow — a rule here would never win. */
     .search-field {
         flex: 1 1 160px;
     }
@@ -3533,16 +3559,21 @@ html.prefs.in-app .modal {
     flex-shrink: 0;
 }
 
-@media (max-width: 1100px) {
+/* Docked beside the list while there is room for both (the list goes
+   compact on its own — see COMPACT_LIST_PX in main.js). Below that a bottom
+   dock left ~4 rows and ~100px of inspector, so the inspector becomes a sheet
+   over the list instead: full height, list still visible at the left edge. */
+@media (max-width: 900px) {
     .content-body {
-        flex-direction: column;
+        position: relative;
     }
 
     .detail-pane {
-        width: 100%;
+        position: absolute;
+        inset: 0 0 0 auto;
+        z-index: 5;
+        width: min(100%, 420px);
         min-width: 0;
-        max-height: 46%;
-        border-left: none;
-        border-top: 1px solid var(--border);
+        box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
     }
 }
