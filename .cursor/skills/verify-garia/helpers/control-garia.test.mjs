@@ -105,11 +105,23 @@ test('chromiumLaunchArgs includes Linux sandbox / shm flags', () => {
     userDataDir: '/tmp/chrome-profile',
     uiUrl: 'http://127.0.0.1:8765/',
     headed: false,
+    platform: 'linux',
   });
   assert.ok(args.includes('--no-sandbox'));
   assert.ok(args.includes('--disable-dev-shm-usage'));
   assert.ok(args.includes('--headless=new'));
   assert.ok(args.includes('--remote-debugging-port=9222'));
+});
+
+test('chromiumLaunchArgs keeps the sandbox off Linux', () => {
+  const args = chromiumLaunchArgs({
+    cdpPort: 9222,
+    userDataDir: '/tmp/chrome-profile',
+    uiUrl: 'http://127.0.0.1:8765/',
+    platform: 'darwin',
+  });
+  assert.ok(!args.includes('--no-sandbox'));
+  assert.ok(!args.includes('--disable-dev-shm-usage'));
 });
 
 test('fails with clear guidance when no executable exists', () => {

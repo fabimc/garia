@@ -19,6 +19,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -219,6 +220,7 @@ export function chromiumLaunchArgs({
   userDataDir,
   uiUrl,
   headed = false,
+  platform = process.platform,
 } = {}) {
   return [
     `--remote-debugging-port=${cdpPort}`,
@@ -227,8 +229,8 @@ export function chromiumLaunchArgs({
     "--no-default-browser-check",
     "--disable-extensions",
     // Restricted / container Linux runners (no /dev/shm, no user namespace).
-    "--disable-dev-shm-usage",
-    "--no-sandbox",
+    // A macOS or Windows dev machine keeps Chromium's sandbox.
+    ...(platform === "linux" ? ["--disable-dev-shm-usage", "--no-sandbox"] : []),
     "--window-size=1280,800",
     ...(headed ? [] : ["--headless=new"]),
     uiUrl,
@@ -804,7 +806,20 @@ Environment:
   die(`Unknown command: ${cmd}`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Run main() only when executed, not when imported by the tests. Compare real
+// paths: the bash wrapper passes a logical path (`pwd`), so through a symlink
+// (macOS /tmp → /private/tmp, a symlinked checkout) a plain compare never
+// matched and `doctor` printed nothing and exited 0 — a false "ready".
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   main().catch((err) => {
     console.error(err?.stack || String(err));
     process.exit(1);

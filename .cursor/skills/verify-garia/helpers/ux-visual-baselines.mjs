@@ -8,7 +8,7 @@
  *
  * Inspector focus-order / focus-trap a11y is not audited here — that checklist
  * belongs with the inspector pane work (issue #80 / PR #90). This script only
- * screenshots the current detail overlay / pane when open.
+ * screenshots the inspector pane (#detail-pane) when open.
  *
  * Baselines are written to an output directory for human/PR review. They are
  * not golden files checked into git, and this script is not wired into CI.
@@ -131,7 +131,7 @@ async function openDetail(page) {
   // inspector (#detail-pane after #90). Focus-order audit stays deferred to #90.
   await row.locator(".dl-name").click();
   const detail = page.locator(
-    "#detail-overlay:not(.hidden), #detail-pane:not(.hidden), #detail-pane.open, #detail-pane[aria-hidden='false']",
+    "#detail-pane:not(.hidden)",
   );
   await detail.first().waitFor({ timeout: 8000 });
   await settle(300);
