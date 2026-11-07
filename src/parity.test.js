@@ -115,6 +115,10 @@ import {
   quietCaptureDir,
   findCategoryById,
   formatSpeedLimitScope,
+  diskConflictLabel,
+  magnetDisplayName,
+  announcesCompletion,
+  collapseMagnetDownloads,
 } from "./parity.js";
 
 test("disk-image extensions are labelled as such and archive hints stay readable", () => {
@@ -1091,6 +1095,127 @@ test("embedded media collection puts meta and players ahead of download links", 
     }),
     ["https://cdn.test/og.mp4", "https://cdn.test/player.mp4", "https://ex.test/next"],
   );
+});
+
+test("a magnet's metadata download and its follow-up are one row", () => {
+  const magnet = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
+  const fetching = collapseMagnetDownloads([{
+    gid: "meta",
+    status: "active",
+    totalLength: "20800",
+    completedLength: "1000",
+    infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+    files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny", uris: [{ uri: magnet }] }],
+  }]);
+  assert.equal(fetching.rows.length, 1);
+  assert.equal(fetching.rows[0].gid, "meta");
+  assert.equal(fetching.rows[0].fetchingMetadata, true);
+  assert.equal(fetching.rows[0].displayName, "Big Buck Bunny");
+  assert.equal(fetching.rows[0].totalLength, "0");
+  assert.equal(announcesCompletion(fetching.rows[0]), false);
+  assert.equal(magnetDisplayName({ files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny.torrent" }] }), "Big Buck Bunny");
+
+  const doneMeta = {
+    gid: "meta",
+    status: "complete",
+    totalLength: "20800",
+    completedLength: "20800",
+    followedBy: ["real"],
+    infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+    files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny.torrent", uris: [{ uri: magnet }] }],
+  };
+  const real = {
+    gid: "real",
+    status: "active",
+    totalLength: "1000",
+    completedLength: "10",
+    following: "meta",
+    infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+    bittorrent: { mode: "single", info: { name: "Big Buck Bunny" } },
+    files: [{ path: "/tmp/Big Buck Bunny.mp4", uris: [] }],
+  };
+  const other = {
+    gid: "other",
+    status: "active",
+    files: [{ path: "/tmp/a.zip", uris: [{ uri: "https://a.test/a.zip" }] }],
+  };
+  const folded = collapseMagnetDownloads([real, doneMeta, other]);
+  assert.deepEqual(folded.rows.map((row) => row.gid), ["real", "other"]);
+  assert.equal(folded.rows[0].magnetUri, magnet);
+  assert.equal(folded.rows[0].metadataGid, "meta");
+  assert.equal(folded.rows[0].fetchingMetadata, undefined);
+  assert.deepEqual(folded.handoffs, [{ from: "meta", to: "real" }]);
+  assert.deepEqual(folded.forget, ["meta"]);
+  assert.equal(announcesCompletion(doneMeta), false);
+  assert.equal(announcesCompletion(folded.rows[0]), false);
+
+  const waiting = collapseMagnetDownloads([doneMeta]);
+  assert.equal(waiting.rows.length, 1);
+  assert.equal(waiting.rows[0].gid, "meta");
+  assert.equal(waiting.rows[0].fetchingMetadata, true);
+  assert.notEqual(waiting.rows[0].status, "complete");
+  assert.equal(announcesCompletion(waiting.rows[0]), false);
+  assert.deepEqual(waiting.forget, []);
+
+  const stray = collapseMagnetDownloads([{
+    gid: "old",
+    status: "complete",
+    files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny.torrent", uris: [] }],
+  }]);
+  assert.equal(stray.rows.length, 0);
+  assert.deepEqual(stray.forget, ["old"]);
+
+  const failed = collapseMagnetDownloads([{
+    gid: "meta",
+    status: "error",
+    errorCode: "27",
+    files: [{ path: "/tmp/[METADATA]x", uris: [{ uri: magnet }] }],
+  }]);
+  assert.equal(failed.rows.length, 1);
+  assert.equal(failed.rows[0].status, "error");
+  assert.equal(failed.rows[0].magnetUri, magnet);
+  assert.equal(failed.rows[0].displayName, "Big Buck Bunny");
+  assert.equal(failed.rows[0].displayName.includes("[METADATA]"), false);
+  assert.equal(failed.forget.length, 0);
+
+  const paused = collapseMagnetDownloads([{
+    gid: "meta",
+    status: "paused",
+    files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny", uris: [{ uri: magnet }] }],
+  }]);
+  assert.equal(paused.rows[0].status, "paused");
+  assert.equal(paused.rows[0].displayName, "Big Buck Bunny");
+
+  const failedTorrent = collapseMagnetDownloads([
+    {
+      gid: "meta",
+      status: "complete",
+      followedBy: ["real"],
+      files: [{ path: "/tmp/[METADATA]Big+Buck+Bunny.torrent", uris: [{ uri: magnet }] }],
+    },
+    {
+      gid: "real",
+      status: "error",
+      errorCode: "13",
+      errorMessage: "File already exists, but a control file (*.aria2) does not exist.",
+      following: "meta",
+      infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+      bittorrent: { mode: "single", info: { name: "Big Buck Bunny" } },
+      files: [{ path: "/tmp/Big Buck Bunny.mp4", uris: [] }],
+    },
+  ]);
+  assert.equal(failedTorrent.rows.length, 1);
+  assert.equal(failedTorrent.rows[0].gid, "real");
+  assert.equal(failedTorrent.rows[0].status, "error");
+  assert.equal(failedTorrent.rows[0].magnetUri, magnet);
+  assert.equal(failedTorrent.forget.length, 1);
+  assert.equal(failedTorrent.forget[0], "meta");
+
+  assert.equal(
+    diskConflictLabel("File /Users/me/Downloads/Big Buck Bunny.mp4 exists, but a control file (*.aria2) does not exist."),
+    "File already exists",
+  );
+  assert.equal(diskConflictLabel("Resource not found"), "");
 });
 
 test("desktop housekeeping matches Download menu verbs", () => {

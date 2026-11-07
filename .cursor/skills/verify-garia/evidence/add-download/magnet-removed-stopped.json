@@ -1,0 +1,199 @@
+{
+  "ok": true,
+  "method": "aria2.tellStopped",
+  "result": [
+    {
+      "gid": "dddd1111",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/lands-in-15-seconds.mp4",
+          "length": "83886080",
+          "completedLength": "83886080",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/lands-in-15-seconds.mp4",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc2222",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/annual-report.pdf",
+          "length": "18874368",
+          "completedLength": "18874368",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/annual-report.pdf",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc3333",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/quote\"and<angle>brackets.zip",
+          "length": "3145728",
+          "completedLength": "3145728",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/quote\"and<angle>brackets.zip",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc4444",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/broken-mirror.tar.xz",
+          "length": "100663296",
+          "completedLength": "12582912",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/broken-mirror.tar.xz",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc5555",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/half-written.iso",
+          "length": "1468006400",
+          "completedLength": "671088640",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/half-written.iso",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc7777",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/alpine-3.21-x86_64.iso",
+          "length": "230686720",
+          "completedLength": "0",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/alpine-3.21-x86_64.iso",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc6666",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/some-collection.torrent",
+          "length": "0",
+          "completedLength": "0",
+          "selected": "true",
+          "uris": []
+        }
+      ]
+    },
+    {
+      "gid": "cccc8888",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/members-only-course.zip",
+          "length": "671088640",
+          "completedLength": "0",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/members-only-course.zip",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "cccc9999",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/hotlinked-wallpaper.jpg",
+          "length": "0",
+          "completedLength": "0",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/hotlinked-wallpaper.jpg",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "ffff3333",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Video/Keynote.f315.webm",
+          "length": "943718400",
+          "completedLength": "943718400",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/Keynote.f315.webm",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "ffff4444",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Video/Keynote.f251.webm",
+          "length": "31457280",
+          "completedLength": "31457280",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/Keynote.f251.webm",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

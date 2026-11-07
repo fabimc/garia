@@ -557,6 +557,19 @@ function resolveEvidencePath(p) {
   return join(EVIDENCE_ROOT, p);
 }
 
+function expectedDownloadName(url) {
+  const text = String(url || "");
+  if (text.startsWith("magnet:")) {
+    try {
+      const dn = new URL(text).searchParams.get("dn");
+      if (dn) return dn;
+    } catch { /* fall through to the hash */ }
+    const hash = (text.match(/btih:([a-z0-9]+)/i) || [])[1];
+    if (hash) return hash.toLowerCase();
+  }
+  return decodeURIComponent(text.split("/").pop() || text);
+}
+
 async function visibleRows(page) {
   return page.locator("#download-list [role='option']:not(.hidden)").evaluateAll((els) =>
     els.map((el) => ({
@@ -572,7 +585,7 @@ async function cmdBrowser(argv) {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   if (!sub) {
-    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | reload | eval");
+    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | click-named | reload | eval");
   }
 
   if (sub === "reload") {
@@ -721,11 +734,26 @@ async function cmdBrowser(argv) {
       await page.locator("#modal-url-input").fill(url);
       await page.locator("#modal-ok").click();
       await sleep(1200);
-      const name = decodeURIComponent(url.split("/").pop() || url);
+      const name = expectedDownloadName(url);
       const rows = await visibleRows(page);
       const appeared = rows.some((r) => (r.name || "").includes(name));
-      console.log(JSON.stringify({ ok: appeared, url, name, appeared }, null, 2));
+      console.log(JSON.stringify({ ok: appeared, url, name, appeared, rows }, null, 2));
       if (!appeared) process.exit(2);
+    });
+    return;
+  }
+
+  if (sub === "click-named") {
+    const name = args.name || args._[0];
+    const action = args.action;
+    if (!name) die("click-named requires --name");
+    if (!action) die("click-named requires --action");
+    await withPage(async (page) => {
+      const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      await row.locator(`.dl-actions [data-action="${action}"]`).click();
+      await sleep(800);
+      const status = await row.getAttribute("data-status").catch(() => null);
+      console.log(JSON.stringify({ ok: true, name, action, status }, null, 2));
     });
     return;
   }

@@ -1,0 +1,152 @@
+[
+  {
+    "gid": "999960611",
+    "name": "verify-garia-magnet",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "aaaa1111",
+    "name": "Ubuntu 24.04 Desktop.iso",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "eeee1111",
+    "name": "archive-linux-isos",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "aaaa2222",
+    "name": "stream-of-unknown-size.bin",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "aaaa3333",
+    "name": "Big Buck Bunny 4K.mp4",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff1111",
+    "name": "A Very Long Talk About Nothing.f315.webm",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff2222",
+    "name": "A Very Long Talk About Nothing.f251.webm",
+    "status": "active",
+    "selected": "false"
+  },
+  {
+    "gid": "eeee2222",
+    "name": "nixos-25.05-x86_64.iso",
+    "status": "seeding",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb1111",
+    "name": "Xcode_16.2.xip",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb2222",
+    "name": "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb3333",
+    "name": "node-v24.4.0-darwin-arm64.tar.gz",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb4444",
+    "name": "Sintel (2010) 4K.mkv",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb5555",
+    "name": "postgresql-18.1-macos.dmg",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc1111",
+    "name": "Blender 4.3 macOS arm64.dmg",
+    "status": "paused",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc4444",
+    "name": "broken-mirror.tar.xz",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc5555",
+    "name": "half-written.iso",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc7777",
+    "name": "alpine-3.21-x86_64.iso",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc6666",
+    "name": "some-collection.torrent",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc8888",
+    "name": "members-only-course.zip",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc9999",
+    "name": "hotlinked-wallpaper.jpg",
+    "status": "error",
+    "selected": "false"
+  },
+  {
+    "gid": "dddd1111",
+    "name": "lands-in-15-seconds.mp4",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc2222",
+    "name": "annual-report.pdf",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc3333",
+    "name": "quote\"and<angle>brackets.zip",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff3333",
+    "name": "Keynote.f315.webm",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff4444",
+    "name": "Keynote.f251.webm",
+    "status": "complete",
+    "selected": "false"
+  }
+]

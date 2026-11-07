@@ -55,6 +55,7 @@ export function initAddDialog(api) {
     rowChecksums,
     el,
     alreadyHaveUrl = () => false,
+    onAlreadyHave = () => {},
     failed = (what, err) => console.error(what, err),
     rememberPackage = () => {},
     siteRuleFor = () => null,
@@ -583,6 +584,11 @@ export function initAddDialog(api) {
   // Hands the URL to aria2 exactly as typed. This is what the dialog has
   // always done, and it stays the fallback for everything yt-dlp declines.
   async function addPlainUrl(url, options = addOptions(url, { dir: chosenDir(url) })) {
+    if (alreadyHaveUrl(url)) {
+      closeModal();
+      onAlreadyHave([url]);
+      return;
+    }
     modalError.classList.add("hidden");
     // The hash belongs to the URL as typed, so it rides the same call — and
     // only this one, because a video is two files and a playlist is forty.

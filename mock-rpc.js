@@ -234,9 +234,127 @@ const purged = new Set();
 // tellWaiting / tellActive on the next poll, the way a real aria2 answers).
 const added = new Map();
 
+// One magnet becomes two aria2 downloads: a metadata gid, then a follow-up
+// gid linked with followedBy / following. The handoff waits a few seconds of
+// unpaused time so a browser-dev journey can see "Fetching metadata…" first.
+const magnets = new Map();
+const MAGNET_HANDOFF_MS = 8000;
+
+function magnetName(uri) {
+  const hash = (String(uri).match(/btih:([a-z0-9]+)/i) || [])[1]?.toLowerCase() || "";
+  try {
+    const dn = new URL(uri).searchParams.get("dn");
+    if (dn) return { hash, name: dn };
+  } catch { /* keep the hash */ }
+  return { hash, name: hash || "magnet" };
+}
+
+function addMagnet(uri, options = {}) {
+  const gid = "9999" + String(Date.now()).slice(-4) + String(magnets.size + added.size);
+  const { hash, name } = magnetName(uri);
+  // A name ending in -meta-fail errors the metadata fetch. -fail lets the
+  // follow-up start, then fails that gid, so Retry can be checked both
+  // before and after the handoff. The URI is what Retry re-queues.
+  const failMeta = name.endsWith("-meta-fail");
+  magnets.set(gid, {
+    uri,
+    hash,
+    name,
+    addedAt: Date.now(),
+    pausedFor: 0,
+    markedAt: 0,
+    child: "",
+    failMeta,
+    failChild: !failMeta && name.endsWith("-fail"),
+    errored: false,
+    childError: false,
+  });
+  if (options.pause === "true") paused.add(gid);
+  return gid;
+}
+
+const META_FAIL_MS = 1500;
+
+function advanceMagnet(gid, meta, now) {
+  if (meta.child || meta.errored || purged.has(gid) || removed.has(gid)) {
+    meta.markedAt = 0;
+    return;
+  }
+  if (paused.has(gid)) {
+    if (!meta.markedAt) meta.markedAt = now;
+    return;
+  }
+  if (meta.markedAt) {
+    meta.pausedFor += now - meta.markedAt;
+    meta.markedAt = 0;
+  }
+  const elapsed = now - meta.addedAt - meta.pausedFor;
+  if (meta.failMeta && elapsed >= META_FAIL_MS) {
+    meta.errored = true;
+    return;
+  }
+  if (!meta.failMeta && elapsed >= MAGNET_HANDOFF_MS) {
+    meta.child = ("f" + gid).slice(0, 16);
+    meta.childError = Boolean(meta.failChild);
+  }
+}
+
+function magnetRows(now) {
+  const active = [];
+  const stopped = [];
+  for (const [gid, meta] of magnets) {
+    advanceMagnet(gid, meta, now);
+    if (!purged.has(gid)) {
+      if (meta.errored) {
+        stopped.push(item(gid, "error", `/Users/me/Downloads/[METADATA]${meta.name}.torrent`, 0, 0, 0, {
+          uris: [{ uri: meta.uri, status: "used" }],
+          infoHash: meta.hash,
+          errorCode: "2",
+          errorMessage: "Failed to download metadata.",
+        }));
+      } else {
+        const done = Boolean(meta.child);
+        const path = `/Users/me/Downloads/[METADATA]${meta.name}${done ? ".torrent" : ""}`;
+        const row = item(gid, done ? "complete" : "active", path, done ? 20800 : 0, done ? 20800 : 0, 0, {
+          uris: [{ uri: meta.uri, status: "used" }],
+          infoHash: meta.hash,
+        });
+        if (done) row.followedBy = [meta.child];
+        (done ? stopped : active).push(row);
+      }
+    }
+    if (meta.child && !purged.has(meta.child)) {
+      const total = Math.round(263.6 * MB);
+      const failed = Boolean(meta.childError);
+      const extra = {
+        uris: [],
+        infoHash: meta.hash,
+        following: gid,
+        bittorrent: { mode: "single", info: { name: meta.name } },
+      };
+      if (failed) {
+        extra.errorCode = "13";
+        extra.errorMessage = "File already exists, but a control file (*.aria2) does not exist.";
+      }
+      const row = item(
+        meta.child,
+        failed ? "error" : "active",
+        `/Users/me/Downloads/${meta.name}.mp4`,
+        total,
+        failed ? 0 : Math.round(total * 0.12),
+        failed ? 0 : 1.5 * MB,
+        extra,
+      );
+      (failed ? stopped : active).push(row);
+    }
+  }
+  return { active, stopped };
+}
+
 function addUri(uris = [], options = {}) {
   const gid = "9999" + String(Date.now()).slice(-4) + String(added.size);
   const uri = Array.isArray(uris) ? (uris[0] || "https://example.com/file") : String(uris);
+  if (uri.startsWith("magnet:")) return addMagnet(uri, options);
   const name = uri.split("/").pop()?.split("?")[0] || "download.bin";
   const dir = options.dir || "/Users/me/Downloads";
   const path = `${dir.replace(/\/$/, "")}/${name}`;
@@ -256,7 +374,9 @@ function snapshot() {
   const t = (Date.now() - started) / 1000;
   const done = Math.min(351 * MB, 40 * MB + t * 4.2 * MB);
 
+  const magnetsNow = magnetRows(Date.now());
   const active = [
+    ...magnetsNow.active,
     item("aaaa1111", "active", "/Users/me/Downloads/Ubuntu 24.04 Desktop.iso", 351 * MB, Math.round(done), 4.2 * MB),
     torrent(t),
     // totalLength 0 → exercises the indeterminate sweep
@@ -311,6 +431,7 @@ function snapshot() {
 
   const waiting = queueOrder.map((gid) => QUEUE.get(gid)());
   const stopped = [
+    ...magnetsNow.stopped,
     ...(removed.has("eeee2222") ? [seeding] : []),
     ...(landing.status === "complete" ? [landing] : []),
     item("cccc2222", "complete", "/Users/me/Downloads/annual-report.pdf", 18 * MB, 18 * MB, 0),

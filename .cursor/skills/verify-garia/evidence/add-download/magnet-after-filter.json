@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "filter": "All Downloads",
+  "viewTitle": "All Downloads",
+  "rowCount": 25,
+  "names": [
+    "verify-garia-magnet.mp4",
+    "Ubuntu 24.04 Desktop.iso",
+    "archive-linux-isos",
+    "stream-of-unknown-size.bin",
+    "Big Buck Bunny 4K.mp4",
+    "A Very Long Talk About Nothing.f315.webm",
+    "A Very Long Talk About Nothing.f251.webm",
+    "nixos-25.05-x86_64.iso",
+    "Xcode_16.2.xip",
+    "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz",
+    "node-v24.4.0-darwin-arm64.tar.gz",
+    "Sintel (2010) 4K.mkv",
+    "postgresql-18.1-macos.dmg",
+    "Blender 4.3 macOS arm64.dmg",
+    "broken-mirror.tar.xz",
+    "half-written.iso",
+    "alpine-3.21-x86_64.iso",
+    "some-collection.torrent",
+    "members-only-course.zip",
+    "hotlinked-wallpaper.jpg",
+    "lands-in-15-seconds.mp4",
+    "annual-report.pdf",
+    "quote\"and<angle>brackets.zip",
+    "Keynote.f315.webm",
+    "Keynote.f251.webm"
+  ]
+}

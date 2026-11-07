@@ -1,0 +1,143 @@
+{
+  "ok": true,
+  "method": "aria2.tellActive",
+  "result": [
+    {
+      "gid": "aaaa1111",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Ubuntu 24.04 Desktop.iso",
+          "length": "368050176",
+          "completedLength": "368050176",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/Ubuntu 24.04 Desktop.iso",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "eeee1111",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/archive-linux-isos/alpine-3.21-x86_64.iso",
+          "length": "230686720",
+          "completedLength": "230686720",
+          "selected": "true",
+          "uris": []
+        },
+        {
+          "index": "2",
+          "path": "/Users/me/Downloads/archive-linux-isos/debian-13.1-amd64-netinst.iso",
+          "length": "671088640",
+          "completedLength": "671088640",
+          "selected": "true",
+          "uris": []
+        },
+        {
+          "index": "3",
+          "path": "/Users/me/Downloads/archive-linux-isos/fedora-42-workstation.iso",
+          "length": "985661440",
+          "completedLength": "506460968",
+          "selected": "false",
+          "uris": []
+        }
+      ]
+    },
+    {
+      "gid": "aaaa2222",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/stream-of-unknown-size.bin",
+          "length": "0",
+          "completedLength": "317399761",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/stream-of-unknown-size.bin",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "aaaa3333",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Video/Big Buck Bunny 4K.mp4",
+          "length": "2516582400",
+          "completedLength": "2179809149",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/Big Buck Bunny 4K.mp4",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "ffff1111",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Video/A Very Long Talk About Nothing.f315.webm",
+          "length": "1363148800",
+          "completedLength": "1363148800",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://rr3---sn-vgqs7nsk.googlevideo.com/videoplayback?expire=1788400000&ei=ffff1111&ip=0.0.0.0&itag=315&source=youtube&mime=video%2Fwebm",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "ffff2222",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/Video/A Very Long Talk About Nothing.f251.webm",
+          "length": "44040192",
+          "completedLength": "44040192",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://rr3---sn-vgqs7nsk.googlevideo.com/videoplayback?expire=1788400000&ei=ffff2222&ip=0.0.0.0&itag=315&source=youtube&mime=video%2Fwebm",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gid": "eeee2222",
+      "files": [
+        {
+          "index": "1",
+          "path": "/Users/me/Downloads/nixos-25.05-x86_64.iso",
+          "length": "775946240",
+          "completedLength": "775946240",
+          "selected": "true",
+          "uris": [
+            {
+              "uri": "https://example.com/nixos-25.05-x86_64.iso",
+              "status": "used"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
