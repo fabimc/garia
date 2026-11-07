@@ -17,6 +17,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -149,6 +150,91 @@ function spawnDetached(command, args, { cwd, logPath, env } = {}) {
   return child.pid;
 }
 
+export function resolveChromiumExecutable({
+  env = process.env,
+  playwrightExecutablePath = chromium.executablePath(),
+  fileExists = existsSync,
+  listDir = readdirSync,
+  fail = die,
+} = {}) {
+  const override = env.GARIA_CHROME || env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (override) {
+    if (fileExists(override)) return override;
+    fail(
+      `Chromium override path does not exist: ${override}. ` +
+        `Set GARIA_CHROME or PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a valid executable.`,
+    );
+  }
+
+  const bundledExecutable = playwrightExecutablePath;
+  if (fileExists(bundledExecutable)) return bundledExecutable;
+
+  const checked = [bundledExecutable];
+  const fallbackRoot = env.PLAYWRIGHT_BROWSERS_PATH;
+  if (fallbackRoot) {
+    const candidates = [
+      join(fallbackRoot, "chromium", "chrome-linux", "chrome"),
+      join(fallbackRoot, "chromium", "chrome-linux64", "chrome"),
+    ];
+    try {
+      for (const entry of listDir(fallbackRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith("chromium-")) continue;
+        candidates.push(join(fallbackRoot, entry.name, "chrome-linux", "chrome"));
+        candidates.push(join(fallbackRoot, entry.name, "chrome-linux64", "chrome"));
+      }
+    } catch {
+      // ignore directory read errors; final error below includes base path context
+    }
+    for (const candidate of candidates) {
+      checked.push(candidate);
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+
+  // Cloud / CI images often ship a system Chrome when Playwright's build is absent.
+  const systemCandidates = [
+    "/usr/local/bin/google-chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ];
+  for (const candidate of systemCandidates) {
+    checked.push(candidate);
+    if (fileExists(candidate)) return candidate;
+  }
+
+  fail(
+    `Chromium executable not found. Bundled Playwright expected ${bundledExecutable}, ` +
+      `${fallbackRoot ? `and no executable was found under PLAYWRIGHT_BROWSERS_PATH=${fallbackRoot}` : `and PLAYWRIGHT_BROWSERS_PATH is not set`}, ` +
+      `and no system Chrome/Chromium was found. ` +
+      `Set GARIA_CHROME or PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a valid Chromium binary. ` +
+      `Checked: ${checked.join(", ")}`,
+  );
+}
+
+/** Chromium argv for verification launches (sandbox flags required on container Linux). */
+export function chromiumLaunchArgs({
+  cdpPort,
+  userDataDir,
+  uiUrl,
+  headed = false,
+} = {}) {
+  return [
+    `--remote-debugging-port=${cdpPort}`,
+    `--user-data-dir=${userDataDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-extensions",
+    // Restricted / container Linux runners (no /dev/shm, no user namespace).
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--window-size=1280,800",
+    ...(headed ? [] : ["--headless=new"]),
+    uiUrl,
+  ];
+}
+
 function publicState(state) {
   return {
     runId: state.runId,
@@ -247,19 +333,16 @@ async function cmdLaunch() {
 
   const userDataDir = join(RUN_DIR, "chrome-profile");
   mkdirSync(userDataDir, { recursive: true });
+  const chromeExecutable = resolveChromiumExecutable();
   const chromePid = spawnDetached(
-    chromium.executablePath(),
-    [
-      `--remote-debugging-port=${cdpPort}`,
-      `--user-data-dir=${userDataDir}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-extensions",
-      "--window-size=1280,800",
-      // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
-      ...(process.env.GARIA_HEADED === "1" ? [] : ["--headless=new"]),
+    chromeExecutable,
+    chromiumLaunchArgs({
+      cdpPort,
+      userDataDir,
       uiUrl,
-    ],
+      // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
+      headed: process.env.GARIA_HEADED === "1",
+    }),
     { logPath: chromeLog },
   );
   const cdpUrl = `http://127.0.0.1:${cdpPort}`;
@@ -664,7 +747,7 @@ async function cmdBrowser(argv) {
     if (!name) die("pause-named requires --name");
     await withPage(async (page) => {
       const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
-      await row.locator('button.dl-icon[aria-label="Pause"]').click();
+      await row.locator('.dl-actions [data-action="stop"]').click();
       await sleep(800);
       const status = await row.getAttribute("data-status");
       console.log(JSON.stringify({ ok: status === "paused", name, status }, null, 2));
@@ -721,7 +804,9 @@ Environment:
   die(`Unknown command: ${cmd}`);
 }
 
-main().catch((err) => {
-  console.error(err?.stack || String(err));
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err?.stack || String(err));
+    process.exit(1);
+  });
+}

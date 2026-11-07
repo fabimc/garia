@@ -34,7 +34,8 @@ import {
   formatDetailBadge,
   formatIntegrityFailureReason,
   formatQueueScan,
-  housekeepingActions,
+  heldStatusLabel,
+  splitNameForDisplay,
   formatRestartResumeNote,
   formatUnsupportedMerge,
   formatUnplayableMediaNote,
@@ -87,7 +88,6 @@ import {
   formatTorrentHealthNote,
   formatQualityChoiceDetail,
   formatMediaRowExplain,
-  desktopHousekeepingItems,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -1446,13 +1446,34 @@ function fileName(download) {
   return uri.split("/").pop() || uri || download.gid;
 }
 
+function applyDisplayName(nameEl, raw) {
+  const name = String(raw || "");
+  const { head, tail } = splitNameForDisplay(name);
+  let headEl = nameEl.querySelector(".dl-name-head");
+  let tailEl = nameEl.querySelector(".dl-name-tail");
+  if (!headEl) {
+    nameEl.textContent = "";
+    headEl = document.createElement("span");
+    headEl.className = "dl-name-head";
+    nameEl.appendChild(headEl);
+  }
+  if (!tailEl) {
+    tailEl = document.createElement("span");
+    tailEl.className = "dl-name-tail";
+    nameEl.appendChild(tailEl);
+  }
+  if (headEl.textContent !== head) headEl.textContent = head;
+  if (tailEl.textContent !== tail) tailEl.textContent = tail;
+  tailEl.hidden = !tail;
+}
+
 function isTorrent(dl) {
   if (isTorrentDownload(dl)) return true;
   return sourceUrl(dl).startsWith("magnet:");
 }
 
 function statusLabel(status) {
-  const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Complete", error: "Error", removed: "Removed" };
+  const map = { active: "Downloading", merging: "Merging", seeding: "Seeding", waiting: "Queued", paused: "Paused", complete: "Done", error: "Error", removed: "Removed" };
   return map[status] || status;
 }
 
@@ -1510,30 +1531,15 @@ function fileKind(dl) {
 }
 
 function rowIcon(dl) {
-  if (dl.status === "merging") return { svg: ROW_ICONS.video, kind: "video" };
-  const cls = statusClass(dl.status);
-  if (cls === "active") return { svg: ROW_ICONS.pause, kind: "active" };
-  if (cls === "paused") return { svg: ROW_ICONS.play, kind: "paused" };
-  // A queued row says it is waiting until the pointer is on it, then what a
-  // click does.
-  if (cls === "waiting") {
-    return {
-      svg: `<span class="dl-icon-rest">${ROW_ICONS.clock}</span><span class="dl-icon-hover">${ROW_ICONS.pause}</span>`,
-      kind: "waiting",
-    };
-  }
-  if (cls === "error") return { svg: ROW_ICONS.error, kind: "error" };
-  if (cls === "seeding") return { svg: ROW_ICONS.folder, kind: "seeding" };
   const kind = fileKind(dl);
   return { svg: ROW_ICONS[kind] || ROW_ICONS.file, kind };
 }
 
-function iconAction(dl) {
+function rowPrimaryAction(dl) {
   if (dl.status === "active" || dl.status === "waiting") return "stop";
   if (dl.status === "paused") return "resume";
   if (dl.status === "error" && dl.job?.webpageUrl) return "reprobe";
   if (dl.status === "error" && retryUris(dl).length) return "retry";
-  if ((dl.status === "complete" || dl.status === "seeding") && rowPath(dl)) return "reveal";
   return "";
 }
 
@@ -1709,16 +1715,16 @@ function errorLabel(dl) {
   return errorReason(dl);
 }
 
-// Each row's primary verb lives on the icon (pause, resume, reveal). The
-// trailing buttons are extras: stop-seeding, reveal, and delete.
+// Row actions live at the right edge. The leading icon is always file type.
 function actionsFor(dl) {
   const out = [];
-  const primary = iconAction(dl);
+  const primary = rowPrimaryAction(dl);
   const path = dl.job && !dl.onDisk ? "" : dl.files?.[0]?.path || "";
+  if (primary) out.push({ action: primary, kind: "icon" });
   if (dl.status === "seeding") {
     out.push({ action: "unseed", kind: "icon" });
   }
-  if (path && primary !== "reveal") {
+  if (path) {
     out.push({ action: "reveal", kind: "icon" });
   }
   out.push({ action: "remove", kind: "icon" });
@@ -1733,12 +1739,28 @@ const COLUMNS = [
   { id: "size", label: "Size", width: "7.4rem", numeric: true },
   { id: "speed", label: "Speed", width: "6.4rem", numeric: true },
   { id: "eta", label: "Time left", width: "5.6rem", numeric: true },
+  { id: "upspeed", label: "Upload speed", width: "7.2rem", numeric: true },
+  { id: "ratio", label: "Ratio", width: "4.8rem", numeric: true },
+  { id: "finished", label: "Finished at", width: "9.6rem", numeric: false },
+  { id: "saved", label: "Saved to", width: "11.2rem", numeric: false },
+  { id: "open", label: "Open", width: "4.8rem", numeric: false },
   { id: "connections", label: "Sockets", width: "4.4rem", numeric: true },
   { id: "source", label: "Source", width: "8.6rem", numeric: false },
   { id: "category", label: "Category", width: "6.4rem", numeric: false },
 ];
 const DEFAULT_COLUMNS = ["size", "speed", "eta"];
+const VIEW_COLUMN_DEFAULTS = {
+  all: ["size", "speed", "eta"],
+  active: ["size", "speed", "eta"],
+  waiting: ["size", "eta"],
+  paused: ["size", "eta"],
+  complete: ["size", "saved", "open"],
+  error: ["size"],
+  seeding: ["size", "upspeed", "ratio"],
+  torrents: ["size", "speed", "eta"],
+};
 const COLUMNS_KEY = "garia:columns";
+const COLUMNS_BY_VIEW_KEY = "garia:columns-by-view";
 
 function loadColumns() {
   try {
@@ -1753,10 +1775,50 @@ function loadColumns() {
   }
 }
 
-let visibleCols = loadColumns();
+function viewColumnKey(filter = "all") {
+  if (String(filter).startsWith("cat:") || String(filter).startsWith("pkg:")) return "all";
+  return VIEW_COLUMN_DEFAULTS[filter] ? filter : "all";
+}
+
+function sanitizeColumns(raw) {
+  const known = new Set(COLUMNS.map((c) => c.id));
+  const picked = (raw || []).filter((id) => known.has(id));
+  return (raw || []).length === 0 || picked.length ? picked : [...DEFAULT_COLUMNS];
+}
+
+function loadColumnsByView() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLUMNS_BY_VIEW_KEY));
+    if (!raw || typeof raw !== "object") return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) out[key] = sanitizeColumns(value);
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+let columnsByView = loadColumnsByView();
+if (!columnsByView.all) columnsByView.all = loadColumns();
+let visibleCols = columnsByView[viewColumnKey("all")] || loadColumns();
 
 function columnOn(id) {
   return visibleCols.includes(id);
+}
+
+function formatFinishedAt(dl) {
+  // Not in Completed defaults (and not an aria2 tellStatus field). Opt-in via
+  // View → Columns only; stays empty until Garia stores its own finish time.
+  const secs = Number(dl.completedTime);
+  if (!(secs > 0)) return "";
+  const at = new Date(secs * 1000);
+  if (Number.isNaN(at.getTime())) return "";
+  return at.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function columnValue(id, dl) {
@@ -1773,6 +1835,16 @@ function columnValue(id, dl) {
       return up ? `↑ ${up}` : "";
     }
     return formatSpeed(dl.downloadSpeed);
+  }
+  if (id === "upspeed") {
+    const up = formatSpeed(dl.uploadSpeed);
+    return up ? `↑ ${up}` : "";
+  }
+  if (id === "ratio") {
+    const total = Number(dl.totalLength) || 0;
+    const shared = Number(dl.uploadLength) || 0;
+    if (!(total > 0)) return "";
+    return (shared / total).toFixed(2);
   }
   if (id === "eta") {
     if (dl.status !== "active") return "";
@@ -1792,6 +1864,12 @@ function columnValue(id, dl) {
     if (url.startsWith("magnet:")) return "magnet";
     return urlHostname(url);
   }
+  if (id === "finished") return formatFinishedAt(dl);
+  if (id === "saved") {
+    const folder = containingFolderOf({ dir: destDirOf(dl) || dl.dir, path: rowPath(dl) });
+    return folder || "";
+  }
+  if (id === "open") return rowPath(dl) ? "Open" : "";
   if (id === "category") return categoryNameFor(dl);
   return "";
 }
@@ -1803,9 +1881,10 @@ function extraColSpecs() {
 function syncColLayout() {
   const table = document.querySelector(".dl-table");
   if (!table) return;
+  const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)" : "minmax(10.5rem, 12rem)";
   const tracks = ["22px", "minmax(10rem, 1fr)"];
   if (columnOn("size")) tracks.push("7.4rem");
-  tracks.push("minmax(10.5rem, 12rem)");
+  tracks.push(statusTrack);
   for (const spec of extraColSpecs()) tracks.push(spec.width);
   tracks.push("max-content");
   table.style.gridTemplateColumns = tracks.join(" ");
@@ -1824,6 +1903,7 @@ function paintColLabels(host) {
   for (const spec of on) {
     const cell = document.createElement("div");
     cell.className = `dl-col col-head-label${spec.numeric ? " is-num" : ""}`;
+    if (spec.id === "open") cell.classList.add("col-open");
     cell.textContent = spec.label;
     cell.dataset.col = spec.id;
     cols.appendChild(cell);
@@ -1848,7 +1928,7 @@ function renderColHead() {
 
     const status = document.createElement("div");
     status.className = "col-head-label col-head-status";
-    status.textContent = "Status";
+    status.textContent = activeFilter === "error" ? "Reason" : "Status";
     head.appendChild(status);
 
     paintColLabels(head);
@@ -1868,6 +1948,7 @@ function fillCols(li, dl) {
     for (const spec of on) {
       const cell = document.createElement("div");
       cell.className = `dl-col${spec.numeric ? " is-num" : ""}`;
+      if (spec.id === "open") cell.classList.add("col-open");
       cell.dataset.col = spec.id;
       box.appendChild(cell);
     }
@@ -1875,6 +1956,25 @@ function fillCols(li, dl) {
   for (const spec of on) {
     const cell = box.querySelector(`[data-col="${spec.id}"]`);
     if (!cell) continue;
+    if (spec.id === "open") {
+      const path = rowPath(dl);
+      let btn = cell.querySelector(".dl-col-btn");
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "dl-col-btn";
+        btn.textContent = "Open";
+        btn.dataset.action = "reveal";
+        cell.textContent = "";
+        cell.appendChild(btn);
+      }
+      btn.dataset.gid = dl.gid;
+      btn.dataset.path = path || "";
+      btn.disabled = !path;
+      cell.classList.toggle("is-empty", !path);
+      cell.title = path || "";
+      continue;
+    }
     const value = columnValue(spec.id, dl);
     const text = value || "—";
     if (cell.textContent !== text) cell.textContent = text;
@@ -1884,9 +1984,29 @@ function fillCols(li, dl) {
 }
 
 function setColumns(next) {
-  const known = new Set(COLUMNS.map((c) => c.id));
-  visibleCols = next.filter((id) => known.has(id));
+  const key = viewColumnKey(activeFilter);
+  visibleCols = sanitizeColumns(next);
+  columnsByView = { ...columnsByView, [key]: [...visibleCols] };
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(visibleCols)); } catch {}
+  try { localStorage.setItem(COLUMNS_BY_VIEW_KEY, JSON.stringify(columnsByView)); } catch {}
+  renderColHead();
+  for (const [gid, dl] of snapshot) {
+    const li = rowEl(gid);
+    if (li) updateItemEl(li, dl);
+  }
+  renderColumnsMenu();
+  syncViewMenu();
+}
+
+function applyViewColumns(force = false) {
+  const key = viewColumnKey(activeFilter);
+  const next = columnsByView[key]
+    || (key === "all" ? loadColumns() : null)
+    || VIEW_COLUMN_DEFAULTS[key]
+    || DEFAULT_COLUMNS;
+  const clean = sanitizeColumns(next);
+  if (!force && clean.length === visibleCols.length && clean.every((id, i) => id === visibleCols[i])) return;
+  visibleCols = clean;
   renderColHead();
   for (const [gid, dl] of snapshot) {
     const li = rowEl(gid);
@@ -1944,7 +2064,7 @@ function createItemEl(dl) {
   li.tabIndex = -1;
   li.innerHTML = `
     <div class="dl-lead">
-      <button type="button" class="dl-icon"></button>
+      <span class="dl-icon" aria-hidden="true"></span>
       <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
     </div>
     <div class="dl-name-cell">
@@ -2018,27 +2138,10 @@ function updateItemEl(li, dl) {
     iconEl.dataset.kind = icon.kind;
     iconEl.innerHTML = icon.svg;
   }
-  const act = iconAction(dl);
-  if (act) {
-    iconEl.dataset.action = act;
-    iconEl.dataset.gid = dl.gid;
-    iconEl.title = ACTION_TITLES[act];
-    iconEl.setAttribute("aria-label", ACTION_TITLES[act]);
-  } else {
-    delete iconEl.dataset.action;
-    iconEl.removeAttribute("title");
-    iconEl.removeAttribute("aria-label");
-  }
-  if (act === "reveal") iconEl.dataset.path = rowPath(dl);
-  else delete iconEl.dataset.path;
-  if (act === "reprobe") iconEl.dataset.url = dl.job?.webpageUrl || "";
-  else delete iconEl.dataset.url;
 
   const nameEl = li.querySelector(".dl-name");
-  if (nameEl.textContent !== name) {
-    nameEl.textContent = name;
-    nameEl.title = name;
-  }
+  applyDisplayName(nameEl, name);
+  if (nameEl.title !== name) nameEl.title = name;
 
   // A capped row is slower than the line on purpose, and the row is where that
   // has to be said — the alternative is a download that looks stuck.
@@ -2096,23 +2199,6 @@ function updateItemEl(li, dl) {
   fill.classList.toggle("indeterminate", isIndeterminate);
   fill.style.transform = isIndeterminate ? "" : `translateX(${pct - 100}%)`;
 
-  let statusText = "";
-  if (held) statusText = "Scheduled";
-  else if (dl.status === "complete") statusText = "Complete";
-  else if (dl.status === "error") statusText = errorLabel(dl);
-  else if (dl.status === "seeding") {
-    const totalUp = Number(dl.totalLength) || 0;
-    const shared = Number(dl.uploadLength) || 0;
-    statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
-  } else if (isStalled(dl)) statusText = "Stalled";
-  else if (isSlowDownload(dl)) statusText = "Slow";
-  else if (dl.status === "waiting" && !showBar) statusText = "Queued";
-  else if (merging) statusText = `Merging ${pct}%`;
-  else if (dl.status === "merging") statusText = "Merging";
-  else if (isIndeterminate) statusText = "";
-  else if (showBar) statusText = `${pct}%`;
-  else statusText = statusLabel(dl.status);
-
   const queueIsStopped = schedule.queueStopped === true || settings.queueStopped === true;
   const startHeld = Boolean(startAt(dl.gid));
   const scheduleWindowHeld = Boolean(held)
@@ -2120,6 +2206,36 @@ function updateItemEl(li, dl) {
     && !queueIsStopped
     && schedule.enabled === true
     && schedule.open === false;
+
+  let statusText = "";
+  const speed = formatSpeed(dl.downloadSpeed);
+  const heldLine = heldStatusLabel({
+    held: Boolean(held),
+    startHeld,
+    queueStopped: queueIsStopped,
+    scheduleWindowHeld,
+    showBar,
+    pct,
+  });
+  if (heldLine) statusText = heldLine;
+  else if (dl.status === "complete") statusText = "Done";
+  else if (dl.status === "error") statusText = errorLabel(dl);
+  else if (dl.status === "seeding") {
+    const totalUp = Number(dl.totalLength) || 0;
+    const shared = Number(dl.uploadLength) || 0;
+    statusText = totalUp > 0 ? `Seeding · ${(shared / totalUp).toFixed(2)}` : "Seeding";
+  } else if (dl.status === "active" && isStalled(dl)) statusText = "Stalled";
+  else if (dl.status === "active" && isSlowDownload(dl)) statusText = "Slow";
+  else if (merging) statusText = `Merging ${pct}%`;
+  else if (dl.status === "merging") statusText = "Merging";
+  else if (dl.status === "active" && isIndeterminate) statusText = speed ? `Downloading · ${speed}` : "Downloading";
+  else if (dl.status === "active" && showBar) statusText = speed ? `${pct}% · ${speed}` : `${pct}%`;
+  else if (dl.status === "paused" && showBar) statusText = `${pct}% · Paused`;
+  else if (dl.status === "waiting" && showBar) statusText = `${pct}% · Queued`;
+  else if (dl.status === "waiting") statusText = "Queued";
+  else if (dl.status === "paused") statusText = "Paused";
+  else statusText = statusLabel(dl.status);
+
   const scan = formatQueueScan(dl.status, {
     stalled: isStalled(dl),
     slow: isSlowDownload(dl),
@@ -2159,7 +2275,7 @@ function updateItemEl(li, dl) {
       jobError: dl.job?.state === "failed" ? dl.job?.error : "",
     })
     : "";
-  statusEl.classList.toggle("is-progress", showBar && !held && dl.status !== "merging");
+  statusEl.classList.toggle("is-progress", dl.status === "active" && showBar && !held && dl.status !== "merging");
   statusEl.classList.toggle("is-error", dl.status === "error");
   statusEl.classList.toggle("is-checksum", failKind === "checksum");
   statusEl.classList.toggle("is-seeding", dl.status === "seeding");
@@ -2222,8 +2338,8 @@ function updateItemEl(li, dl) {
 }
 
 // ── Section headers ──────────────────────────────────────────────────────
-// Active/Queued/Paused/Seeding match the scan chips — Folx users scan those
-// words, so the section header must not say "Downloading" for Active rows.
+// Active/Queued/Paused/Seeding are the words users scan for in this view, so
+// the section header must not say "Downloading" for Active rows.
 const SECTION_LABELS = {
   active: queueGroupMeta("active").sectionLabel,
   merging: queueGroupMeta("merging").sectionLabel,
@@ -2409,46 +2525,44 @@ function applyFilter(listEl) {
     visible === 1 ? "1 item" : `${visible} items`;
 
   const empty = document.getElementById("empty-state");
+  const emptyAction = document.getElementById("empty-action");
   empty.classList.toggle("hidden", visible > 0);
   if (visible === 0) {
-    const { title, sub } = formatEmptyQueueState({
+    const { title, sub, action } = formatEmptyQueueState({
       filter: activeFilter,
       hasAnyDownloads: items.length > 0,
       connError: connState === "error",
       modNHint: `${modGlyph()}N`,
+      hasSearch: Boolean(nameFilter),
+      queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
     });
     document.getElementById("empty-title").textContent = title;
     document.getElementById("empty-sub").textContent = sub;
+    if (emptyAction) {
+      if (action?.id && action?.label) {
+        emptyAction.classList.remove("hidden");
+        emptyAction.dataset.action = action.id;
+        emptyAction.textContent = action.label;
+      } else {
+        emptyAction.classList.add("hidden");
+        delete emptyAction.dataset.action;
+        emptyAction.textContent = "";
+      }
+    }
+  } else if (emptyAction) {
+    emptyAction.classList.add("hidden");
+    delete emptyAction.dataset.action;
+    emptyAction.textContent = "";
   }
 
   onFilterApplied();
 }
 
-function renderHousekeeping(tally) {
-  const host = document.getElementById("stat-housekeeping");
-  if (!host) return;
-  const items = desktopHousekeepingItems({
-    failed: tally.error || 0,
-    failedSelected: 0,
-    completed: tally.complete || 0,
-  });
-  const key = items.map((item) => item.action).join("|");
-  if (host.dataset.actions !== key) {
-    host.dataset.actions = key;
-    host.textContent = "";
-    for (const item of items) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "status-housekeeping-btn";
-      btn.dataset.action = item.action;
-      btn.textContent = item.label;
-      btn.title = item.action === "retry-all"
-        ? "Same as Download → Retry Failed"
-        : "Same as Download → Clear Completed";
-      host.appendChild(btn);
-    }
-  }
-  host.classList.toggle("hidden", items.length === 0);
+// Assigned from DOMContentLoaded once toolbar DOM + filter state exist.
+// renderCounts (module scope, every poll) calls this safely before then.
+let renderToolbarImpl = () => {};
+function renderToolbar() {
+  renderToolbarImpl();
 }
 
 function renderCounts(tally) {
@@ -2467,8 +2581,6 @@ function renderCounts(tally) {
   if (tally.error) bits.push(`${tally.error} failed`);
   document.getElementById("stat-counts").textContent =
     bits.length ? bits.join(" · ") : "no downloads";
-  renderHousekeeping(tally);
-
   const down = formatSpeed(tally.speed);
   const up = formatSpeed(tally.upspeed);
   document.getElementById("stat-speed").textContent =
@@ -2478,6 +2590,7 @@ function renderCounts(tally) {
   const resumeAllBtn = document.getElementById("resume-all");
   if (pauseAllBtn) pauseAllBtn.disabled = !tally.active;
   if (resumeAllBtn) resumeAllBtn.disabled = !tally.paused;
+  renderToolbar();
 }
 
 // A cap explains a slow download, so it has to be visible — and reachable —
@@ -4239,18 +4352,37 @@ async function renderDetail() {
     }
     if (sections[i]?.classList.contains("detail-start")) {
       const sec = sections[i++];
+      const ats = detailGids.map((id) => startAt(id)).filter((n) => n > 0);
+      const commonAt = ats.length === detailGids.length && ats.every((n) => n === ats[0])
+        ? ats[0]
+        : 0;
+      const anyAt = ats.length > 0;
       const input = sec.querySelector(".detail-start-input");
-      if (input && document.activeElement !== input) input.value = localInputValue(defaultStart());
-      sec.querySelector(".detail-start-clear")?.classList.add("hidden");
+      if (input && document.activeElement !== input) {
+        const key = commonAt ? String(commonAt) : anyAt ? "mixed" : "none";
+        if (sec.dataset.at !== key) {
+          sec.dataset.at = key;
+          input.value = localInputValue(commonAt || defaultStart());
+        }
+      }
+      sec.querySelector(".detail-start-clear")?.classList.toggle("hidden", !anyAt);
       setHelpNote(
         sec.querySelector(".detail-start-note"),
-        "Set one hold time and apply it to every selected download.",
+        commonAt
+          ? `All held until ${clockOf(commonAt)}. Clear removes the hold from every selected download.`
+          : anyAt
+            ? "Selected downloads have different hold times. Set one time to align them, or Clear to release all."
+            : "Set one hold time and apply it to every selected download.",
         "",
       );
     }
     const note = sections[i]?.querySelector(".detail-note");
     if (note) {
-      note.textContent = `${detailGids.length} downloads selected. Controls here apply to all selected rows.`;
+      setHelpNote(
+        note,
+        `${detailGids.length} downloads selected. Controls here apply to all selected rows.`,
+        "",
+      );
     }
     const titleEl = document.getElementById("detail-title");
     titleEl.textContent = `${detailGids.length} downloads`;
@@ -4837,6 +4969,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   const filterBar = document.getElementById("filter-bar");
   const nameSearch = document.getElementById("name-filter");
   const nameSearchClear = document.getElementById("name-filter-clear");
+  const toolbarButtons = {
+    pauseAll: document.getElementById("pause-all"),
+    resumeAll: document.getElementById("resume-all"),
+    queueToggle: document.getElementById("queue-toggle"),
+    moveTop: document.getElementById("move-top"),
+    moveEnd: document.getElementById("move-end"),
+    retryAll: document.getElementById("retry-all"),
+    clearFailed: document.getElementById("clear-failed"),
+    clearCompleted: document.getElementById("clear-completed"),
+    openFolder: document.getElementById("open-download-folder"),
+    stopSeeding: document.getElementById("stop-seeding"),
+  };
 
   const categoryNav = document.getElementById("category-nav");
   const CAT_ICON = SVG_OPEN
@@ -4924,8 +5068,77 @@ window.addEventListener("DOMContentLoaded", async () => {
       else b.removeAttribute("aria-current");
     }
     document.getElementById("view-title").textContent = categoryTitle(value);
+    applyViewColumns();
+    renderToolbar();
     applyFilter(listEl);
   }
+
+  function queueSelectionCanMove(where) {
+    const moving = [];
+    for (const gid of selected) {
+      for (const g of gidsFor(gid)) {
+        if (queueOrder.includes(g) && !moving.includes(g)) moving.push(g);
+      }
+    }
+    const next = placeInQueue(queueOrder, moving, where);
+    return !sameOrder(queueOrder, next);
+  }
+
+  function viewTally() {
+    const out = { active: 0, paused: 0, waiting: 0, error: 0, complete: 0, seeding: 0 };
+    for (const dl of snapshot.values()) {
+      if (out[dl.status] !== undefined) out[dl.status] += 1;
+    }
+    return out;
+  }
+
+  function showToolbarButtons(show) {
+    for (const [key, btn] of Object.entries(toolbarButtons)) {
+      if (!btn) continue;
+      btn.classList.toggle("hidden", !show.includes(key));
+    }
+  }
+
+  renderToolbarImpl = function renderToolbarReady() {
+    const tally = viewTally();
+    const key = activeFilter.startsWith("cat:") || activeFilter.startsWith("pkg:") ? "all" : activeFilter;
+    const inAll = key === "all" || key === "active";
+    const inQueued = key === "waiting";
+    const inFailed = key === "error";
+    const inComplete = key === "complete";
+    const inSeeding = key === "seeding" || key === "torrents";
+    const show = inAll
+      ? ["pauseAll", "resumeAll", "queueToggle"]
+      : inQueued
+        ? ["queueToggle", "moveTop", "moveEnd"]
+        : inFailed
+          ? ["retryAll", "clearFailed"]
+          : inComplete
+            ? ["clearCompleted", "openFolder"]
+            : inSeeding
+              ? ["stopSeeding"]
+              : [];
+    showToolbarButtons(show);
+    if (toolbarButtons.pauseAll) toolbarButtons.pauseAll.disabled = tally.active < 1;
+    if (toolbarButtons.resumeAll) toolbarButtons.resumeAll.disabled = tally.paused < 1;
+    const stopped = schedule.queueStopped === true || settings.queueStopped === true;
+    if (toolbarButtons.queueToggle && inQueued) {
+      toolbarButtons.queueToggle.textContent = "Start Queue";
+      toolbarButtons.queueToggle.title = "Let downloads run again";
+      toolbarButtons.queueToggle.classList.toggle("is-stopped", stopped);
+      toolbarButtons.queueToggle.disabled = !stopped;
+    } else if (toolbarButtons.queueToggle) {
+      toolbarButtons.queueToggle.disabled = false;
+      renderQueueToggle();
+    }
+    if (toolbarButtons.moveTop) toolbarButtons.moveTop.disabled = !queueSelectionCanMove("top");
+    if (toolbarButtons.moveEnd) toolbarButtons.moveEnd.disabled = !queueSelectionCanMove("end");
+    if (toolbarButtons.retryAll) toolbarButtons.retryAll.disabled = tally.error < 1;
+    if (toolbarButtons.clearFailed) toolbarButtons.clearFailed.disabled = tally.error < 1;
+    if (toolbarButtons.clearCompleted) toolbarButtons.clearCompleted.disabled = tally.complete < 1;
+    if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.opener?.openPath;
+    if (toolbarButtons.stopSeeding) toolbarButtons.stopSeeding.disabled = tally.seeding < 1;
+  };
 
   filterBar.addEventListener("click", (e) => {
     const btn = e.target.closest(".nav-item");
@@ -4960,6 +5173,38 @@ window.addEventListener("DOMContentLoaded", async () => {
     videoToolsSummary,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
+
+  async function runEmptyStateAction(action) {
+    if (action === "new-download") {
+      openModal();
+      return;
+    }
+    if (action === "view-all") {
+      setFilter("all");
+      return;
+    }
+    if (action === "start-queue") {
+      await setQueueStopped(false);
+      await pollAndSync();
+      return;
+    }
+    if (action === "retry-all") {
+      await retryFailed();
+      return;
+    }
+    if (action === "open-folder") {
+      openDownloadFolder();
+      return;
+    }
+    if (action === "clear-search") {
+      nameSearch.value = "";
+      nameSearch.dispatchEvent(new Event("input"));
+    }
+  }
+  document.getElementById("empty-action")?.addEventListener("click", (e) => {
+    const action = e.currentTarget.dataset.action;
+    if (action) runEmptyStateAction(action);
+  });
 
   document.getElementById("link-list-input")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
@@ -5004,6 +5249,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       li.setAttribute("aria-selected", String(on));
       li.tabIndex = li.dataset.gid === focusGid ? 0 : -1;
     }
+    renderToolbar();
   }
 
   // The filter pass repaints the selection whenever the rows move, so this
@@ -5543,53 +5789,37 @@ window.addEventListener("DOMContentLoaded", async () => {
     return closed;
   }
 
-  function queueHousekeeping(selectedRows) {
-    let failed = 0;
-    let completed = 0;
-    for (const dl of snapshot.values()) {
-      if (dl.status === "complete") completed += 1;
-      if (dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length)) failed += 1;
-    }
-    const failedSelected = (selectedRows || []).filter(
-      (dl) => dl.status === "error" && (dl.job?.webpageUrl || retryUris(dl).length),
-    ).length;
-    return housekeepingActions({ failed, failedSelected, completed });
-  }
-
   function menuSpecFor(dls) {
     const items = [];
-    if (dls.some((d) => d.status === "active" || d.status === "waiting")) {
-      items.push({ action: "stop", label: "Pause", shortcut: "Space" });
-    }
-    if (dls.some((d) => d.status === "paused")) {
-      items.push({ action: "resume", label: "Resume", shortcut: "Space" });
-    }
-    if (dls.some((d) => d.status === "seeding")) {
-      items.push({ action: "unseed", label: "Stop Seeding" });
-    }
-    if (dls.some((d) => d.status === "error")) {
-      items.push({ action: "retry", label: "Retry" });
-    }
-    if (dls.some((d) => rowPath(d))) {
-      items.push({ action: "reveal", label: revealLabel() });
-    }
-    if (dls.some((d) => sourceUrl(d))) {
-      items.push({
-        action: "copy-url",
-        label: dls.length > 1 ? "Copy URLs" : "Copy URL",
-        shortcut: `${modGlyph()}C`,
-      });
-    }
-    const paths = dls.some((d) => rowPath(d) || (d.files || []).some((f) => f.path));
-    if (paths) items.push({ action: "copy-path", label: dls.length > 1 ? "Copy File Paths" : "Copy File Path" });
+    const canPause = dls.some((d) => d.status === "active" || d.status === "waiting");
+    const canResume = dls.some((d) => d.status === "paused");
+    const canUnseed = dls.some((d) => d.status === "seeding");
+    const canRetry = dls.some((d) => d.status === "error");
+    const canReveal = dls.some((d) => rowPath(d));
+    const canCopyUrl = dls.some((d) => sourceUrl(d));
+    const canCopyPath = dls.some((d) => rowPath(d) || (d.files || []).some((f) => f.path));
     const queued = [...selected].flatMap((gid) => gidsFor(gid)).filter((gid) => queueOrder.includes(gid));
-    if (queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "top"))) {
-      items.push({ action: "move-top", label: "Move to Top" });
-    }
-    if (queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "end"))) {
-      items.push({ action: "move-end", label: "Move to End" });
-    }
-    if (dls.length === 1) items.push({ action: "details", label: "Details", shortcut: "↩" });
+    const canMoveTop = queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "top"));
+    const canMoveEnd = queued.length && !sameOrder(queueOrder, placeInQueue(queueOrder, queued, "end"));
+    items.push({ action: "stop", label: "Pause", shortcut: "Space", disabled: !canPause });
+    items.push({ action: "resume", label: "Resume", shortcut: "Space", disabled: !canResume });
+    items.push({ action: "unseed", label: "Stop Seeding", disabled: !canUnseed });
+    items.push({ action: "retry", label: "Retry", disabled: !canRetry });
+    items.push({ action: "reveal", label: revealLabel(), disabled: !canReveal });
+    items.push({
+      action: "copy-url",
+      label: dls.length > 1 ? "Copy URLs" : "Copy URL",
+      shortcut: `${modGlyph()}C`,
+      disabled: !canCopyUrl,
+    });
+    items.push({
+      action: "copy-path",
+      label: dls.length > 1 ? "Copy File Paths" : "Copy File Path",
+      disabled: !canCopyPath,
+    });
+    items.push({ action: "move-top", label: "Move to Top", disabled: !canMoveTop });
+    items.push({ action: "move-end", label: "Move to End", disabled: !canMoveEnd });
+    items.push({ action: "details", label: "Details", shortcut: "↩", disabled: dls.length !== 1 });
     const bulk = queueBulkExtras({
       selected: dls.length,
       active: dls.filter((d) => d.status === "active").length,
@@ -5605,7 +5835,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       items.push({ separator: true });
       items.push(...bulk);
     }
-    items.push(...queueHousekeeping(dls));
     const organize = organizeMenuExtras({
       selected: dls.length,
       hasCategories: activeCategories().length > 0,
@@ -5675,6 +5904,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       btn.className = spec.danger ? "row-menu-item is-danger" : "row-menu-item";
       btn.setAttribute("role", "menuitem");
       btn.dataset.action = spec.action;
+      btn.disabled = Boolean(spec.disabled);
       const label = document.createElement("span");
       label.textContent = spec.label;
       btn.appendChild(label);
@@ -5703,7 +5933,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   rowMenu.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     closeRowMenu();
     await runOnSelected(btn.dataset.action);
   });
@@ -6129,11 +6359,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       const at = clearing ? null : Math.floor(new Date(typed).getTime() / 1000);
 
       if (!clearing && !Number.isFinite(at)) {
-        note.textContent = "Pick a date and a time for this download to start.";
+        setHelpNote(note, "Pick a date and a time for this download to start.", "");
         return;
       }
       if (!clearing && at <= Math.floor(Date.now() / 1000)) {
-        note.textContent = "That moment has already passed — pick one still to come.";
+        setHelpNote(note, "That moment has already passed — pick one still to come.", "");
         return;
       }
 
@@ -6146,10 +6376,12 @@ window.addEventListener("DOMContentLoaded", async () => {
           }
           heldGids = new Set(schedule.held || []);
           renderSchedule();
+        } else {
+          setHelpNote(note, "Hold needs the desktop app — browser-dev has no schedule bridge.", "");
         }
       } catch (err) {
         console.error(err);
-        note.textContent = String(err?.message || err);
+        setHelpNote(note, String(err?.message || err), "");
       }
       when.disabled = false;
       refreshDetail();
@@ -6265,13 +6497,18 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("pause-all").addEventListener("click", pauseAll);
   document.getElementById("resume-all").addEventListener("click", resumeAll);
-  document.getElementById("stat-housekeeping")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    if (btn.dataset.action === "retry-all") retryFailed();
-    if (btn.dataset.action === "clear-completed") clearCompleted();
-  });
+  document.getElementById("move-top")?.addEventListener("click", () => moveSelection("top"));
+  document.getElementById("move-end")?.addEventListener("click", () => moveSelection("end"));
+  document.getElementById("retry-all")?.addEventListener("click", () => retryFailed());
+  document.getElementById("clear-failed")?.addEventListener("click", () => clearFailed());
+  document.getElementById("clear-completed")?.addEventListener("click", () => clearCompleted());
+  document.getElementById("open-download-folder")?.addEventListener("click", () => openDownloadFolder());
+  document.getElementById("stop-seeding")?.addEventListener("click", () => stopSeedingAll());
   document.getElementById("queue-toggle").addEventListener("click", () => {
+    if (activeFilter === "waiting") {
+      setQueueStopped(false).then(() => pollAndSync());
+      return;
+    }
     const stopped = schedule.queueStopped === true || settings.queueStopped === true;
     setQueueStopped(!stopped).then(() => pollAndSync());
   });
@@ -6306,8 +6543,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (e.button !== 0 || !listEl.classList.contains("queue-reorderable")) return;
     const row = e.target.closest(".dl-item");
     if (!row || row.dataset.status !== "waiting") return;
-    // The trailing buttons are buttons, not a handle. The icon is both: a
-    // click pauses, and a press that moves drags like the rest of the row.
+    // The trailing buttons are buttons, not a handle. The file-type icon drags
+    // like the rest of the row.
     if (e.target.closest(".dl-actions")) return;
     const rows = queuedRows();
     if (rows.length < 2 || !rows.includes(row)) return;
@@ -6641,6 +6878,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   renderColHead();
   renderColumnsMenu();
+  applyViewColumns(true);
   syncViewMenu();
 
   // Coming back to the window is the user seeing the list, so the badge has
@@ -6767,6 +7005,18 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (changed) await pollAndSync();
   }
 
+  async function clearFailed() {
+    const gids = [...snapshot.values()].filter((dl) => dl.status === "error").map((dl) => dl.gid);
+    if (!gids.length) return;
+    openConfirm(gids, {
+      keepFiles: true,
+      title: "Clear failed",
+      name: gids.length === 1
+        ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
+        : `${gids.length} failed downloads leave the list. The files stay on disk.`,
+    });
+  }
+
   async function clearCompleted() {
     const gids = [...snapshot.values()].filter((dl) => dl.status === "complete").map((dl) => dl.gid);
     if (!gids.length) return;
@@ -6777,6 +7027,22 @@ window.addEventListener("DOMContentLoaded", async () => {
         ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
         : `${gids.length} finished downloads leave the list. The files stay on disk.`,
     });
+  }
+
+  async function stopSeedingAll() {
+    const seeds = [...snapshot.values()].filter((dl) => dl.status === "seeding");
+    let changed = false;
+    for (const dl of seeds) {
+      await runRowAction(dl.gid, "unseed", { poll: false });
+      changed = true;
+    }
+    if (changed) await pollAndSync();
+  }
+
+  function openDownloadFolder() {
+    const openPath = window.__TAURI__?.opener?.openPath;
+    if (typeof openPath !== "function" || !settings.downloadDir) return;
+    openPath(settings.downloadDir).catch((err) => failed("Couldn't open the download folder", err));
   }
 
   const listenMenu = window.__TAURI__?.event?.listen;
@@ -6798,11 +7064,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (id === "retry-failed") retryFailed();
       if (id === "clear-completed") clearCompleted();
       if (id === "open-folder") {
-        const dir = settings.downloadDir;
-        if (dir && window.__TAURI__?.opener?.openPath) {
-          window.__TAURI__.opener.openPath(dir)
-            .catch((err) => failed("Couldn't open the download folder", err));
-        }
+        openDownloadFolder();
       }
       if (id === "licenses") openLicenses();
       if (id === "help") openHelp();

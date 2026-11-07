@@ -17,6 +17,15 @@ aria2's statuses are not enough for the UI:
 - **Stopped** — Stop Queue (or the daily window) held the row. Distinct from a hand pause.
 - **Held / Scheduled** — waiting for a named start time or for the window to open.
 
+The status cell carries the single state line (including Scheduled and Merging).
+`.dl-scan` chips are modifiers only — Held, Stopped — never a second copy of the
+same word already shown as status. Queue-stop and daily-window holds keep status
+as Paused (chip = Stopped / Held); only a named start time prints Scheduled.
+Verified / Checking stay on `.dl-verified`.
+
+Long names use a head + tail split so the extension stays visible at any Name
+column width (CSS ellipsis on the head; tail never shrinks).
+
 ## Categories
 
 - Default kinds: Video, Music, Documents, Archives (extension match).
@@ -42,7 +51,8 @@ aria2's statuses are not enough for the UI:
 
 ## Columns and detail
 
-- Optional columns (size, speed, ETA, sockets, source, category) are view prefs, not engine settings.
+- Optional columns (size, speed, ETA, sockets, source, category, Saved to, Open) are view prefs, not engine settings.
+- Completed defaults are size + Saved to + Open (no Finished at until Garia stores its own completion time).
 - Turning a column on removes that number from the one-line summary.
 - Detail panel asks the full key set for one gid only so the list poll stays narrow.
 - `getServers` / `getPeers` only while running — aria2 errors otherwise.

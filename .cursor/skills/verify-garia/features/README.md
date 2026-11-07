@@ -43,6 +43,6 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Browse the download library](./browse-library.md) covers sidebar filters, the seeded list, and connection status.
 - [Add a download](./add-download.md) covers opening Add download, submitting a URL, and seeing the new row.
-- [Pause and resume](./pause-resume.md) covers pausing an active row from the row icon.
+- [Pause and resume](./pause-resume.md) covers pausing an active row from the row action group.
 - [Download details](./download-detail.md) covers opening the detail inspector from a row name.
 - [Filter by name](./filter-by-name.md) covers the in-list name search box.
