@@ -24,8 +24,27 @@ jobs:
 
       - run: npm ci
 
+      # Usually a cache hit: sidecars.yml builds these on master. The key must
+      # match the one there exactly. On a miss, build and save right away, so
+      # re-running a release that failed later on skips the 8-minute build.
+      - id: sidecar-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: sidecars-macos-universal-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
+
       - name: Build universal sidecars
         run: npm run sidecar -- universal-apple-darwin
+
+      - if: steps.sidecar-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
 
       # Empty Apple secrets are still "set", and Tauri then tries to import a
       # blank certificate. Publish each one only when it has a value. Without
@@ -104,8 +123,25 @@ jobs:
 
       - run: npm ci
 
+      # Same arrangement as the Mac job; key must match sidecars.yml.
+      - id: sidecar-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: sidecars-ubuntu-22.04-x64-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
+
       - name: Build Linux sidecars
         run: npm run sidecar
+
+      - if: steps.sidecar-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
 
       - name: Configure updater signing when the key exists
         env:

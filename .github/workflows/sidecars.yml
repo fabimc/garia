@@ -1,0 +1,73 @@
+name: Sidecars
+
+# Builds the aria2, ffmpeg and yt-dlp sidecars on master and caches them, so a
+# release tag restores them instead of spending ~8 minutes and three downloads
+# rebuilding the same binaries. It has to run here: a tag's workflow can read
+# caches saved on that tag or on the default branch, never on an older tag.
+#
+# The cache keys below must match the ones in release.yml exactly. They hash
+# every script that decides what a sidecar is, so a version bump in any of
+# them is a new key and a fresh build.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "scripts/sidecar.sh"
+      - "scripts/build-aria2-sidecar.sh"
+      - "scripts/build-ffmpeg-sidecar.sh"
+      - "scripts/fetch-ytdlp-sidecar.sh"
+      - "scripts/download-verified.sh"
+      - "scripts/sha256-check.sh"
+      - ".github/workflows/sidecars.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sidecars
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: sidecars-macos-universal-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
+
+      - name: Build universal sidecars
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./scripts/sidecar.sh universal-apple-darwin
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            src-tauri/binaries
+            src-tauri/resources/yt-dlp
+          key: sidecars-ubuntu-22.04-x64-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Install build dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev zlib1g-dev
+
+      - name: Build Linux sidecars
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./scripts/sidecar.sh

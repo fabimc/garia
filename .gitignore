@@ -42,5 +42,8 @@ extensions/safari-app/
 # yt-dlp — fetched by scripts/fetch-ytdlp-sidecar.sh
 src-tauri/resources/
 
+# Verified sidecar source downloads — scripts/download-verified.sh
+.sidecar-cache/
+
 # Updater private key — losing this means already-installed apps cannot update
 .tauri/garia.key
