@@ -1807,9 +1807,8 @@ function columnOn(id) {
 }
 
 function formatFinishedAt(dl) {
-  // aria2 tellStatus has no completedTime; until Garia stores its own finish
-  // timestamp, this stays empty and the cell shows "—". Deferred: product
-  // decision on where to persist completion time.
+  // Not in Completed defaults (and not an aria2 tellStatus field). Opt-in via
+  // View → Columns only; stays empty until Garia stores its own finish time.
   const secs = Number(dl.completedTime);
   if (!(secs > 0)) return "";
   const at = new Date(secs * 1000);
