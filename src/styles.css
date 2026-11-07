@@ -1175,8 +1175,8 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .dl-size.is-empty,
 .dl-col.is-empty {
+    /* Use --muted at full opacity — opacity:0.55 failed WCAG AA on the list surface. */
     color: var(--muted);
-    opacity: 0.55;
 }
 
 .dl-actions {

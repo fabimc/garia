@@ -127,9 +127,9 @@ async function openDetail(page) {
   // Prefer a known mock seed when present; otherwise first visible row.
   const ubuntu = rows.filter({ hasText: "Ubuntu" });
   const row = (await ubuntu.count()) ? ubuntu.first() : rows.first();
-  // Master / #87: detail opens on row dblclick. After #90 the surface may be
-  // #detail-pane; accept either. Full inspector focus-order audit → #90.
-  await row.dblclick();
+  // Match control-garia `browser open-detail`: name click opens the docked
+  // inspector (#detail-pane after #90). Focus-order audit stays deferred to #90.
+  await row.locator(".dl-name").click();
   const detail = page.locator(
     "#detail-overlay:not(.hidden), #detail-pane:not(.hidden), #detail-pane.open, #detail-pane[aria-hidden='false']",
   );
