@@ -213,6 +213,28 @@ export function resolveChromiumExecutable({
   );
 }
 
+/** Chromium argv for verification launches (sandbox flags required on container Linux). */
+export function chromiumLaunchArgs({
+  cdpPort,
+  userDataDir,
+  uiUrl,
+  headed = false,
+} = {}) {
+  return [
+    `--remote-debugging-port=${cdpPort}`,
+    `--user-data-dir=${userDataDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-extensions",
+    // Restricted / container Linux runners (no /dev/shm, no user namespace).
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--window-size=1280,800",
+    ...(headed ? [] : ["--headless=new"]),
+    uiUrl,
+  ];
+}
+
 function publicState(state) {
   return {
     runId: state.runId,
@@ -314,20 +336,13 @@ async function cmdLaunch() {
   const chromeExecutable = resolveChromiumExecutable();
   const chromePid = spawnDetached(
     chromeExecutable,
-    [
-      `--remote-debugging-port=${cdpPort}`,
-      `--user-data-dir=${userDataDir}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-extensions",
-      // Restricted / container Linux runners (no /dev/shm, no user namespace).
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-      "--window-size=1280,800",
-      // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
-      ...(process.env.GARIA_HEADED === "1" ? [] : ["--headless=new"]),
+    chromiumLaunchArgs({
+      cdpPort,
+      userDataDir,
       uiUrl,
-    ],
+      // Headless shell is fine on cloud VMs; headed also works when DISPLAY is set.
+      headed: process.env.GARIA_HEADED === "1",
+    }),
     { logPath: chromeLog },
   );
   const cdpUrl = `http://127.0.0.1:${cdpPort}`;
