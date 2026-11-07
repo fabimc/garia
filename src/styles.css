@@ -20,7 +20,7 @@
 
     /* Ink */
     --text: #2b2520;
-    --muted: #8b8075;
+    --muted: #4c463f;
     --on-accent: #fff;
 
     /* Brand */
@@ -34,15 +34,23 @@
     --bar-end: #e08a52;
 
     /* Semantic */
-    --success: #3f7d4f;
-    --warning: #a8791f;
+    --success: #275b3a;
+    --warning: #71550a;
     --danger: #b3261e;
     --danger-dk: #8f1e17;
-    --success-soft: rgba(63, 125, 79, 0.12);
-    --success-mid: rgba(63, 125, 79, 0.2);
-    --warning-soft: rgba(168, 121, 31, 0.12);
+    --success-soft: rgba(39, 91, 58, 0.12);
+    --success-mid: rgba(39, 91, 58, 0.2);
+    --warning-soft: rgba(113, 85, 10, 0.12);
     --danger-soft: rgba(179, 38, 30, 0.12);
     --brand-soft: rgba(12, 108, 132, 0.1);
+    --state-active: #3b7ddd;
+    /* Text tokens: the fill colors above are for bars and tints. Text in a
+       state color has to clear 4.5:1 on --bg and on the selected-row tint. */
+    --state-active-text: #255aa8;
+    --state-queued: #695f55;
+    --accent-text: #94421f;
+    --state-done: #3f7d4f;
+    --state-failed: #b3261e;
 
     /* Neutral interaction tint (warm, unlike the old white overlays) */
     --tint: rgba(43, 37, 32, 0.05);
@@ -74,9 +82,10 @@
         --border-strong: #52483e;
 
         --text: #f0e6d8;
-        --muted: #9a8c7c;
+        --muted: #d0b7a1;
 
         --brand: #38a0b5;
+
         --accent: #e08a52;
         --accent-dk: #cf6a3a;
         --accent-soft: rgba(224, 138, 82, 0.2);
@@ -91,6 +100,12 @@
         --warning-soft: rgba(212, 164, 74, 0.16);
         --danger-soft: rgba(224, 106, 98, 0.16);
         --brand-soft: rgba(56, 160, 181, 0.16);
+        --state-active: #6d9fff;
+        --state-active-text: #6d9fff;
+        --state-queued: #9a8c7c;
+        --accent-text: var(--accent);
+        --state-done: #7dae88;
+        --state-failed: #e06a62;
 
         --tint: rgba(240, 230, 216, 0.06);
         --tint-strong: rgba(240, 230, 216, 0.1);
@@ -299,7 +314,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .nav-item.active {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
 }
 
@@ -323,7 +338,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     flex-shrink: 0;
 }
 .nav-item.active .nav-count {
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 /* Settings is not a filter, so it lives below them, pinned to the bottom. */
@@ -437,6 +452,11 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     border-color: var(--border-strong);
     color: var(--muted);
 }
+.pill.is-active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
 
 .search-field {
     display: flex;
@@ -488,8 +508,16 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 
 .content-body {
     flex: 1;
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    min-height: 0;
     padding: 0;
+}
+
+.content-main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
@@ -645,10 +673,10 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     background: var(--tint);
 }
 .dl-item.is-selected {
-    background: color-mix(in srgb, #3b7ddd 14%, var(--bg));
+    background: color-mix(in srgb, var(--state-active) 14%, var(--bg));
 }
 .dl-item.is-selected:hover {
-    background: color-mix(in srgb, #3b7ddd 18%, var(--bg));
+    background: color-mix(in srgb, var(--state-active) 18%, var(--bg));
 }
 .dl-item.is-file-draggable {
     cursor: grab;
@@ -661,60 +689,26 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 
 .dl-icon {
-    appearance: none;
     width: 22px;
     height: 22px;
-    padding: 0;
-    border: none;
     border-radius: 4px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
     color: var(--text);
-    cursor: default;
-}
-.dl-icon[data-action] {
-    cursor: pointer;
-}
-.dl-icon:hover[data-action] {
-    background: var(--tint-strong);
+    background: transparent;
 }
 .dl-icon svg {
     display: block;
     width: 16px;
     height: 16px;
 }
-
-.dl-icon[data-kind="active"],
-.dl-icon[data-kind="paused"] {
-    color: var(--text);
-}
-.dl-icon[data-kind="waiting"] {
-    color: var(--muted);
-}
-.dl-icon[data-kind="waiting"]:hover {
-    color: var(--text);
-}
-.dl-icon-rest,
-.dl-icon-hover {
-    display: flex;
-}
-.dl-icon-hover,
-.dl-icon:hover .dl-icon-rest,
-.dl-icon:focus-visible .dl-icon-rest {
-    display: none;
-}
-.dl-icon:hover .dl-icon-hover,
-.dl-icon:focus-visible .dl-icon-hover {
-    display: flex;
-}
 .dl-icon[data-kind="folder"] {
-    color: #3b7ddd;
+    color: var(--state-active);
 }
 .dl-icon[data-kind="video"] {
-    color: var(--accent);
+    color: var(--brand);
 }
 .dl-icon[data-kind="audio"] {
     color: var(--brand);
@@ -723,7 +717,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--success);
 }
 .dl-icon[data-kind="archive"] {
-    color: var(--warning);
+    color: var(--muted);
 }
 .dl-icon[data-kind="file"] {
     color: var(--muted);
@@ -768,11 +762,6 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-item.is-dragging .dl-grip {
     opacity: 1;
 }
-/* The icon under it is a pause button, and has to look like one when the
-   pointer is on it. It still drags. */
-.queue-reorderable .dl-item[data-status="waiting"]:not(.is-dragging) .dl-lead:hover .dl-grip {
-    opacity: 0;
-}
 
 /* While a row is in hand: the ones it passes slide out of the way instead of
    jumping, so the gap it will drop into is always the one under it. */
@@ -813,10 +802,27 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding: 0;
     text-align: left;
     cursor: pointer;
-    white-space: nowrap;
+    display: inline-flex;
+    align-items: baseline;
+    max-width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+/* Width-aware middle ellipsis: head shrinks with end-ellipsis; tail (ext) never clips. */
+/* `pre`, not `nowrap`: each span is its own flex item, and nowrap would
+   collapse a space that falls on the head/tail seam ("Ubuntu 24.04Desktop").
+   The head keeps room for at least a couple of glyphs plus the ellipsis, so a
+   crowded row (badges) reads "a…x86_64.iso" rather than a clipped sliver. */
+.dl-name-head {
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
+    white-space: pre;
+    min-width: 2.5ch;
+}
+.dl-name-tail {
+    flex-shrink: 0;
+    white-space: pre;
 }
 
 /* Why this row is slower than the rest of them, said on the row rather than
@@ -906,7 +912,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     border-radius: 999px;
     white-space: nowrap;
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 .dl-priority {
@@ -956,29 +962,7 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding: 0.2rem 0.45rem;
 }
 
-.status-housekeeping {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-left: 0.35rem;
-}
-
-.status-housekeeping-btn {
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0;
-    cursor: pointer;
-}
-
-.status-housekeeping-btn:hover {
-    text-decoration: underline;
-}
-
+.dl-item[data-status="active"] .dl-status-text.is-slow,
 .dl-status-text.is-slow {
     color: var(--warning, #b8860b);
 }
@@ -1019,6 +1003,12 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     overflow: hidden;
     position: relative;
 }
+/* Compact list (see setCompactList): Status also carries the speed, so the
+   bar gives up width to the text rather than cutting it. */
+.dl-table.is-compact .dl-bar-track {
+    width: 48px;
+    flex-basis: 48px;
+}
 
 /* Full width and slid into place, rather than sized: a width is a layout on
    every frame of the transition, for every running row, every second. The
@@ -1027,13 +1017,13 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     width: 100%;
     height: 100%;
     border-radius: 999px;
-    background: #3b7ddd;
+    background: var(--state-active);
     transform: translateX(-100%);
     transition: transform 0.4s ease;
 }
 
 .dl-item[data-status="paused"] .dl-bar-fill {
-    background: color-mix(in srgb, #3b7ddd 55%, var(--muted));
+    background: color-mix(in srgb, var(--state-queued) 58%, transparent);
 }
 
 .dl-status-text {
@@ -1049,8 +1039,27 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     color: var(--text);
     min-width: 2.6rem;
 }
+.dl-item[data-status="active"] .dl-status-text {
+    color: var(--state-active-text);
+}
+.dl-item[data-status="waiting"] .dl-status-text,
+.dl-item[data-status="paused"] .dl-status-text {
+    color: var(--state-queued);
+}
+.dl-item[data-status="complete"] .dl-status-text,
+.dl-item[data-status="seeding"] .dl-status-text {
+    color: var(--state-done);
+}
+.dl-item[data-status="error"] .dl-status-text {
+    color: var(--state-failed);
+}
 .dl-status-text.is-error {
     color: var(--danger);
+    white-space: normal;
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 .dl-status-text.is-checksum {
     color: var(--danger);
@@ -1059,8 +1068,23 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-status-text.is-seeding {
     color: var(--brand);
 }
+.dl-item[data-status="active"] .dl-status-text.is-stalled,
 .dl-status-text.is-stalled {
     color: var(--warning);
+}
+.dl-item[data-status="active"] .dl-bar-fill,
+.dl-item[data-status="merging"] .dl-bar-fill {
+    background: var(--state-active);
+}
+.dl-item[data-status="waiting"] .dl-bar-fill {
+    background: color-mix(in srgb, var(--state-queued) 42%, transparent);
+}
+.dl-item[data-status="complete"] .dl-bar-fill,
+.dl-item[data-status="seeding"] .dl-bar-fill {
+    background: var(--state-done);
+}
+.dl-item[data-status="error"] .dl-bar-fill {
+    background: var(--state-failed);
 }
 .dl-verified.is-checking {
     background: var(--warning-soft);
@@ -1136,6 +1160,30 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.dl-col.col-open,
+.col-head .dl-col.col-open {
+    overflow: visible;
+    text-overflow: clip;
+}
+.dl-col-btn {
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.dl-col-btn:hover {
+    background: var(--accent-soft);
+}
+.dl-col-btn:disabled {
+    opacity: 0.5;
+    color: var(--muted);
+    cursor: default;
+}
 .col-head .dl-size,
 .col-head .dl-col {
     color: var(--muted);
@@ -1143,8 +1191,8 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .dl-size.is-empty,
 .dl-col.is-empty {
+    /* Use --muted at full opacity — opacity:0.55 failed WCAG AA on the list surface. */
     color: var(--muted);
-    opacity: 0.55;
 }
 
 .dl-actions {
@@ -1161,6 +1209,11 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 .dl-item.is-selected .dl-actions,
 .dl-item:focus-within .dl-actions {
     opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+    .dl-actions {
+        transition: none;
+    }
 }
 
 .dl-btn {
@@ -1220,6 +1273,9 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     font-size: 0.82rem;
     color: var(--muted);
 }
+.empty-state .btn-primary {
+    margin-top: 0.5rem;
+}
 
 /* ── Status bar ──────────────────────────────────────────────────────── */
 .statusbar {
@@ -1230,8 +1286,8 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     padding: 0.35rem 0.9rem;
     background: var(--sidebar-bg);
     border-top: 1px solid var(--border-strong);
-    font-family: var(--mono);
-    font-size: 0.7rem;
+    font-family: inherit;
+    font-size: 0.75rem;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -1256,24 +1312,34 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     opacity: 0.5;
 }
 
-/* The traffic mode reads as a word in the bar until it is hovered — a control
-   that looked like a button would compete with the row buttons above it. */
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--muted) 22%, transparent);
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
 .traffic-btn {
     font: inherit;
-    color: var(--muted);
-    background: none;
-    border: none;
-    border-radius: 5px;
-    padding: 0.1rem 0.4rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    padding: 0.12rem 0.55rem;
     cursor: pointer;
     transition:
         background 0.15s,
-        color 0.15s;
+        color 0.15s,
+        border-color 0.15s;
 }
 .traffic-btn:hover,
 .traffic-btn[aria-expanded="true"] {
     background: var(--accent-soft);
     color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 /* Anything but full speed is why a download is slower than the line, so it
    says so in the bar's one accent colour. */
@@ -1315,8 +1381,20 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     background: var(--tint);
     outline: none;
 }
+.row-menu-item:disabled {
+    color: var(--muted);
+    opacity: 0.6;
+    cursor: default;
+}
+.row-menu-item:disabled:hover,
+.row-menu-item:disabled:focus {
+    background: none;
+}
 .row-menu-item.is-danger {
     color: var(--danger);
+}
+.row-menu-item.is-danger:disabled {
+    color: var(--muted);
 }
 .row-menu-item.is-danger:hover,
 .row-menu-item.is-danger:focus {
@@ -1488,11 +1566,6 @@ html.in-app .modal {
     border-top-color: transparent;
     max-height: calc(100vh - 58px);
     animation: sheet-down 0.18s ease-out;
-}
-
-html.in-app .modal.modal-lg {
-    width: min(640px, 100%);
-    max-height: calc(100vh - 58px);
 }
 
 @keyframes sheet-down {
@@ -2630,6 +2703,140 @@ html.in-app .prefs-main {
     cursor: pointer;
     color: var(--brand);
     list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.info-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--brand);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+@media (max-width: 1000px) {
+    .content-header {
+        flex-wrap: wrap;
+        row-gap: 0.55rem;
+    }
+    .content-actions {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+    .statusbar {
+        flex-wrap: wrap;
+        white-space: normal;
+        height: auto;
+        padding: 0.4rem 0.75rem;
+    }
+}
+
+@media (max-width: 820px) {
+    .app-shell {
+        grid-template-columns: 64px 1fr;
+    }
+    .sidebar {
+        padding-inline: 0.4rem;
+    }
+    .sidebar .wordmark,
+    .sidebar .nav-group-label {
+        display: none;
+    }
+    /* Visually hidden, not display:none — the label is the button's
+       accessible name once only the icon shows. */
+    .sidebar .nav-label,
+    .sidebar .add-btn-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+    .nav-item,
+    .add-btn {
+        justify-content: center;
+        padding-inline: 0.2rem;
+    }
+    .sidebar-header {
+        justify-content: center;
+    }
+    .panel-toggle {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .content-title {
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+    /* Column tracks are set inline by syncColLayout (main.js), which also
+       drops columns when the list is narrow — a rule here would never win. */
+    .search-field {
+        flex: 1 1 160px;
+    }
+}
+
+@media (max-width: 640px) {
+    .content-header {
+        padding: 0.5rem 0.6rem;
+    }
+    .content-actions {
+        gap: 0.35rem;
+    }
+    .pill {
+        padding: 0.28rem 0.55rem;
+    }
+    .dl-table {
+        grid-template-columns: minmax(0, 1fr);
+        padding-inline: 0.6rem;
+    }
+    .dl-item,
+    .dl-section,
+    .col-head {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .dl-name-cell {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+    .dl-status-cell {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+    .dl-bar-track {
+        width: 100%;
+        max-width: 140px;
+    }
+    .prefs-shell {
+        grid-template-columns: 1fr;
+    }
+    .prefs-nav {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0.75rem 0.75rem 0.25rem;
+    }
+    .prefs-nav-title {
+        grid-column: 1 / -1;
+    }
+    .prefs-main {
+        padding: 1rem 0.9rem 1.25rem;
+    }
+    .prefs-pane {
+        max-width: none;
+    }
 }
 
 .field-more summary::-webkit-details-marker {
@@ -2768,11 +2975,30 @@ html.prefs.in-app .modal {
 }
 
 /* ── Detail panel ────────────────────────────────────────────────────── */
-/* Wider than the add dialog and taller than the screen on a torrent with a
-   hundred peers, so the body scrolls and the header and footer don't. */
-.modal.modal-lg {
-    width: min(620px, 92vw);
-    max-height: 86vh;
+.detail-pane {
+    width: min(38vw, 460px);
+    min-width: 320px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.detail-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.1rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    gap: 0.8rem;
+}
+
+.detail-pane-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.8rem 1.1rem 1rem;
+    border-top: 1px solid var(--border);
 }
 
 .detail-priority-bulk {
@@ -2795,8 +3021,11 @@ html.prefs.in-app .modal {
 }
 
 .detail-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     gap: 1.4rem;
+    padding: 0.9rem 1.1rem;
 }
 
 .detail-part {
@@ -2818,6 +3047,33 @@ html.prefs.in-app .modal {
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--muted);
+}
+
+.detail-tabs {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--bg);
+}
+
+.detail-tab {
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+}
+
+.detail-tab[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
 }
 
 .detail-bar-track {
@@ -3021,8 +3277,53 @@ html.prefs.in-app .modal {
 }
 
 .detail-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
     font-size: 0.78rem;
     color: var(--muted);
+}
+.detail-note-line {
+    flex: 1;
+    min-width: 0;
+}
+.help-pop {
+    position: relative;
+    flex-shrink: 0;
+}
+.help-pop-btn {
+    list-style: none;
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--muted);
+    padding: 0.05rem 0.2rem;
+    border-radius: 4px;
+}
+.help-pop-btn::-webkit-details-marker {
+    display: none;
+}
+.help-pop-btn::marker {
+    content: "";
+}
+.help-pop[open] > .help-pop-btn {
+    color: var(--text);
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+.help-pop-body {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 6;
+    width: min(18rem, 70vw);
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface, var(--bg));
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
 }
 
 /* A torrent is a bundle you can take part of, so its file rows are ticked.
@@ -3050,21 +3351,12 @@ html.prefs.in-app .modal {
     border-radius: 6px;
     padding: 0.1rem 0.25rem;
 }
-.detail-seed,
 .detail-limit-custom,
 .detail-folder {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.45rem 0.6rem;
-}
-.detail-seed {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    background: var(--bg);
 }
 .detail-seed-row,
 .detail-limit-custom {
@@ -3265,4 +3557,23 @@ html.prefs.in-app .modal {
 .detail-start-set,
 .detail-start-clear {
     flex-shrink: 0;
+}
+
+/* Docked beside the list while there is room for both (the list goes
+   compact on its own — see COMPACT_LIST_PX in main.js). Below that a bottom
+   dock left ~4 rows and ~100px of inspector, so the inspector becomes a sheet
+   over the list instead: full height, list still visible at the left edge. */
+@media (max-width: 900px) {
+    .content-body {
+        position: relative;
+    }
+
+    .detail-pane {
+        position: absolute;
+        inset: 0 0 0 auto;
+        z-index: 5;
+        width: min(100%, 420px);
+        min-width: 0;
+        box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+    }
 }

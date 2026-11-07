@@ -74,7 +74,7 @@
                         <line x1="12" y1="5" x2="12" y2="19" />
                         <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
-                    Add download
+                    <span class="add-btn-label">Add download</span>
                 </button>
 
                 <nav class="sidebar-nav" id="filter-bar">
@@ -371,6 +371,27 @@
                         >
                             Stop Queue
                         </button>
+                        <button class="pill hidden" id="move-top" title="Move selected queued downloads to the top">
+                            Move to top
+                        </button>
+                        <button class="pill hidden" id="move-end" title="Move selected queued downloads to the end">
+                            Move to end
+                        </button>
+                        <button class="pill hidden" id="retry-all" title="Retry all failed downloads">
+                            Retry all
+                        </button>
+                        <button class="pill hidden" id="clear-failed" title="Clear failed downloads from the list">
+                            Clear failed
+                        </button>
+                        <button class="pill hidden" id="clear-completed" title="Clear completed downloads from the list">
+                            Clear completed
+                        </button>
+                        <button class="pill hidden" id="open-download-folder" title="Open the download folder">
+                            Open download folder
+                        </button>
+                        <button class="pill hidden" id="stop-seeding" title="Stop all seeding torrents">
+                            Stop seeding
+                        </button>
                         <button
                             class="pill"
                             id="columns-btn"
@@ -396,6 +417,9 @@
                                 <line x1="15" y1="9" x2="15" y2="21" />
                             </svg>
                             Columns
+                        </button>
+                        <button class="pill" id="inspector-toggle" title="Show inspector (⌘I)" aria-pressed="false">
+                            Inspector
                         </button>
                         <div class="search-field" data-tauri-drag-region="false">
                             <svg
@@ -443,40 +467,69 @@
                 </header>
 
                 <div class="content-body">
-                    <div class="dl-table">
-                        <div
-                            id="col-head"
-                            class="col-head"
-                            role="row"
-                        ></div>
-                        <ul id="download-list" role="listbox" aria-label="Downloads" aria-multiselectable="true"></ul>
+                    <div class="content-main">
+                        <div class="dl-table">
+                            <div
+                                id="col-head"
+                                class="col-head"
+                                role="row"
+                            ></div>
+                            <ul id="download-list" role="listbox" aria-label="Downloads" aria-multiselectable="true"></ul>
+                        </div>
+                        <div id="empty-state" class="empty-state hidden">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="34"
+                                height="34"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.25"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path
+                                    d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                                />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            <p class="empty-title" id="empty-title">
+                                No downloads yet
+                            </p>
+                            <p class="empty-sub" id="empty-sub">
+                                Drag a URL or .torrent file anywhere, copy a file
+                                link, or hit ⌘N
+                            </p>
+                            <button type="button" class="btn-primary hidden" id="empty-action"></button>
+                        </div>
                     </div>
-                    <div id="empty-state" class="empty-state hidden">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="34"
-                            height="34"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.25"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                        >
-                            <path
-                                d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
-                            />
-                            <polyline points="17 8 12 3 7 8" />
-                            <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
-                        <p class="empty-title" id="empty-title">
-                            No downloads yet
-                        </p>
-                        <p class="empty-sub" id="empty-sub">
-                            Drag a URL or .torrent file anywhere, copy a file
-                            link, or hit ⌘N
-                        </p>
-                    </div>
+                    <aside
+                        id="detail-pane"
+                        class="detail-pane hidden"
+                        role="complementary"
+                        aria-labelledby="detail-title"
+                    >
+                        <div class="detail-pane-header">
+                            <div class="detail-heading">
+                                <h2 id="detail-title" class="detail-title">Inspector</h2>
+                                <span id="detail-badge" class="dl-scan hidden"></span>
+                            </div>
+                            <button
+                                class="modal-close"
+                                id="detail-close"
+                                aria-label="Close inspector"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div class="modal-body detail-body" id="detail-body"></div>
+                        <div class="detail-pane-footer">
+                            <button class="btn-secondary hidden" id="detail-reveal">
+                                Show in Finder
+                            </button>
+                        </div>
+                    </aside>
                 </div>
                 <div id="catch-banner" class="catch-banner hidden" role="status">
                     <p id="catch-text" class="catch-text">Download this file?</p>
@@ -506,8 +559,7 @@
                 <span id="conn-dot" class="conn-dot conn-waiting"></span>
                 <span id="conn-text">Connecting…</span>
                 <span class="status-sep">·</span>
-                <span id="stat-counts">no downloads</span>
-                <span id="stat-housekeeping" class="status-housekeeping hidden"></span>
+                <span id="stat-counts" class="status-chip">no downloads</span>
                 <!-- Only there when a schedule is. A window that is holding
                      downloads back has to say so somewhere always visible, or
                      the app just looks broken. -->
@@ -518,7 +570,7 @@
                 <button
                     type="button"
                     id="traffic-btn"
-                    class="traffic-btn"
+                    class="traffic-btn status-chip"
                     aria-haspopup="true"
                     aria-expanded="false"
                     aria-controls="traffic-menu"
@@ -526,7 +578,7 @@
                 >
                     Full speed
                 </button>
-                <span id="stat-speed" class="status-right"></span>
+                <span id="stat-speed" class="status-right status-chip"></span>
                 <span class="kbd-hint"><kbd>&#8984;F</kbd> search</span>
             </footer>
 
@@ -680,6 +732,9 @@
                             <button type="button" class="playlist-pick" id="batch-archive">
                                 Archive
                             </button>
+                            <button type="button" class="playlist-pick" id="batch-disk">
+                                Disk
+                            </button>
                             <button type="button" class="playlist-pick" id="batch-none">
                                 None
                             </button>
@@ -706,69 +761,92 @@
                         ></div>
                     </div>
 
-                    <!-- Alternate hosts for the same file. aria2 treats them
-                         as multi-source URIs the way uGet mirrors do. -->
-                    <div id="mirrors-row" class="field mirrors-row hidden">
-                        <label class="modal-label" for="modal-mirrors"
-                            >Mirrors <span class="modal-optional">optional</span></label
-                        >
-                        <textarea
-                            id="modal-mirrors"
-                            rows="2"
-                            class="field-input"
-                            placeholder="Other URLs for the same file, one per line"
-                            autocomplete="off"
-                            spellcheck="false"
-                        ></textarea>
-                        <p class="field-hint">
-                            aria2 pulls from every mirror at once and merges
-                            the bytes into one download.
-                        </p>
-                    </div>
-
-                    <!-- Optional, and hidden for a torrent or a magnet, which
-                         carry their own piece hashes. aria2 does the
-                         arithmetic as the bytes arrive, so this costs the
-                         download nothing. -->
-                    <div id="modal-checksum-row" class="modal-checksum">
-                        <label class="modal-label" for="modal-checksum"
-                            >Checksum <span class="modal-optional">optional</span></label
-                        >
-                        <input
-                            id="modal-checksum"
-                            type="text"
-                            class="field-input is-path"
-                            placeholder="Paste a hash from the download page"
-                            autocomplete="off"
-                            spellcheck="false"
-                            aria-describedby="modal-checksum-hint"
-                        />
-                        <p id="modal-checksum-hint" class="field-hint"></p>
-                    </div>
-
                     <!-- One file only. A page's folder depends on the
                          quality picked, and a batch routes each URL on its
-                         own. -->
+                         own. Kept on the default path (not behind Options). -->
                     <div id="modal-dir-row" class="field hidden">
-                        <label class="modal-label" for="modal-dir">Save to</label>
-                        <div class="modal-input-row">
-                            <input
-                                id="modal-dir"
-                                class="field-input is-path"
-                                type="text"
-                                placeholder="Download folder"
-                                autocomplete="off"
-                                spellcheck="false"
-                            />
-                            <button
-                                type="button"
-                                class="btn-secondary"
-                                id="modal-dir-browse"
-                            >
-                                Choose…
-                            </button>
-                        </div>
+                       <label class="modal-label" for="modal-dir">Save to</label>
+                       <div class="modal-input-row">
+                           <input
+                               id="modal-dir"
+                               class="field-input is-path"
+                               type="text"
+                               placeholder="Download folder"
+                               autocomplete="off"
+                               spellcheck="false"
+                           />
+                           <button
+                               type="button"
+                               class="btn-secondary"
+                               id="modal-dir-browse"
+                           >
+                               Choose…
+                           </button>
+                       </div>
                     </div>
+
+                    <details id="add-options" class="field-more add-options hidden">
+                        <summary>Options</summary>
+
+                        <!-- Alternate hosts for the same file. aria2 treats them
+                             as multi-source URIs the way uGet mirrors do. -->
+                        <div id="mirrors-row" class="field mirrors-row hidden">
+                           <label class="modal-label" for="modal-mirrors"
+                               >Mirrors <span class="modal-optional">optional</span></label
+                           >
+                           <textarea
+                               id="modal-mirrors"
+                               rows="2"
+                               class="field-input"
+                               placeholder="Other URLs for the same file, one per line"
+                               autocomplete="off"
+                               spellcheck="false"
+                           ></textarea>
+                           <p class="field-hint">
+                               aria2 pulls from every mirror at once and merges
+                               the bytes into one download.
+                           </p>
+                        </div>
+
+                        <!-- Optional, and hidden for a torrent or a magnet, which
+                             carry their own piece hashes. aria2 does the
+                             arithmetic as the bytes arrive, so this costs the
+                             download nothing. -->
+                        <div id="modal-checksum-row" class="modal-checksum">
+                           <label class="modal-label" for="modal-checksum"
+                               >Checksum <span class="modal-optional">optional</span></label
+                           >
+                           <input
+                               id="modal-checksum"
+                               type="text"
+                               class="field-input is-path"
+                               placeholder="Paste a hash from the download page"
+                               autocomplete="off"
+                               spellcheck="false"
+                               aria-describedby="modal-checksum-hint"
+                           />
+                           <p id="modal-checksum-hint" class="field-hint"></p>
+                        </div>
+
+                        <div id="add-start" class="add-start">
+                            <label class="field-check">
+                                <input type="checkbox" id="add-start-on" />
+                                <span>Start at a time</span>
+                            </label>
+                            <input
+                                id="add-start-at"
+                                class="field-input"
+                                type="datetime-local"
+                                disabled
+                                aria-label="The moment these downloads may start"
+                                aria-describedby="add-start-hint"
+                            />
+                            <p id="add-start-hint" class="field-hint is-bad hidden">
+                                That time has passed. Pick a later one, or untick
+                                Start at a time.
+                            </p>
+                        </div>
+                    </details>
 
                     <div
                         id="add-when"
@@ -793,25 +871,6 @@
                             />
                             <span>Add to queue</span>
                         </label>
-                    </div>
-
-                    <div id="add-start" class="add-start">
-                        <label class="field-check">
-                            <input type="checkbox" id="add-start-on" />
-                            <span>Start at a time</span>
-                        </label>
-                        <input
-                            id="add-start-at"
-                            class="field-input"
-                            type="datetime-local"
-                            disabled
-                            aria-label="The moment these downloads may start"
-                            aria-describedby="add-start-hint"
-                        />
-                        <p id="add-start-hint" class="field-hint is-bad hidden">
-                            That time has passed. Pick a later one, or untick
-                            Start at a time.
-                        </p>
                     </div>
 
                     <!-- Shown while yt-dlp is reading the page. It can take a
@@ -954,7 +1013,7 @@
                     <button class="btn-secondary" id="modal-cancel">
                         Cancel
                     </button>
-                    <button class="btn-primary" id="modal-ok">OK</button>
+                    <button class="btn-primary" id="modal-ok">Download</button>
                 </div>
             </div>
         </div>
@@ -1098,41 +1157,6 @@
                         Cancel
                     </button>
                     <button class="btn-danger" id="confirm-delete">Delete</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Download details ─────────────────────────────────────────── -->
-        <!-- Everything the row has no room for. The body is built in JS,
-             because a torrent, an HTTP file and a merged video are three
-             different shapes and only one of them is on screen at a time. -->
-        <div
-            id="detail-overlay"
-            class="modal-overlay hidden"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="detail-title"
-        >
-            <div class="modal modal-lg">
-                <div class="modal-header">
-                    <div class="detail-heading">
-                        <h2 id="detail-title" class="detail-title">Details</h2>
-                        <span id="detail-badge" class="dl-scan hidden"></span>
-                    </div>
-                    <button
-                        class="modal-close"
-                        id="detail-close"
-                        aria-label="Close"
-                    >
-                        ✕
-                    </button>
-                </div>
-                <div class="modal-body detail-body" id="detail-body"></div>
-                <div class="modal-footer">
-                    <button class="btn-secondary hidden" id="detail-reveal">
-                        Show in Finder
-                    </button>
-                    <button class="btn-primary" id="detail-done">Done</button>
                 </div>
             </div>
         </div>

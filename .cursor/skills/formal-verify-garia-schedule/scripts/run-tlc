@@ -15,8 +15,9 @@ JAR="$MODEL/tla2tools.jar"
 # TLC version string differ; evidence logs must show this exact banner.
 # Bump URL + SHA + EXPECTED_TLC_BANNER together when changing the pin.
 TLA2TOOLS_URL="${TLA2TOOLS_URL:-https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar}"
-TLA2TOOLS_SHA256="${TLA2TOOLS_SHA256:-011267fca25d0752cf18894dd585cd28b96960c112ea8a20b823ea770e7e10cd}"
-EXPECTED_TLC_BANNER="${EXPECTED_TLC_BANNER:-TLC2 Version 2026.10.30.154139 (rev: 090e85c)}"
+# v1.8.0 release asset was rebuilt 2026-11-06; pin matches current download.
+TLA2TOOLS_SHA256="${TLA2TOOLS_SHA256:-e1f11b75c4b5bc4478ba0ac5cb6ae28e40a01b0016bc33e0aa97da22dfdbcd7f}"
+EXPECTED_TLC_BANNER="${EXPECTED_TLC_BANNER:-TLC2 Version 2026.11.06.222357 (rev: d8fb231)}"
 
 MODE="${1:-full}"
 case "$MODE" in

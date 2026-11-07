@@ -34,6 +34,17 @@ What it starts (and records under `.cursor/skills/verify-garia/.run/state.json`)
 2. `python3 -m http.server <port> --directory src --bind 127.0.0.1` — static frontend (preferred port `8765`, or next free; override with `GARIA_UI_PORT`).
 3. Playwright's Chromium with `--remote-debugging-port` (preferred `9222`, override with `GARIA_CDP_PORT`) so every `browser` command attaches to the **same** page and UI state (filters, dialogs) persists across calls.
 
+Chromium executable selection order:
+
+1. `GARIA_CHROME` (or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) if explicitly set.
+2. The bundled Playwright executable from `helpers/node_modules/playwright`.
+3. Fallback search under `PLAYWRIGHT_BROWSERS_PATH` (for example `/opt/pw-browsers/chromium` or `/opt/pw-browsers/chromium-*/chrome-linux*/chrome`).
+4. Common system binaries (`google-chrome`, `chromium`, …) when Playwright’s build is not on disk.
+
+Launch always passes `--disable-dev-shm-usage` and `--no-sandbox` so Chromium can start in restricted Linux containers.
+
+If none exist, launch exits with a clear error and the checked paths.
+
 **Ready** means all of:
 
 - Mock answers `aria2.getGlobalStat`.
@@ -68,8 +79,8 @@ Prefer feature recipes under `features/`. Stable handles from this repo:
 | `#modal-url-input`, `#modal-ok`, `#modal-cancel` | Add dialog fields |
 | `#filter-bar .nav-item` + label (`All Downloads`, `Active`, `Queued`, `Torrents`, …) | Sidebar filters; sets `#view-title` |
 | `#download-list` `role=listbox` / children `role=option` with `data-gid`, `data-name`, `data-status` | Download rows |
-| `button.dl-icon[aria-label="Pause"]` / `Resume` | Per-row pause/resume |
-| `.dl-name` click | Opens `#detail-overlay` |
+| `.dl-actions [data-action="stop"]` / `[data-action="resume"]` | Per-row pause/resume |
+| `.dl-name` click | Opens `#detail-pane` |
 | `#name-filter` / `#name-filter-clear` | In-list name filter |
 | `#conn-text` | Connection proof |
 
@@ -132,9 +143,23 @@ After failed iterations, run cleanup before relaunching so `:6800` and the UI po
 | --- | --- |
 | `helpers/control-garia` | `./helpers/control-garia <launch\|doctor\|cleanup\|browser\|rpc> …` |
 | `helpers/control-garia.mjs` | Same, via `node` (wrapper ensures `npm install` in `helpers/`) |
+| `helpers/ux-visual-baselines` | CDP screenshots after `launch` (see Visual baselines) |
 | `helpers/package.json` | Pins `playwright` for the driver |
 
 All helpers are executable / runnable as shown above. Logs for a live run: `.run/mock.log`, `.run/ui.log`.
+
+## Visual baselines
+
+Optional UX review captures (issue #82). **Requires** a working `control-garia` launcher — land **#83 / PR #88** first. Output is written under `evidence/ux-baselines/` (gitignored) or `--out tmp/ux-baselines`; **not** checked into git and **not** run in CI.
+
+```bash
+cd .cursor/skills/verify-garia
+./helpers/control-garia launch
+./helpers/ux-visual-baselines                 # or: --out /path/to/tmp/ux-baselines
+./helpers/control-garia cleanup
+```
+
+Per theme (`light` / `dark`) and width (`1280` / `760`): main list, each sidebar filter, Add (single + multi-line batch), detail, Settings. Inspector **focus-order / trap** a11y still needs the inspector pane (#80 / **PR #90**) — this script does not substitute for that checklist.
 
 ## Feature map
 

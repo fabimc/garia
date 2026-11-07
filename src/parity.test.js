@@ -47,6 +47,8 @@ import {
   mimeHintFromExt,
   captureTargetsFromPage,
   formatQueueScan,
+  heldStatusLabel,
+  splitNameForDisplay,
   housekeepingActions,
   formatRestartResumeNote,
   formatMediaOutputName,
@@ -114,6 +116,20 @@ import {
   findCategoryById,
   formatSpeedLimitScope,
 } from "./parity.js";
+
+test("disk-image extensions are labelled as such and archive hints stay readable", () => {
+  assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
+  assert.equal(classifyIntakeUrl("https://ex.test/app.dmg", true).content, "disk");
+  assert.equal(classifyIntakeUrl("https://ex.test/app.img", true).contentLabel, "Disk image");
+  assert.equal(contentKindFromUrl("https://cdn.test/iso.app"), "other");
+  assert.equal(mimeHintFromExt("dmg"), "application/x-apple-diskimage");
+  const rows = [
+    { file: true, content: "archive", queued: false },
+    { file: true, content: "video", queued: false },
+    { file: true, content: "disk", queued: false },
+  ];
+  assert.match(intakeReviewHint(rows), /In this batch: 1 archive, 1 video, 1 disk image\./);
+});
 
 test("a torrent is recognised by its metainfo or its info hash", () => {
   assert.equal(isTorrentDownload({ bittorrent: { info: { name: "a" } } }), true);
@@ -287,7 +303,28 @@ test("empty queue copy follows filter and connection state", () => {
   const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
   assert.equal(fresh.title, "No downloads yet");
   assert.match(fresh.sub, /⌘N/);
+  assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
+  assert.equal(
+    formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true, queueStopped: true }).action?.id,
+    "start-queue",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "waiting", hasAnyDownloads: true, queueStopped: false }).action?.id,
+    "new-download",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "active", hasAnyDownloads: true, hasSearch: true }).action?.id,
+    "clear-search",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "paused", hasAnyDownloads: true, hasSearch: false }).action?.id,
+    "view-all",
+  );
+  assert.equal(
+    formatEmptyQueueState({ filter: "seeding", hasAnyDownloads: true, hasSearch: false }).action?.id,
+    "view-all",
+  );
   assert.equal(formatEmptyQueueState({ connError: true }).title, "Can't reach aria2");
 });
 
@@ -358,31 +395,37 @@ test("bulk intake selects files and leaves pages off", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/a.zip", isFile).mime, "application/zip");
   assert.match(intakeReviewHint(rows), /3 files start selected/);
   assert.match(intakeReviewHint(rows), /2 other links stay off/);
-  assert.match(intakeReviewHint(rows), /archives/);
+  assert.match(intakeReviewHint(rows), /1 archive/);
+  assert.match(intakeReviewHint(rows), /1 disk image/);
   assert.match(
     intakeReviewHint([{ file: true, queued: false }, { file: false, queued: false }]),
     /1 file starts selected\. 1 other link stays off/,
   );
 });
 
-test("intake content kinds and filters name video and archive links", () => {
+test("intake content kinds and filters name video, archive, and disk links", () => {
   assert.equal(contentKindFromUrl("https://cdn.test/clip.mp4"), "video");
   assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
+  assert.equal(contentKindFromUrl("https://cdn.test/os.iso"), "disk");
   assert.equal(mimeHintFromExt("mp4"), "video/mp4");
-  const isFile = (url) => /\.(mp4|zip|pdf)(\?|$)/i.test(url);
+  const isFile = (url) => /\.(mp4|zip|pdf|iso|dmg)(\?|$)/i.test(url);
   const rows = reviewIntake([
     "https://cdn.test/clip.mp4",
     "https://cdn.test/pack.zip",
+    "https://cdn.test/os.iso",
     "https://cdn.test/notes.pdf",
     "https://cdn.test/about",
   ], { isDirectFile: isFile });
-  assert.deepEqual(rows.map((row) => row.content), ["video", "archive", "document", "page"]);
-  assert.deepEqual(applyIntakePick(rows, "video").map((row) => row.selected), [true, false, false, false]);
-  assert.deepEqual(applyIntakePick(rows, "archive").map((row) => row.selected), [false, true, false, false]);
+  assert.deepEqual(rows.map((row) => row.content), ["video", "archive", "disk", "document", "page"]);
+  assert.deepEqual(applyIntakePick(rows, "video").map((row) => row.selected), [true, false, false, false, false]);
+  assert.deepEqual(applyIntakePick(rows, "archive").map((row) => row.selected), [false, true, false, false, false]);
+  assert.deepEqual(applyIntakePick(rows, "disk").map((row) => row.selected), [false, false, true, false, false]);
   assert.equal(filterIntake(rows, { content: "video" }).length, 1);
-  assert.equal(filterIntake(rows, { host: "cdn.test", fileOnly: true }).length, 3);
+  assert.equal(filterIntake(rows, { content: "disk" }).length, 1);
+  assert.equal(filterIntake(rows, { host: "cdn.test", fileOnly: true }).length, 4);
   assert.equal(formatIntakeMeta(rows[0]).mime, "video/mp4");
   assert.equal(formatIntakeMeta(rows[0]).contentLabel, "Video");
+  assert.equal(formatIntakeMeta(rows[2]).contentLabel, "Disk image");
 });
 
 test("a link already in the list stays unticked, including All and Files", () => {
@@ -547,23 +590,52 @@ test("page capture lists embedded media before links and drops the page itself",
   ]);
 });
 
-test("queue scan words stay stable across progress", () => {
-  assert.deepEqual(formatQueueScan("active"), { key: "active", label: "Active" });
-  assert.equal(formatQueueScan("waiting").label, "Queued");
-  assert.equal(formatQueueScan("complete").label, "Done");
-  assert.equal(formatQueueScan("error").label, "Failed");
-  assert.equal(formatQueueScan("active", { stalled: true }).label, "Stalled");
-  assert.equal(formatQueueScan("active", { slow: true }).label, "Slow");
-  assert.equal(formatQueueScan("active", { scheduled: true }).label, "Scheduled");
+test("queue scan words only surface row modifiers", () => {
+  assert.deepEqual(formatQueueScan("active"), { key: "", label: "" });
+  assert.equal(formatQueueScan("waiting").label, "");
+  assert.equal(formatQueueScan("complete").label, "");
+  assert.equal(formatQueueScan("error").label, "");
+  assert.equal(formatQueueScan("active", { stalled: true }).label, "");
+  assert.equal(formatQueueScan("active", { slow: true }).label, "");
+  // Scheduled / Merging live in the status cell — never also as a scan chip.
+  assert.equal(formatQueueScan("active", { scheduled: true }).label, "");
+  assert.equal(formatQueueScan("merging").label, "");
   assert.equal(formatQueueScan("paused", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("waiting", { queueStopped: true }).label, "Stopped");
   assert.equal(formatQueueScan("paused", { scheduleHeld: true }).label, "Held");
-  assert.equal(formatQueueScan("paused").label, "Paused");
-  // A start time wins over Stop Queue so the chip still says when it runs.
+  assert.equal(formatQueueScan("paused").label, "");
+  // Stop Queue still surfaces as a modifier even when a start time is set;
+  // the status line already says Scheduled.
   assert.equal(
     formatQueueScan("paused", { scheduled: true, queueStopped: true }).label,
+    "Stopped",
+  );
+});
+
+test("held status line does not compete with Stopped/Held chips", () => {
+  assert.equal(
+    heldStatusLabel({ held: true, startHeld: true }),
     "Scheduled",
   );
+  assert.equal(
+    heldStatusLabel({ held: true, queueStopped: true }),
+    "Paused",
+  );
+  assert.equal(
+    heldStatusLabel({ held: true, scheduleWindowHeld: true, showBar: true, pct: 42 }),
+    "42% · Paused",
+  );
+  assert.equal(heldStatusLabel({ held: false }), "");
+});
+
+test("splitNameForDisplay keeps extension in a non-shrinking tail", () => {
+  const short = splitNameForDisplay("readme.txt");
+  assert.equal(short.head, "readme.txt");
+  assert.equal(short.tail, "");
+  const long = splitNameForDisplay("Ubuntu.24.04.Desktop.amd64.iso");
+  assert.ok(long.tail.endsWith(".iso"));
+  assert.ok(long.head.length > 0);
+  assert.equal(long.head + long.tail, "Ubuntu.24.04.Desktop.amd64.iso");
 });
 
 test("uGet-style URL sequences expand with padding", () => {
@@ -870,7 +942,6 @@ test("queue groups keep Active/Queued/Paused/Seeding aligned with scan chips", (
   assert.equal(queueGroupMeta("paused").scanKey, "paused");
   assert.equal(queueGroupMeta("seeding").sidebarFilter, "seeding");
   assert.equal(queueGroupMeta("merging").sidebarFilter, "active");
-  assert.equal(formatQueueScan("active").label, queueGroupMeta("active").sectionLabel);
   // removed must not map to "all" — tally.all is pre-seeded, so "all" would
   // double-count removed rows in the All Downloads badge.
   assert.equal(queueGroupMeta("removed").sidebarFilter, "removed");
@@ -1027,6 +1098,9 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  assert.equal(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).title, "No failed downloads");
-  assert.match(formatEmptyQueueState({ filter: "error", hasAnyDownloads: true }).sub, /Retry Failed/);
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  assert.equal(failedEmpty.title, "No failed downloads");
+  assert.equal(failedEmpty.action?.id, "new-download");
+  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
+  assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
