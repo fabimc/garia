@@ -34,9 +34,8 @@ echo "Building the ffmpeg sidecar for ${TRIPLE} — a minute, once."
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-curl -fsSL -o "${WORK}/${TARBALL}" "${URL}"
-"${ROOT}/scripts/sha256-check.sh" "${SHA256}" "${WORK}/${TARBALL}"
-tar xf "${WORK}/${TARBALL}" -C "${WORK}"
+SOURCE="$("${ROOT}/scripts/download-verified.sh" "${URL}" "${SHA256}" "${TARBALL}")"
+tar xf "${SOURCE}" -C "${WORK}"
 cd "${WORK}/ffmpeg-${VERSION}"
 
 case "${TRIPLE}" in

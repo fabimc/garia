@@ -4,6 +4,8 @@ Garia ships three tools inside the app so a download does not depend on Homebrew
 
 Settings → About shows which copy is active at runtime (bundled or system), plus the resolved version and path for each sidecar.
 
+Every download goes through `scripts/download-verified.sh`. It retries dropped connections, checks the SHA-256, and keeps the verified file in `.sidecar-cache/` (gitignored), so a universal build fetches each tarball once rather than once per chip. On CI, the **Sidecars** workflow builds all of them on `master` whenever a sidecar script changes and caches the result. The Release workflow restores that cache, so a release tag normally skips the build entirely. Its cache key hashes the sidecar scripts, so changing a version in any of them is a fresh build.
+
 ## The bundled aria2
 
 `npm run sidecar` compiles aria2 from the upstream 1.37.0 release into `src-tauri/binaries/`, and Tauri copies it into the app bundle. A Mac release build asks for both chips and `lipo`s them; Tauri will not do that for an external binary.

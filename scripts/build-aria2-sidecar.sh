@@ -32,9 +32,8 @@ echo "Building the aria2c sidecar for ${TRIPLE} — a few minutes, once."
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-curl -fsSL -o "${WORK}/${TARBALL}" "${URL}"
-"${ROOT}/scripts/sha256-check.sh" "${SHA256}" "${WORK}/${TARBALL}"
-tar xf "${WORK}/${TARBALL}" -C "${WORK}"
+SOURCE="$("${ROOT}/scripts/download-verified.sh" "${URL}" "${SHA256}" "${TARBALL}")"
+tar xf "${SOURCE}" -C "${WORK}"
 cd "${WORK}/aria2-${VERSION}"
 
 case "${TRIPLE}" in

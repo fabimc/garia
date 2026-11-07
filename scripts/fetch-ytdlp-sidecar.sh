@@ -32,16 +32,11 @@ fi
 
 echo "Fetching yt-dlp ${VERSION} — 3 MB, once."
 
-WORK="$(mktemp -d)"
-trap 'rm -rf "${WORK}"' EXIT
-
-curl -fsSL -o "${WORK}/yt-dlp" "${URL}"
-"${ROOT}/scripts/sha256-check.sh" "${SHA256}" "${WORK}/yt-dlp"
-
+SOURCE="$("${ROOT}/scripts/download-verified.sh" "${URL}" "${SHA256}" "yt-dlp-${VERSION}")"
 
 # Pure Python, so one copy serves every architecture. Garia never execs it
 # directly — a GUI app doesn't inherit the PATH the shebang would need — so it
 # is handed to a python3 the backend found for itself.
 mkdir -p "${ROOT}/src-tauri/resources"
-cp "${WORK}/yt-dlp" "${DEST}"
+cp "${SOURCE}" "${DEST}"
 echo "Fetched ${DEST#"${ROOT}/"} ($(du -h "${DEST}" | cut -f1))"
