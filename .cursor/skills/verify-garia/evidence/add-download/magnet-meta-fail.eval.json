@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "count": 1,
+    "rows": [
+      {
+        "name": "verify-garia-meta-fail",
+        "status": "error",
+        "text": "Network: Failed to download metadata. Retry re-queues the download with the same options.",
+        "gid": "999968720",
+        "torrent": "true"
+      }
+    ],
+    "notice": "",
+    "items": "25 items",
+    "torrents": "3",
+    "failed": "7"
+  }
+}

@@ -26,6 +26,10 @@ Examples: `video_probe`, `mux_video`, `save_settings` (when a restart is needed)
 
 Some `addUri` batches are detected so the UI can treat them as one intake flow (`batch_adds`).
 
+## Magnet handoff
+
+List polls ask for `followedBy` and `following`. A finished metadata download is `removeDownloadResult`'d so the stopped list, and the next `--save-session`, do not keep a second row. The scheduler does not special-case the follow-up gid: the next tick holds it when the queue or the quiet-hours window is shut. See [torrents.md](../features/torrents.md).
+
 ## Related
 
 - Code: `src-tauri/src/lib.rs` (`Aria2`, `aria2_rpc`, `off_main`)

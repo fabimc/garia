@@ -213,6 +213,15 @@ export function failureCategoryLabel(kind) {
   return FAILURE_LABELS[kind] || "";
 }
 
+// aria2's "file exists, but a control file (*.aria2) does not exist" message
+// names a long path. The row only has room for the fact; the tooltip keeps
+// the sentence.
+export function diskConflictLabel(message) {
+  const text = String(message || "");
+  if (/control file/i.test(text) && /exist/i.test(text)) return "File already exists";
+  return "";
+}
+
 export function failureKind({ errorCode, errorMessage, jobError } = {}) {
   if (jobError) return "media";
   const code = Number(errorCode) || 0;
@@ -2077,6 +2086,187 @@ export function findCategoryById(categories, id) {
 
 // Quiet mode can pin captures to one category folder without turning on
 // smart folders. Empty quietCategoryId keeps the normal fallback dir.
+// ── Magnets ──────────────────────────────────────────────────────────────
+// aria2 turns one magnet into two downloads: a metadata fetch named
+// `[METADATA]…`, then a new gid for the torrent. `followedBy` on the metadata
+// gid and `following` on the torrent gid are the only link. The list shows
+// one row for the whole life of that magnet.
+
+export function followedByGids(dl) {
+  const raw = dl?.followedBy;
+  if (raw == null || raw === "") return [];
+  const list = Array.isArray(raw) ? raw : String(raw).split(/\s+/);
+  return list.map((gid) => String(gid || "").trim()).filter(Boolean);
+}
+
+export function followingGid(dl) {
+  const raw = dl?.following;
+  if (raw == null || raw === "") return "";
+  if (Array.isArray(raw)) return String(raw[0] || "").trim();
+  return String(raw).trim();
+}
+
+function fileLeaf(dl) {
+  const path = String(dl?.files?.[0]?.path || "");
+  if (path) return path.split("/").pop() || path;
+  return "";
+}
+
+function hasTorrentInfo(dl) {
+  const name = String(dl?.bittorrent?.info?.name || "");
+  return Boolean(name) && !name.startsWith("[METADATA]");
+}
+
+// A magnet URI aria2 actually stored on the download, not one rebuilt from
+// an info hash. Rebuilding would make every torrent look like a magnet.
+export function explicitMagnetUri(dl) {
+  const remembered = String(dl?.magnetUri || "");
+  if (remembered.startsWith("magnet:")) return remembered;
+  for (const file of dl?.files || []) {
+    for (const entry of file?.uris || []) {
+      const uri = String(entry?.uri || "");
+      if (uri.startsWith("magnet:")) return uri;
+    }
+  }
+  return "";
+}
+
+export function magnetUriOf(dl) {
+  const explicit = explicitMagnetUri(dl);
+  if (explicit) return explicit;
+  const hash = String(dl?.infoHash || "").trim().toLowerCase();
+  if (/^[a-f0-9]{40}$/.test(hash) || /^[a-z2-7]{32}$/.test(hash)) {
+    return `magnet:?xt=urn:btih:${hash}`;
+  }
+  return "";
+}
+
+// The name the row shows before the torrent itself has one: `dn`, else the
+// info hash, else the metadata filename with aria2's prefix taken off.
+export function magnetDisplayName(dl) {
+  const bt = String(dl?.bittorrent?.info?.name || "");
+  if (bt && !bt.startsWith("[METADATA]")) return bt;
+  const uri = explicitMagnetUri(dl) || magnetUriOf(dl);
+  if (uri.startsWith("magnet:")) {
+    try {
+      const dn = new URL(uri).searchParams.get("dn");
+      if (dn) return dn;
+    } catch { /* a magnet that is not a URL still has the hash below */ }
+    const hash = (uri.match(/btih:([a-z0-9]+)/i) || [])[1];
+    if (hash) return hash.toLowerCase();
+  }
+  let leaf = fileLeaf(dl).replace(/\.torrent$/i, "");
+  if (leaf.startsWith("[METADATA]")) leaf = leaf.slice("[METADATA]".length).trim();
+  if (leaf) {
+    const spaced = leaf.replace(/\+/g, " ");
+    try { return decodeURIComponent(spaced); } catch { return spaced; }
+  }
+  const hash = String(dl?.infoHash || "").trim().toLowerCase();
+  return hash || "Magnet";
+}
+
+// The metadata gid, not the torrent it spawns. A finished `[METADATA]…torrent`
+// with no magnet URI is the stray row a session restore can bring back.
+export function isMetadataParent(dl) {
+  if (!dl) return false;
+  if (followedByGids(dl).length) return true;
+  const leaf = fileLeaf(dl);
+  const metaFile = leaf.startsWith("[METADATA]") && /\.torrent$/i.test(leaf);
+  if (metaFile) return true;
+  if (!explicitMagnetUri(dl) || hasTorrentInfo(dl)) return false;
+  const realFile = (dl.files || []).some((file) => {
+    const base = String(file?.path || "").split("/").pop() || "";
+    return base && !base.startsWith("[METADATA]") && !/\.torrent$/i.test(base);
+  });
+  return !realFile;
+}
+
+// Metadata finishing is aria2 moving on, not a file landing. The torrent's
+// own complete/seeding transition is the one worth announcing.
+export function announcesCompletion(dl) {
+  if (!dl || dl.fetchingMetadata) return false;
+  if (followedByGids(dl).length) return false;
+  if (isMetadataParent(dl) && (dl.status === "complete" || dl.status === "removed")) return false;
+  return dl.status === "complete" || dl.status === "seeding";
+}
+
+function presentMagnetRow(dl, parent) {
+  const waitingForChild = followedByGids(dl).length > 0;
+  const metadata = !parent && isMetadataParent(dl) && !hasTorrentInfo(dl);
+  const fetching = waitingForChild || (metadata && dl.status !== "error");
+  const magnetUri = explicitMagnetUri(parent) || explicitMagnetUri(dl) || (fetching || metadata ? magnetUriOf(dl) : "");
+  const out = { ...dl };
+  if (magnetUri) out.magnetUri = magnetUri;
+  if (parent?.gid && parent.gid !== dl.gid) out.metadataGid = parent.gid;
+  else if (fetching || metadata) out.metadataGid = dl.gid;
+  else if (followingGid(dl)) out.metadataGid = followingGid(dl);
+  // Never show aria2's `[METADATA]` filename, including when the fetch failed.
+  if (fetching || metadata) out.displayName = magnetDisplayName(parent || dl);
+  if (fetching) {
+    out.fetchingMetadata = true;
+    // The `[METADATA]` file is a few kilobytes of torrent, not the download.
+    out.totalLength = "0";
+    out.completedLength = "0";
+    if (out.status === "complete" || out.status === "removed") out.status = "active";
+  }
+  return out;
+}
+
+// Hide a metadata gid once its follow-up is in the list, and never let a
+// finished metadata record stand as its own completed download. A metadata
+// gid whose follow-up has not appeared yet stays, as "fetching", so the row
+// does not flash through Done. `handoffs` is metadata gid → torrent gid, for
+// the list to keep the same selection. `forget` is stopped metadata gids to
+// `removeDownloadResult`, so a relaunch cannot restore them.
+export function collapseMagnetDownloads(downloads) {
+  const list = Array.isArray(downloads) ? downloads : [];
+  const byGid = new Map(list.map((dl) => [dl.gid, dl]));
+  const hidden = new Set();
+  const parentByChild = new Map();
+
+  for (const dl of list) {
+    for (const child of followedByGids(dl)) {
+      if (!byGid.has(child)) continue;
+      hidden.add(dl.gid);
+      parentByChild.set(child, dl);
+    }
+    const parentGid = followingGid(dl);
+    const parent = parentGid ? byGid.get(parentGid) : null;
+    if (parent && isMetadataParent(parent)) {
+      hidden.add(parent.gid);
+      parentByChild.set(dl.gid, parent);
+    }
+  }
+
+  for (const dl of list) {
+    if (hidden.has(dl.gid)) continue;
+    if ((dl.status === "complete" || dl.status === "removed") && isMetadataParent(dl) && !followedByGids(dl).length) {
+      hidden.add(dl.gid);
+    }
+  }
+
+  const rows = [];
+  const handoffs = [];
+  const seenHandoff = new Set();
+  for (const dl of list) {
+    if (hidden.has(dl.gid)) continue;
+    const parent = parentByChild.get(dl.gid) || null;
+    if (parent && !seenHandoff.has(`${parent.gid}>${dl.gid}`)) {
+      seenHandoff.add(`${parent.gid}>${dl.gid}`);
+      handoffs.push({ from: parent.gid, to: dl.gid });
+    }
+    rows.push(presentMagnetRow(dl, parent));
+  }
+
+  const forget = [];
+  for (const gid of hidden) {
+    const dl = byGid.get(gid);
+    if (!dl) continue;
+    if (dl.status === "complete" || dl.status === "error" || dl.status === "removed") forget.push(gid);
+  }
+  return { rows, hidden: [...hidden], handoffs, forget };
+}
+
 export function quietCaptureDir({
   quietMode = false,
   quietCategoryId = "",

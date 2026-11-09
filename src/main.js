@@ -88,6 +88,11 @@ import {
   formatTorrentHealthNote,
   formatQualityChoiceDetail,
   formatMediaRowExplain,
+  followedByGids,
+  announcesCompletion,
+  collapseMagnetDownloads,
+  diskConflictLabel,
+  explicitMagnetUri,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -1436,6 +1441,7 @@ function formatEta(remaining, bytesPerSec) {
 }
 
 function fileName(download) {
+  if (download.displayName) return download.displayName;
   const btName = download.bittorrent?.info?.name;
   if (btName && (download.bittorrent?.mode === "multi" || (download.files || []).length > 1)) {
     return btName;
@@ -1610,6 +1616,9 @@ function retryUris(dl) {
       if (u.uri && !uris.includes(u.uri)) uris.push(u.uri);
     }
   }
+  // A torrent's files carry no URI. The magnet it was added as is still the
+  // thing Retry should queue, including after the metadata gid is gone.
+  if (!uris.length && dl.magnetUri && !uris.includes(dl.magnetUri)) uris.push(dl.magnetUri);
   return uris;
 }
 
@@ -1637,6 +1646,7 @@ function downloadForUrl(url) {
   for (const dl of snapshot.values()) {
     if (catchKey(sourceUrl(dl)) === key) return dl;
     if (catchKey(dl.job?.webpageUrl) === key) return dl;
+    if (dl.magnetUri && catchKey(dl.magnetUri) === key) return dl;
     if (dl.infoHash && key === `btih:${String(dl.infoHash).toLowerCase()}`) return dl;
     for (const uri of retryUris(dl)) {
       if (catchKey(uri) === key) return dl;
@@ -1712,6 +1722,8 @@ function errorLabel(dl) {
   // number is only at the end of its message.
   const status = /status=(\d+)$/.exec(dl.errorMessage || "")?.[1];
   if (status) return `Server answered ${status}`;
+  const conflict = diskConflictLabel(dl.errorMessage);
+  if (conflict) return conflict;
   return errorReason(dl);
 }
 
@@ -2220,8 +2232,8 @@ function updateItemEl(li, dl) {
 
   const held = dl.status === "paused" ? heldNote(dl.gid) : "";
   const isIndeterminate = dl.status === "active" && total === 0;
-  const showBar = ["active", "paused", "merging"].includes(dl.status) ||
-    (dl.status === "waiting" && total > 0 && done > 0);
+  const showBar = !dl.fetchingMetadata && (["active", "paused", "merging"].includes(dl.status) ||
+    (dl.status === "waiting" && total > 0 && done > 0));
   const track = li.querySelector(".dl-bar-track");
   const fill = li.querySelector(".dl-bar-fill");
   track.classList.toggle("hidden", !showBar && !isIndeterminate);
@@ -2247,8 +2259,9 @@ function updateItemEl(li, dl) {
     pct,
   });
   if (heldLine) statusText = heldLine;
-  else if (dl.status === "complete") statusText = "Done";
   else if (dl.status === "error") statusText = errorLabel(dl);
+  else if (dl.fetchingMetadata && dl.status !== "paused") statusText = "Fetching metadata…";
+  else if (dl.status === "complete") statusText = "Done";
   else if (dl.status === "seeding") {
     const totalUp = Number(dl.totalLength) || 0;
     const shared = Number(dl.uploadLength) || 0;
@@ -2420,6 +2433,10 @@ const KEYS = [
   "connections",
   // Matching a caught magnet to a torrent already in the list.
   "infoHash",
+  // Magnet metadata and the torrent it spawns are two gids. followedBy is
+  // set on the metadata download, following on the torrent. The list folds
+  // them into one row; without these keys the fold never sees the link.
+  "followedBy", "following",
 ];
 
 // The heavy half of a row: every file with its URIs, and a torrent's
@@ -2463,6 +2480,78 @@ const VIEW_TITLES = {
 // its file paths — more than fits in a data- attribute, and all of it stale by
 // the time the click lands unless it comes from the most recent poll.
 const snapshot = new Map();
+
+// The magnet URI, kept after aria2 has dropped the metadata gid. Keyed by gid
+// and by info hash so the follow-up row can still be retried and matched.
+const magnetByGid = new Map();
+const magnetByHash = new Map();
+
+function rememberMagnets(list) {
+  for (const dl of list) {
+    const uri = explicitMagnetUri(dl);
+    if (!uri) continue;
+    if (dl.gid) magnetByGid.set(dl.gid, uri);
+    const hash = String(dl.infoHash || "").trim().toLowerCase();
+    if (hash) magnetByHash.set(hash, uri);
+    for (const child of followedByGids(dl)) magnetByGid.set(child, uri);
+  }
+}
+
+function rememberedMagnet(dl) {
+  if (!dl) return "";
+  if (dl.magnetUri) return dl.magnetUri;
+  return magnetByGid.get(dl.gid)
+    || magnetByHash.get(String(dl.infoHash || "").trim().toLowerCase())
+    || "";
+}
+
+// Selection lives inside the page setup; the poll only knows a gid changed.
+let onGidHandoff = () => {};
+
+function moveMapValue(map, from, to) {
+  if (from === to || !map.has(from) || map.has(to)) return;
+  map.set(to, map.get(from));
+  map.delete(from);
+}
+
+// The metadata row and the torrent row are one download. Keep the DOM node,
+// the selection, and anything keyed by gid when aria2 swaps the gid.
+function rekeyDownload(from, to) {
+  if (!from || !to || from === to) return;
+  const li = rowEls.get(from);
+  if (li && !rowEls.has(to)) {
+    li.dataset.gid = to;
+    for (const el of li.querySelectorAll("[data-gid]")) el.dataset.gid = to;
+    rowEls.delete(from);
+    rowEls.set(to, li);
+  }
+  onGidHandoff(from, to);
+  if (detailGid === from) detailGid = to;
+  if (detailGids.includes(from)) detailGids = detailGids.map((gid) => (gid === from ? to : gid));
+  const tagsMoved = downloadTags.has(from);
+  moveMapValue(downloadTags, from, to);
+  if (tagsMoved) saveTags();
+  moveMapValue(fileSelection, from, to);
+  moveMapValue(filePriorityDraft, from, to);
+  moveMapValue(detailCache, from, to);
+  moveMapValue(categoryMemo, from, to);
+  // The metadata gid's file list is the .torrent, not the torrent's files.
+  shapes.delete(from);
+  if (resumedGids.has(from)) {
+    resumedGids.delete(from);
+    resumedGids.add(to);
+  }
+  const remembered = magnetByGid.get(from);
+  if (remembered && !magnetByGid.has(to)) magnetByGid.set(to, remembered);
+  let packagesChanged = false;
+  for (const pkg of packages) {
+    if (!pkg.gids.includes(from)) continue;
+    pkg.gids = pkg.gids.filter((gid) => gid !== from);
+    if (!pkg.gids.includes(to)) pkg.gids.push(to);
+    packagesChanged = true;
+  }
+  if (packagesChanged) savePackages();
+}
 
 // gid → its row. Looking a row up in the list is a walk of the whole list,
 // and the poll did that twice per row, every second.
@@ -4850,7 +4939,20 @@ async function poll(listEl) {
       rowReferrers.delete(gid);
     }
 
-    const all = collapseJobs(raw).filter((dl) => !removing.has(dl.gid));
+    rememberMagnets(raw);
+    const folded = collapseMagnetDownloads(collapseJobs(raw));
+    for (const link of folded.handoffs) rekeyDownload(link.from, link.to);
+    // A finished metadata gid is not a download. Drop it from aria2 before
+    // the next session save, so a relaunch cannot bring the [METADATA] row back.
+    if (folded.forget.length) {
+      void rpcBatch(folded.forget.map((gid) => ["aria2.removeDownloadResult", [gid]])).catch(() => {});
+    }
+    const all = folded.rows
+      .map((dl) => {
+        const magnetUri = rememberedMagnet(dl);
+        return magnetUri && !dl.magnetUri ? { ...dl, magnetUri } : dl;
+      })
+      .filter((dl) => !removing.has(dl.gid));
     runPendingMerges(all);
     const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
@@ -4865,8 +4967,8 @@ async function poll(listEl) {
       // it's on screen, and only the tick it arrived on is worth announcing.
       // A torrent lands when its files do — it then seeds for as long as the
       // rules say, and the end of that is not a second arrival.
-      const landed = dl.status === "complete" || dl.status === "seeding";
-      const hadLanded = before?.status === "complete" || before?.status === "seeding";
+      const landed = announcesCompletion(dl);
+      const hadLanded = announcesCompletion(before);
       if (settings.notifyOnComplete && !firstPoll && landed && !hadLanded) {
         notifyComplete(dl);
         countCompletion();
@@ -5194,7 +5296,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     parseChecksum, checksumOption, looksLikeAPage, isFtpUrl,
     looksLikeFtpFile, buildChoices, missingNote, formatDuration, formatBytes,
     QUALITY_RULES, pickByRule, safeName, targetDir, chooseFolderInto, holdAdded, modalStartAt,
-    startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl, failed,
+    startMissed, resetStartField, jobs, saveJobs, rowChecksums, el, alreadyHaveUrl,
+    onAlreadyHave: (urls) => showAlreadyInList(urls),
+    failed,
     rememberPackage,
     siteRuleFor: (url) => siteRuleFor(url, siteRules),
     loadQualityRule,
@@ -5267,6 +5371,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   // stack of buttons that happen to look like rows.
   const selected = new Set();
   let selectAnchor = null;
+  onGidHandoff = (from, to) => {
+    if (selected.delete(from)) selected.add(to);
+    if (selectAnchor === from) selectAnchor = to;
+  };
 
   function visibleItemRows() {
     return [...listEl.querySelectorAll(".dl-item:not(.hidden)")];
@@ -6100,6 +6208,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     })));
     await rpcBatch(halves.filter((h) => h.running).map((h) => ["aria2.remove", [h.gid]]));
     const { left, reason } = await purgeResults(halves.map((h) => h.gid));
+    // The metadata gid is already stopped once the torrent exists. Forgetting
+    // it is what keeps a removed magnet from leaving a [METADATA] result behind.
+    const metas = rows
+      .map((dl) => dl.metadataGid)
+      .filter((gid) => gid && !halves.some((half) => half.gid === gid));
+    if (metas.length) await purgeResults(metas);
     const stuck = new Set(left);
     const kept = rows.filter((dl) => gidsFor(dl.gid).some((g) => stuck.has(g)));
     if (kept.length) {
