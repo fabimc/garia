@@ -3696,32 +3696,101 @@ fn aria2_args(
     args
 }
 
-/// A session entry whose only sources are aria2's `[METADATA]….torrent`
-/// files. aria2 already skips a download that has `followedBy` when it
-/// writes the session; this drops a leftover that an older run saved as its
-/// own URI, which would otherwise come back as a second row.
-fn is_metadata_session_uri(uri: &str) -> bool {
-    let bare = uri.trim();
-    if bare.is_empty() || bare.starts_with("magnet:") {
+/// A line that stays with the URI above it. aria2's reader (`UriListParser`)
+/// does this for a leading space or tab, and also skips blanks and `#`
+/// comments without starting a new download. A `key=value` option belongs to
+/// that same download even when the leading space is missing: splitting on
+/// every non-indented line would keep the stray record's `gid` and `dir`
+/// after the `[METADATA]….torrent` URI was removed.
+fn continues_session_record(body: &str) -> bool {
+    if body.is_empty() || body.starts_with([' ', '\t']) {
+        return true;
+    }
+    let rest = body.trim_start_matches([' ', '\t']);
+    if rest.is_empty() || rest.starts_with('#') {
+        return true;
+    }
+    if session_uri_line(rest) {
         return false;
     }
-    let name = bare.rsplit(['/', '\\']).next().unwrap_or(bare);
-    name.starts_with("[METADATA]")
-        || name.starts_with("%5BMETADATA%5D")
-        || name.starts_with("%5bMETADATA%5d")
+    session_option_line(rest)
 }
 
-fn metadata_session_entry(uri_line: &str) -> bool {
-    let uris: Vec<&str> = uri_line
+/// The first line of a session record: one download, URIs separated by tabs.
+fn session_uri_line(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("magnet:")
+        || lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("ftps://")
+        || lower.starts_with("sftp://")
+        || lower.starts_with("file://")
+    {
+        return true;
+    }
+    let b = t.as_bytes();
+    if b[0] == b'/' || b[0] == b'\\' || t.starts_with("./") || t.starts_with("../") {
+        return true;
+    }
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+}
+
+/// `gid=…`, `dir=…`, and the other `key=value` lines a session hangs off a URI.
+fn session_option_line(text: &str) -> bool {
+    let Some((key, _)) = text.split_once('=') else {
+        return false;
+    };
+    let mut bytes = key.bytes();
+    match bytes.next() {
+        Some(b) if b.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    bytes.all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+fn session_uris(uri_line: &str) -> Vec<&str> {
+    uri_line
         .trim()
         .split('\t')
+        .map(str::trim)
         .filter(|uri| !uri.is_empty())
-        .collect();
-    !uris.is_empty() && uris.iter().all(|uri| is_metadata_session_uri(uri))
+        .collect()
 }
 
-/// Drop stray metadata-file entries. A magnet URI is kept: that is the
-/// download still being fetched, and it is the one row the list should show.
+/// The URI line of a record aria2 saved for the metadata download itself:
+/// every source is a `[METADATA]….torrent` file. A magnet, an HTTP file, or a
+/// line that only mentions that name in an option is a different download.
+fn stray_metadata_uri_line(uri_line: &str) -> bool {
+    let uris = session_uris(uri_line);
+    !uris.is_empty() && uris.iter().copied().all(is_metadata_torrent_uri)
+}
+
+fn is_metadata_torrent_uri(uri: &str) -> bool {
+    let bare = uri.trim();
+    if bare.is_empty() {
+        return false;
+    }
+    let lower = bare.to_ascii_lowercase();
+    if lower.starts_with("magnet:") {
+        return false;
+    }
+    let path = bare.split(['?', '#']).next().unwrap_or(bare);
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let name_lower = name.to_ascii_lowercase();
+    let torrent = name_lower.ends_with(".torrent") || name_lower.ends_with("%2etorrent");
+    torrent
+        && (name.starts_with("[METADATA]") || name_lower.starts_with("%5bmetadata%5d"))
+}
+
+/// Drop a session record whose URI line is only aria2's `[METADATA]….torrent`
+/// file. The magnet the metadata belongs to is a different record and stays.
+/// aria2 already skips a download that has `followedBy` when it writes the
+/// session; this drops a leftover an older run saved on its own.
 fn strip_metadata_session(text: &str) -> String {
     if !text.contains("[METADATA]")
         && !text.contains("%5BMETADATA%5D")
@@ -3729,26 +3798,32 @@ fn strip_metadata_session(text: &str) -> String {
     {
         return text.to_string();
     }
-    let mut entries: Vec<Vec<&str>> = Vec::new();
+    let mut out = String::new();
+    let mut record: Vec<&str> = Vec::new();
+    let mut uri_line: Option<&str> = None;
     for line in text.split_inclusive('\n') {
         let body = line.trim_end_matches(['\n', '\r']);
-        let starts_entry = !body.starts_with(' ') && !body.is_empty();
-        if starts_entry || entries.is_empty() {
-            entries.push(Vec::new());
+        if uri_line.is_some() && !continues_session_record(body) {
+            write_session_record(&mut out, &record, uri_line);
+            record.clear();
+            uri_line = None;
         }
-        entries.last_mut().unwrap().push(line);
+        if uri_line.is_none() && !continues_session_record(body) {
+            uri_line = Some(body);
+        }
+        record.push(line);
     }
-    let mut out = String::new();
-    for entry in entries {
-        let uri_line = entry.first().copied().unwrap_or("");
-        if metadata_session_entry(uri_line) {
-            continue;
-        }
-        for line in entry {
-            out.push_str(line);
-        }
-    }
+    write_session_record(&mut out, &record, uri_line);
     out
+}
+
+fn write_session_record(out: &mut String, record: &[&str], uri_line: Option<&str>) {
+    if uri_line.is_some_and(stray_metadata_uri_line) {
+        return;
+    }
+    for line in record {
+        out.push_str(line);
+    }
 }
 
 fn sanitize_session_file(path: &Path) {
@@ -4580,23 +4655,28 @@ mod tests {
 
     #[test]
     fn a_metadata_torrent_file_does_not_come_back_from_the_session() {
-        let magnet = "\
-magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny\t
- gid=aaaaaaaaaaaaaaaa
- dir=/tmp/Downloads
-";
-        let stray = "\
-/tmp/Downloads/[METADATA]Big+Buck+Bunny.torrent\t
- gid=bbbbbbbbbbbbbbbb
- dir=/tmp/Downloads
-";
-        let session = format!("{magnet}{stray}");
-        assert_eq!(strip_metadata_session(&session), magnet);
-        // An in-progress magnet is the download, not a stray row.
+        // Written the way aria2's SessionSerializer does: magnet URI, then
+        // space-prefixed options; a normal file URI with a trailing tab; a
+        // stray `[METADATA]….torrent` record both with and without that
+        // leading space. Options without the space are still that record.
+        let session = include_str!("../tests/fixtures/aria2-session-with-metadata.txt");
+        let kept = include_str!("../tests/fixtures/aria2-session-with-metadata.kept.txt");
+        assert_eq!(strip_metadata_session(session), kept);
+        assert!(!kept.contains("gid=bbbbbbbbbbbbbbbb"));
+        assert!(!kept.contains("gid=1111111111111111"));
+        assert!(kept.contains("gid=aaaaaaaaaaaaaaaa"));
+        assert!(kept.contains("gid=dddddddddddddddd"));
+
+        // A blank line and a comment stay inside the magnet record. The stray
+        // record after them is still removed, including options with no indent.
+        let commented = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567\n gid=aaaaaaaaaaaaaaaa\n# saved options\n\n dir=/tmp/Downloads\n/tmp/[METADATA]Big.torrent\t\ngid=bbbbbbbbbbbbbbbb\ndir=/tmp\n";
+        let commented_kept = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567\n gid=aaaaaaaaaaaaaaaa\n# saved options\n\n dir=/tmp/Downloads\n";
+        assert_eq!(strip_metadata_session(commented), commented_kept);
+
+        // No metadata marker: the bytes are left alone, including a magnet.
+        let magnet = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c\n gid=aa\n";
         assert_eq!(strip_metadata_session(magnet), magnet);
         assert_eq!(strip_metadata_session(""), "");
-        let encoded = "/tmp/Downloads/%5BMETADATA%5Dnotes.torrent\t\n gid=cc\n";
-        assert_eq!(strip_metadata_session(encoded), "");
     }
 
     #[test]

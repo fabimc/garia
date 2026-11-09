@@ -9,7 +9,7 @@ Magnets and `.torrent` files go through aria2 BitTorrent. Garia adds UI statuses
 - The metadata step finishing is not a completion. No done notification, and that gid never sits in Completed.
 - Pause, resume, remove, and retry use whichever gid is live: the metadata gid before the handoff, the torrent gid after. Remove also calls `removeDownloadResult` on the metadata gid so nothing is left behind.
 - Re-adding the same magnet matches `btih` / `infoHash` and says it is already in the list.
-- aria2's session writer skips a download that has `followedBy`. On launch, a leftover entry whose URI is a `[METADATA]….torrent` file is dropped so it does not come back beside the magnet.
+- aria2's session writer skips a download that has `followedBy`. On launch, a leftover session record whose URI line is a `[METADATA]….torrent` file is dropped whole — the path and its `gid` / `dir` — so it does not come back beside the magnet. A magnet record is kept even when one of its options mentions that name.
 - The follow-up gid is created by aria2, not by `addUri`. Quiet hours and Stop Queue still hold it: `schedule_tick` force-pauses every active or waiting download the clock does not allow. That is the path for anything that did not come through `addUri`. `decide` / `allowed` are unchanged.
 
 ## Seeding

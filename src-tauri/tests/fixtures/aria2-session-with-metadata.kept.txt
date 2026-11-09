@@ -1,0 +1,14 @@
+magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny
+ gid=aaaaaaaaaaaaaaaa
+ dir=/tmp/Downloads
+http://example.com/files/keep.bin	
+ gid=cccccccccccccccc
+ dir=/tmp/Downloads
+magnet:?xt=urn:btih:ffeeddccbbaa99887766554433221100ffeeddcc&dn=Keep
+ gid=dddddddddddddddd
+ out=[METADATA]not-a-separate-download.torrent
+/tmp/Downloads/[METADATA]notes.txt	
+ gid=ffffffffffff0001
+ dir=/tmp/Downloads
+http://example.com/a	/tmp/Downloads/[METADATA]mixed.torrent	
+ gid=2222222222222222
