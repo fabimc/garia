@@ -143,14 +143,13 @@ h1 { font-size: clamp(40px, 7vw, 76px); font-weight: 800; letter-spacing: -0.035
   box-shadow: var(--shadow-lg);
   background: var(--bg-alt);
 }
-/* The light capture already has real traffic lights; the dark one is from a
-   browser render, so draw them to match the window it came from. */
-.lights { display: none; position: absolute; left: 1.55%; top: 2.2%; width: 4%; justify-content: space-between; }
+/* Marketing shots are full-bleed app chrome without OS traffic lights, so
+   draw a small window-chrome trio on every theme. */
+.lights { display: flex; position: absolute; left: 1.55%; top: 2.2%; width: 4%; justify-content: space-between; pointer-events: none; }
 .lights i { display: block; width: 22.5%; aspect-ratio: 1; border-radius: 50%; }
 .lights i:nth-child(1) { background: #ff5f57; }
 .lights i:nth-child(2) { background: #febc2e; }
 .lights i:nth-child(3) { background: #28c840; }
-@media (prefers-color-scheme: dark) { .lights { display: flex; } }
 
 .trust {
   list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
