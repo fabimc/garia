@@ -101,7 +101,7 @@ Master art is `app-icon.png` at the repo root (1024×1024 RGBA, cream rounded ti
    npx tauri icon app-icon.png
    ```
    Keep the tracked files under `src-tauri/icons/` (drop any untracked `ios/` / `android/` / `64x64.png` the CLI may also emit).
-4. Rebuild `tray-template.png` as a black-on-clear silhouette readable at ~18px (macOS menu bar). Non-macOS trays use the colour `32x32.png` instead.
+4. Rebuild `tray-template.png` as a black-on-clear silhouette. Design it on an 18×18 pixel grid (helmet dome, lamp hole, two goggle holes), then nearest-neighbour upscale to 72×72 so macOS menu-bar size stays crisp. Non-macOS trays use the colour `32x32.png` instead.
 5. Regenerate extension icons (`extensions/garia/icons/{16,32,48,128}.png`), site favicons / `icon-512` / apple-touch, and the in-app `src/assets/logo.png` (helmet only, transparent — no cream tile) with nearest-neighbour from the master.
 
 A release build also writes updater artifacts. Those need the updater private key:
