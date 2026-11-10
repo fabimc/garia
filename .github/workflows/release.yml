@@ -176,3 +176,19 @@ jobs:
           releaseDraft: true
           prerelease: false
 
+      - name: Package the Arch-safe Linux payload
+        run: |
+          version="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json')).version")"
+          appimage="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage"
+          ./scripts/package-linux-arch.sh "$appimage" "$version" dist
+
+      - name: Upload the Arch-safe Linux payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json')).version")"
+          gh release upload "$GITHUB_REF_NAME" "dist/garia-${version}-linux-x86_64.tar.gz" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
