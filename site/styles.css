@@ -203,7 +203,7 @@ h2 { font-size: clamp(30px, 4.4vw, 48px); font-weight: 800; }
 .grid p { color: var(--muted); font-size: 15.5px; }
 
 /* Install */
-.install-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
+.install-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 28px; box-shadow: var(--shadow-md); display: grid; gap: 14px; min-width: 0;
@@ -215,7 +215,8 @@ h2 { font-size: clamp(30px, 4.4vw, 48px); font-weight: 800; }
   display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
   background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 800;
 }
-.card details { font-size: 15px; border-top: 1px solid var(--border); padding-top: 12px; }
+.card details { font-size: 15px; border-top: 1px solid var(--border); padding-top: 12px; min-width: 0; }
+.card pre { max-width: 100%; }
 .card details summary { cursor: pointer; color: var(--brand); font-weight: 600; }
 .card details p { margin-top: 10px; color: var(--muted); }
 pre {
@@ -275,7 +276,8 @@ pre {
 
 /* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 960px) {
-  .grid, .install-grid { grid-template-columns: repeat(2, 1fr); }
+  .grid { grid-template-columns: repeat(2, 1fr); }
+  .install-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .spot { grid-template-columns: 1fr; gap: 36px; }
   .spot.flip .spot-copy { order: 0; }
   .spot + .spot { margin-top: 72px; }
