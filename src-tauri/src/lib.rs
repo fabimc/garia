@@ -4570,16 +4570,19 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&show)
         .build()?;
 
-    // The dock icon is the shovel on a cream tile. As a template that
-    // tile is every opaque pixel, so the extra rendered as a white
-    // square. This file is just the shovel, black on clear.
+    // macOS: template silhouette (black on clear). The dock icon is the
+    // helmet on a cream tile — as a template that tile would paint as a
+    // solid block, so tray-template.png is just the helmet.
+    // Linux/Windows: colour 32×32 (cream tile) — a black template is nearly
+    // invisible on dark panels.
+    #[cfg(target_os = "macos")]
     let icon = tauri::include_image!("icons/tray-template.png");
+    #[cfg(not(target_os = "macos"))]
+    let icon = tauri::include_image!("icons/32x32.png");
     let tray = TrayIconBuilder::with_id("status")
         .menu(&menu)
         .tooltip("Garia")
         .icon(icon);
-    // A template icon is a macOS menu-bar convention. On Linux it paints the
-    // shovel as a solid block, so the colour icon is what the tray shows.
     #[cfg(target_os = "macos")]
     let tray = tray.icon_as_template(true);
     tray
