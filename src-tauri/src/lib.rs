@@ -1943,6 +1943,8 @@ fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
     if let Ok(resources) = app.path().resource_dir() {
         candidates.push(resources.join("garia"));
         candidates.push(resources.join("extensions/garia"));
+        // Tauri bundles the `../extensions/garia` resource under `_up_`.
+        candidates.push(resources.join("_up_/extensions/garia"));
     }
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../extensions/garia"));
 
@@ -4037,7 +4039,23 @@ fn session_path(dir: &Path) -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Linux and Windows start a new process for every link or file the
+    // desktop opens. This hands it to the running instance instead — links
+    // through the deep-link plugin, `.torrent` paths here — and has to be
+    // the first plugin, before the second process starts anything of its own.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        for arg in argv.iter().skip(1) {
+            if let Some(path) = catch::torrent_path(arg) {
+                dispatch_torrent(app, path);
+            }
+        }
+        bring_to_front(app);
+    }));
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -4213,7 +4231,7 @@ pub fn run() {
             // `garia://add?url=…` from a bookmarklet, and `magnet:` from the
             // browser or Finder. macOS delivers these to the running instance;
             // a cold launch is `get_current` below. `.torrent` files arrive
-            // as `RunEvent::Opened`, not through this plugin.
+            // as `RunEvent::Opened` on macOS and as arguments elsewhere.
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();
@@ -4227,6 +4245,12 @@ pub fn run() {
                     for link in urls {
                         ingest_deep_link(&handle, link.as_str());
                     }
+                }
+            }
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            for arg in std::env::args().skip(1) {
+                if let Some(path) = catch::torrent_path(&arg) {
+                    dispatch_torrent(app.handle(), path);
                 }
             }
 
