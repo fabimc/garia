@@ -61,9 +61,12 @@ trap 'rm -rf "$WORK"' EXIT
   # This is generated as an absolute link to the build runner's source tree.
   rm -f "$WORK/garia/.DirIcon"
 
+  # The extracted AppImage is 0700 throughout; installed as root, that would
+  # lock every other user out of /opt/garia.
   tar \
     --sort=name \
     --owner=0 --group=0 --numeric-owner \
+    --mode='u+rwX,go+rX,go-w' \
     --mtime="@${SOURCE_DATE_EPOCH:-0}" \
     -cf - -C "$WORK" garia |
     gzip -n > "$OUTPUT_DIR/garia-${VERSION}-linux-x86_64.tar.gz"

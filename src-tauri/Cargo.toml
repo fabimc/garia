@@ -39,6 +39,9 @@ tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 objc2 = "0.6"
