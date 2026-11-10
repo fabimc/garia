@@ -4570,14 +4570,15 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&show)
         .build()?;
 
-    // macOS menu bar: template icon (black-on-clear silhouette that adapts to
-    // the menu bar theme). Linux panel: full-color icon (the template would be
-    // nearly invisible on dark panels). Windows taskbar: full-color icon.
+    // macOS: template silhouette (black on clear). The dock icon is the
+    // helmet on a cream tile — as a template that tile would paint as a
+    // solid block, so tray-template.png is just the helmet.
+    // Linux/Windows: colour 32×32 (cream tile) — a black template is nearly
+    // invisible on dark panels.
     #[cfg(target_os = "macos")]
     let icon = tauri::include_image!("icons/tray-template.png");
     #[cfg(not(target_os = "macos"))]
     let icon = tauri::include_image!("icons/32x32.png");
-    
     let tray = TrayIconBuilder::with_id("status")
         .menu(&menu)
         .tooltip("Garia")

@@ -88,7 +88,21 @@ On Linux the same command produces an AppImage and a `.deb`:
 npm run tauri build
 ```
 
-Artifacts land under `src-tauri/target/release/bundle/appimage/` and `…/deb/`. Prefer the `.deb` when you want `garia://`, magnet, and `.torrent` file associations installed by the package manager; the AppImage is the portable single-file option.
+Artifacts land under `src-tauri/target/release/bundle/appimage/` and `…/deb/`. Prefer the `.deb` when you want `garia://`, magnet, and `.torrent` file associations installed by the package manager; the AppImage is the portable single-file option. Linux and macOS packages read `bundle.icon` in `src-tauri/tauri.conf.json` (`32x32`, `128x128`, `128x128@2x`, `icon.png`, `icon.icns`, `icon.ico`) — there is no separate Linux icon override.
+
+## App icon
+
+Master art is `app-icon.png` at the repo root (1024×1024 RGBA, cream rounded tile, transparent outside). To refresh from new pixel art:
+
+1. Start from a PNG of the helmet (or other mark). Key near-white background to alpha (`R,G,B ≥ ~248` → transparent; soft fringe optional). Prefer nearest-neighbour when scaling pixel art — smooth resampling blurs it.
+2. Composite onto the cream tile `(243, 230, 212)` using the existing `app-icon.png` alpha mask for macOS-style padding and corner radius, or rebuild an equivalent rounded square with ~10% margin.
+3. Write the result to `app-icon.png`, then regenerate the Tauri set:
+   ```sh
+   npx tauri icon app-icon.png
+   ```
+   Keep the tracked files under `src-tauri/icons/` (drop any untracked `ios/` / `android/` / `64x64.png` the CLI may also emit).
+4. Rebuild `tray-template.png` as a black-on-clear silhouette readable at ~18px (macOS menu bar). Non-macOS trays use the colour `32x32.png` instead.
+5. Regenerate extension icons (`extensions/garia/icons/{16,32,48,128}.png`), site favicons / `icon-512` / apple-touch, and the in-app `src/assets/logo.png` (helmet only, transparent — no cream tile) with nearest-neighbour from the master.
 
 A release build also writes updater artifacts. Those need the updater private key:
 

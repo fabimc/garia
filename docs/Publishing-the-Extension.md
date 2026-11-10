@@ -81,6 +81,8 @@ Chrome wants at least one screenshot. Sizes: **1280×800** or **640×400**. Take
 
 Optional: a 1400×560 promo tile. The 128×128 icon is already in the zip.
 
+After an icon change in the repo (e.g. #97 miner-helmet), re-upload the store listing icon from `extensions/garia/icons/128.png` in the Chrome Web Store Developer Dashboard — the zip update alone does not always refresh the store chrome. Tracked in #103.
+
 ### Privacy questionnaire
 
 - Single purpose: *Companion to the Garia desktop download manager. Captures file downloads and video page URLs and hands them to that app.*
