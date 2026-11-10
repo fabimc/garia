@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Garia — the free download manager for Mac and Linux</title>
-  <meta name="description" content="Garia is a fast, free, open-source download manager for macOS and Linux. Multi-connection downloads, torrents and magnets, video pages, browser capture, and a scheduler — built on aria2.">
+  <meta name="description" content="Garia is a fast, free, open-source download manager for macOS and Linux. Multi-connection downloads, torrents and magnets, video pages, browser capture, scheduling, and a docked inspector — built on aria2.">
   <link rel="canonical" href="https://fabimc.github.io/garia/">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#faf6ef" media="(prefers-color-scheme: light)">
@@ -13,12 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Garia">
   <meta property="og:title" content="Garia — the free download manager for Mac and Linux">
-  <meta property="og:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections and caught straight from your browser.">
+  <meta property="og:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections, scheduled from a daily window, and caught straight from your browser.">
   <meta property="og:url" content="https://fabimc.github.io/garia/">
   <meta property="og:image" content="https://fabimc.github.io/garia/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Garia's main window in dark mode, with active downloads and the miner-helmet icon.">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Garia — the free download manager for Mac and Linux">
+  <meta name="twitter:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections, scheduled, and caught from your browser.">
+  <meta name="twitter:image" content="https://fabimc.github.io/garia/assets/og.png">
 
   <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
@@ -69,10 +73,10 @@
       <div class="wrap hero-copy">
         <p class="eyebrow"><span class="pill">Free &amp; open source</span> <span class="muted">MIT licensed · Mac &amp; Linux</span></p>
         <h1>The download manager <br>you were missing.</h1>
-        <p class="lede">Garia makes big downloads fast and boring in the best way. Files, torrents, magnet links and video pages — split across 16 connections, resumed after a restart, and caught straight from your browser.</p>
+        <p class="lede">Garia makes big downloads fast and boring in the best way. Files, torrents, magnet links and video pages — split across 16 connections, resumed after a restart, scheduled when you want them, and caught straight from your browser.</p>
         <div class="cta">
           <a class="btn btn-primary btn-lg" id="dl-btn" href="https://github.com/fabimc/garia/releases/latest">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.37 12.64c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.47.83-.72 0-1.82-.81-2.99-.79-1.54.02-2.96.9-3.75 2.27-1.6 2.78-.41 6.89 1.15 9.14.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.77.74 2.98.72 1.23-.02 2.01-1.12 2.76-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.39-.92-2.4-3.66ZM14.1 5.9c.63-.77 1.06-1.83.94-2.9-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.27Z"/></svg>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 3a1 1 0 0 1 2 0v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42L11 13.6V3ZM5 19a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"/></svg>
             <span>Download for Mac</span>
           </a>
           <button class="btn btn-code" type="button" data-copy="brew tap fabimc/garia &amp;&amp; brew trust fabimc/garia &amp;&amp; brew install --cask garia" aria-label="Copy the Homebrew install command">
@@ -86,8 +90,10 @@
       <div class="wrap">
         <figure class="window">
           <picture>
+            <source srcset="assets/screens/app-dark.webp" type="image/webp" media="(prefers-color-scheme: dark)">
             <source srcset="assets/screens/app-dark.png" media="(prefers-color-scheme: dark)">
-            <img src="assets/screens/app-light.png" width="2560" height="1280" alt="Garia's main window showing eight downloads in progress, with speeds, sizes and time left for each.">
+            <source srcset="assets/screens/app-light.webp" type="image/webp">
+            <img src="assets/screens/app-light.png" width="2560" height="1440" alt="Garia's main window showing active, seeding and queued downloads with speeds, sizes and time left for each.">
           </picture>
           <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
         </figure>
@@ -106,7 +112,7 @@
       <div class="wrap section-head">
         <p class="kicker">What it does</p>
         <h2>One place for everything you download.</h2>
-        <p class="sub">Garia runs the battle-tested <a href="https://aria2.github.io/">aria2</a> engine for you — no Terminal, no config files — and wraps it in a native app.</p>
+        <p class="sub">Garia runs the battle-tested <a href="https://aria2.github.io/">aria2</a> engine for you — no Terminal, no config files — and wraps it in a native app with a clear list, a docked inspector, and a queue you can pause for the night.</p>
       </div>
 
       <article class="wrap spot">
@@ -120,7 +126,12 @@
             <li>yt-dlp and ffmpeg are bundled — nothing extra to install</li>
           </ul>
         </div>
-        <figure class="shot"><img src="assets/screens/video-picker.png" width="1072" height="1230" loading="lazy" alt="The Download video dialog listing qualities from 2160p60 down to audio only, with a file size beside each."></figure>
+        <figure class="shot">
+          <picture>
+            <source srcset="assets/screens/video-picker.webp" type="image/webp">
+            <img src="assets/screens/video-picker.png" width="2560" height="1440" loading="lazy" alt="The Download video dialog listing qualities from 2160p60 down to audio only, with a file size beside each.">
+          </picture>
+        </figure>
       </article>
 
       <article class="wrap spot flip">
@@ -134,21 +145,50 @@
             <li>Categories sort new files into folders by type or by site</li>
           </ul>
         </div>
-        <figure class="shot"><img src="assets/screens/batch-add.png" width="1072" height="1186" loading="lazy" alt="The Add download dialog with four URLs pasted and checkboxes beside each file name."></figure>
+        <figure class="shot">
+          <picture>
+            <source srcset="assets/screens/batch-add.webp" type="image/webp">
+            <img src="assets/screens/batch-add.png" width="2560" height="1440" loading="lazy" alt="The Add download dialog with four URLs pasted and checkboxes beside each file name.">
+          </picture>
+        </figure>
       </article>
 
       <article class="wrap spot">
         <div class="spot-copy">
           <p class="tag">Torrents</p>
           <h3>Torrents, without a second app.</h3>
-          <p>Open a magnet or a <code>.torrent</code> and it sits in the same list as everything else. Pick just the files inside you need, watch peers and ratio in the detail panel, and tell Garia when to stop seeding.</p>
+          <p>Open a magnet or a <code>.torrent</code> and it sits in the same list as everything else. Pick just the files inside you need, watch peers and ratio in the docked inspector, and tell Garia when to stop seeding.</p>
           <ul class="checks">
             <li>Per-download speed limits: Full, Medium or Light</li>
             <li>Give any single download its own start time</li>
             <li>Play a video before it finishes, when the front is on disk</li>
           </ul>
         </div>
-        <figure class="shot"><img src="assets/screens/torrent-detail.png" width="1352" height="1488" loading="lazy" alt="The detail panel for a torrent showing speed limit, start time, connections, seeders, upload speed and ratio."></figure>
+        <figure class="shot">
+          <picture>
+            <source srcset="assets/screens/torrent-detail.webp" type="image/webp">
+            <img src="assets/screens/torrent-detail.png" width="2560" height="1440" loading="lazy" alt="The docked inspector for a torrent showing health, seeds, leechers, ratio and the files inside.">
+          </picture>
+        </figure>
+      </article>
+
+      <article class="wrap spot flip">
+        <div class="spot-copy">
+          <p class="tag">Scheduler</p>
+          <h3>Stop the queue for the night. Start it again in the morning.</h3>
+          <p>A daily download window, a start time on any file, and Stop Queue / Start Queue from the menu, the Dock, the tray, and the header. A hand pause, a schedule hold, and a stopped queue each look different in the list.</p>
+          <ul class="checks">
+            <li>Held and Scheduled badges so the reason is never a mystery</li>
+            <li>When the last download finishes: do nothing, sleep, or shut down</li>
+            <li>Traffic modes — Full, Medium, Light — for everything or for one download</li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <picture>
+            <source srcset="assets/screens/queue-schedule.webp" type="image/webp">
+            <img src="assets/screens/queue-schedule.png" width="2560" height="1440" loading="lazy" alt="Garia with the queue stopped: Start Queue in the header and Queue stopped in the status bar.">
+          </picture>
+        </figure>
       </article>
     </section>
 
@@ -166,8 +206,8 @@
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-          <h4>Scheduler</h4>
-          <p>A daily download window, a start time on any file, and Stop Queue / Start Queue from the menu, the Dock or the header.</p>
+          <h4>Daily window</h4>
+          <p>Limit downloads to a time range in Settings → Schedule, or pin a start time on one file from Add download or the inspector.</p>
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
@@ -177,7 +217,7 @@
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><path d="M6 1v3M10 1v3M14 1v3"/></svg>
           <h4>Closes, keeps going</h4>
-          <p>Close the window and downloads keep running from the menu bar. Only ⌘Q stops them. Queues survive restarts.</p>
+          <p>Close the window and downloads keep running from the menu bar or tray. Only Quit stops them. Queues survive restarts.</p>
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
@@ -201,8 +241,8 @@
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-          <h4>Mac through and through</h4>
-          <p>Real menus, keyboard shortcuts, drag a file out to Finder, notifications, a Dock badge, and light and dark mode.</p>
+          <h4>Native where it counts</h4>
+          <p>Real menus and shortcuts on Mac, a tray on Linux, notifications, a Dock badge, drag-out to Finder, and light and dark mode.</p>
         </li>
       </ul>
     </section>
@@ -237,7 +277,7 @@ brew install --cask garia</code></pre>
         </div>
         <div class="card" id="linux-install">
           <h3><span class="num">3</span> Download for Linux</h3>
-          <p>Prefer the <code>.deb</code> on Debian/Ubuntu for deep links and torrent associations. The AppImage runs without installing.</p>
+          <p>Prefer the <code>.deb</code> on Debian/Ubuntu for deep links and torrent associations. The AppImage runs without installing. Both are x86_64.</p>
           <div class="cta" style="gap:0.5rem;flex-wrap:wrap">
             <a class="btn btn-primary" id="dl-btn-deb" href="https://github.com/fabimc/garia/releases/latest">Download .deb</a>
             <a class="btn btn-ghost" id="dl-btn-appimage" href="https://github.com/fabimc/garia/releases/latest">AppImage</a>
@@ -264,11 +304,11 @@ brew install --cask garia</code></pre>
         </details>
         <details>
           <summary>Does Garia collect any data?</summary>
-          <p>No. There is no account, no analytics and no crash reporting. Apart from the downloads you ask for, the only thing Garia fetches is an update manifest from GitHub Releases. The browser extension only hands links to the app on your own Mac — see the <a href="https://github.com/fabimc/garia/blob/master/extensions/PRIVACY.md">extension privacy policy</a>.</p>
+          <p>No. There is no account, no analytics and no crash reporting. Apart from the downloads you ask for, the only thing Garia fetches is an update manifest from GitHub Releases. The browser extension only hands links to the app on your own machine — see the <a href="https://github.com/fabimc/garia/blob/master/extensions/PRIVACY.md">extension privacy policy</a>.</p>
         </details>
         <details>
           <summary>Why do downloads keep going after I close the window?</summary>
-          <p>That's on purpose. The red button and ⌘W hide the window; the engine keeps running and the menu bar shows what's in flight. Click the Dock icon to bring the window back. ⌘Q is the only thing that stops downloads — and the queue picks up where it left off next time.</p>
+          <p>That's on purpose. Closing the window hides it; the engine keeps running and the menu bar (or tray on Linux) shows what's in flight. Click the Dock icon or the tray to bring the window back. Quit is the only thing that stops downloads — and the queue picks up where it left off next time.</p>
         </details>
         <details>
           <summary>What makes it faster than my browser?</summary>
