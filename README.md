@@ -28,6 +28,21 @@ brew install --cask garia
 
 Grab the `.AppImage` (run anywhere) or the `.deb` (Debian/Ubuntu — preferred if you want `garia://`, magnet, and `.torrent` associations) from [Releases](https://github.com/fabimc/garia/releases).
 
+On Omarchy, the recommended package will be `garia-bin` from OPR:
+
+```sh
+omarchy pkg add garia-bin
+```
+
+Until it is available, download the x86_64 AppImage from Releases and run it manually:
+
+```sh
+chmod +x Garia_<version>_amd64.AppImage
+./Garia_<version>_amd64.AppImage
+```
+
+The AppImage is a temporary portable option: it is not managed by pacman and does not register a system menu entry or file and magnet handlers. OPR is the intended Omarchy install path.
+
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation
