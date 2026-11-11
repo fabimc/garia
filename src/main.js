@@ -7678,6 +7678,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupOverlay.addEventListener("click", async (e) => {
     const link = e.target.closest("a[href]");
     if (!link || !window.__TAURI__?.opener?.openUrl) return;
+    if (link.classList.contains("bookmarklet")) return;
+    const href = link.getAttribute("href") || "";
+    if (!/^https?:/i.test(href)) return;
     e.preventDefault();
     try {
       await window.__TAURI__.opener.openUrl(link.href);

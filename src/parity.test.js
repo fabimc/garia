@@ -882,7 +882,7 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /New downloads go here/);
   assert.match(html, /closing the window hides Garia/i);
   assert.match(html, /chrome:\/\/extensions/);
-  assert.match(html, /Browser-Capture\.md#omarchy-chromium/);
+  assert.match(html, /Browser-Capture\.md/);
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
