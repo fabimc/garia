@@ -3474,7 +3474,7 @@ async function detailData(gid) {
     };
   }
   if (pulledHeavy) cache.at = now;
-  detailCache.set(gid, cache);
+  if (detailGid === gid && detailGids.length === 1) detailCache.set(gid, cache);
   return { gid, row, job: row?.job || null, parts };
 }
 
@@ -4775,6 +4775,9 @@ function openDetail(gidOrGids) {
     return;
   }
   const keep = new Set(next);
+  for (const gid of [...detailCache.keys()]) {
+    if (!keep.has(gid)) detailCache.delete(gid);
+  }
   for (const gid of [...fileSelection.keys()]) {
     if (!keep.has(gid)) fileSelection.delete(gid);
   }
@@ -4802,7 +4805,7 @@ function closeDetail() {
   // An unapplied pick is a thought, not a setting: it goes when the panel does.
   fileSelection.clear();
   filePriorityDraft.clear();
-  detailCache.delete(detailGid);
+  detailCache.clear();
   detailGid = null;
   detailGids = [];
   document.getElementById("detail-pane")?.classList.add("hidden");
