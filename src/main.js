@@ -2679,6 +2679,10 @@ let engineStartupTimer = 0;
 // or went, or the connection did — searching and switching views run it
 // directly.
 let filterDirty = true;
+let filterGeneration = 0;
+const LARGE_LIST_THRESHOLD = 64;
+const FILTER_BATCH_SIZE = 16;
+const RENDER_BATCH_SIZE = 8;
 let onFilterApplied = () => {};
 let listHost = null;
 let afterPoll = () => {};
@@ -2686,9 +2690,20 @@ let pollInFlight = null;
 let pollQueued = false;
 
 function applyFilter(listEl) {
+  void applyFilterAsync(listEl).catch((err) => console.error(err));
+}
+
+async function applyFilterAsync(listEl) {
+  if (document.hidden) {
+    filterDirty = true;
+    return;
+  }
+  const generation = ++filterGeneration;
   filterDirty = false;
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
+  const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
+  const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
   // Headers only earn their keep in the combined view; a single-status filter
   // would just repeat its own name. A package filter still wants them so the
   // grab reads as queued / running / failed the way JDownloader's packages do.
@@ -2700,6 +2715,8 @@ function applyFilter(listEl) {
   let inSection = 0;
 
   let lastShown = null;   // last visible row of the section being walked
+  const children = [...listEl.children];
+  let processed = 0;
 
   const closeSection = () => {
     if (header) {
@@ -2712,32 +2729,42 @@ function applyFilter(listEl) {
     lastShown = null;
   };
 
-  for (const el of listEl.children) {
+  for (const el of children) {
     if (el.classList.contains("dl-section")) {
       closeSection();
       header = el;
       inSection = 0;
-      continue;
+    } else {
+      const rowStatus = sidebarViewOf(el.dataset.status);
+      const statusMatch = pkgId
+        ? el.dataset.package === pkgId
+        : catId
+          ? el.dataset.category === catId
+          : activeFilter === "torrents"
+            ? el.dataset.torrent === "true"
+            : activeFilter === "all" || rowStatus === activeFilter;
+      const nameMatch = !needle
+        || el.dataset.name.toLowerCase().includes(needle)
+        || String(el.dataset.tags || "").toLowerCase().includes(needle);
+      const match = statusMatch && nameMatch;
+      el.classList.toggle("hidden", !match);
+      el.classList.remove("is-last-shown");
+      if (match) { visible++; inSection++; lastShown = el; }
     }
-    const rowStatus = sidebarViewOf(el.dataset.status);
-    const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
-    const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
-    const statusMatch = pkgId
-      ? el.dataset.package === pkgId
-      : catId
-        ? el.dataset.category === catId
-        : activeFilter === "torrents"
-          ? el.dataset.torrent === "true"
-          : activeFilter === "all" || rowStatus === activeFilter;
-    const nameMatch = !needle
-      || el.dataset.name.toLowerCase().includes(needle)
-      || String(el.dataset.tags || "").toLowerCase().includes(needle);
-    const match = statusMatch && nameMatch;
-    el.classList.toggle("hidden", !match);
-    el.classList.remove("is-last-shown");
-    if (match) { visible++; inSection++; lastShown = el; }
+
+    processed++;
+    if (children.length > LARGE_LIST_THRESHOLD &&
+        processed % FILTER_BATCH_SIZE === 0 && processed < children.length) {
+      await yieldToPaint();
+      if (generation !== filterGeneration) return;
+      if (document.hidden) {
+        filterDirty = true;
+        return;
+      }
+    }
   }
   closeSection();
+  if (generation !== filterGeneration) return;
 
   document.getElementById("view-count").textContent =
     visible === 1 ? "1 item" : `${visible} items`;
@@ -5024,6 +5051,28 @@ async function fetchLists() {
   };
 }
 
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    let frame = 0;
+    let timer = 0;
+    let resumed = false;
+    const finish = () => {
+      if (resumed) return;
+      resumed = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      resolve();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) finish();
+    };
+    frame = requestAnimationFrame(finish);
+    timer = setTimeout(finish, 100);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  });
+}
+
 async function poll(listEl) {
   try {
     const [{ active, waiting, stopped }] = await Promise.all([
@@ -5081,6 +5130,8 @@ async function poll(listEl) {
     const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
     const seen = new Set();
+    let renderedRows = 0;
+    if (document.hidden) filterDirty = true;
 
     for (const dl of all) {
       seen.add(dl.gid);
@@ -5113,13 +5164,22 @@ async function poll(listEl) {
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
       if (dl.status === "seeding") tally.upspeed += Number(dl.uploadSpeed) || 0;
 
-      let li = rowEls.get(dl.gid);
-      if (!li) {
-        li = createItemEl(dl);
-        rowEls.set(dl.gid, li);
-        listEl.appendChild(li);
+      if (document.hidden) {
+        filterDirty = true;
+      } else {
+        let li = rowEls.get(dl.gid);
+        if (!li) {
+          li = createItemEl(dl);
+          rowEls.set(dl.gid, li);
+          listEl.appendChild(li);
+        }
+        updateItemEl(li, dl);
+        renderedRows++;
+        if (all.length > LARGE_LIST_THRESHOLD &&
+            renderedRows % RENDER_BATCH_SIZE === 0 && renderedRows < all.length) {
+          await yieldToPaint();
+        }
       }
-      updateItemEl(li, dl);
     }
 
     prunePackages(seen);
@@ -5149,37 +5209,41 @@ async function poll(listEl) {
     // through, inserting a section header whenever the status changes. Only
     // touch the DOM when the sequence really changed — moving nodes every tick
     // would cancel hover state and in-flight transitions.
-    const ordered = all.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
-    const desired = [];
-    let lastStatus = null;
-    for (const dl of ordered) {
-      if (dl.status !== lastStatus) {
-        lastStatus = dl.status;
-        desired.push(sectionEl(dl.status));
-      }
-      const li = rowEls.get(dl.gid);
-      if (li) desired.push(li);
-    }
-
-    const current = [...listEl.children];
-    if (!reorderHold &&
-        (current.length !== desired.length || desired.some((n, i) => current[i] !== n))) {
-      const frag = document.createDocumentFragment();
-      for (const node of desired) frag.appendChild(node);
-      listEl.textContent = "";   // drops headers for groups that no longer exist
-      listEl.appendChild(frag);
+    if (document.hidden) {
       filterDirty = true;
-    }
+    } else {
+      const ordered = all.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
+      const desired = [];
+      let lastStatus = null;
+      for (const dl of ordered) {
+        if (dl.status !== lastStatus) {
+          lastStatus = dl.status;
+          desired.push(sectionEl(dl.status));
+        }
+        const li = rowEls.get(dl.gid);
+        if (li) desired.push(li);
+      }
 
-    const usedSections = new Set(
-      desired.filter((n) => n.classList.contains("dl-section")).map((n) => n.dataset.section),
-    );
-    for (const [status, el] of [...sectionEls]) {
-      if (!usedSections.has(status)) sectionEls.delete(status);
-    }
+      const current = [...listEl.children];
+      if (!reorderHold &&
+          (current.length !== desired.length || desired.some((n, i) => current[i] !== n))) {
+        const frag = document.createDocumentFragment();
+        for (const node of desired) frag.appendChild(node);
+        listEl.textContent = "";   // drops headers for groups that no longer exist
+        listEl.appendChild(frag);
+        filterDirty = true;
+      }
 
-    // A queue of one has nowhere to go, and the grab cursor would be a lie.
-    listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
+      const usedSections = new Set(
+        desired.filter((n) => n.classList.contains("dl-section")).map((n) => n.dataset.section),
+      );
+      for (const [status, el] of [...sectionEls]) {
+        if (!usedSections.has(status)) sectionEls.delete(status);
+      }
+
+      // A queue of one has nowhere to go, and the grab cursor would be a lie.
+      listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
+    }
 
     renderCounts(tally);
     syncStatusItem(tally.active);
@@ -5193,10 +5257,10 @@ async function poll(listEl) {
     if (err?.message) text.title = `${text.title} — ${err.message}`;
     syncStatusItem(0);
   } finally {
-    if (filterDirty) applyFilter(listEl);
+    if (filterDirty && !document.hidden) applyFilter(listEl);
     // Whatever the list did, the open detail panel is looking at the same
     // aria2 and wants the same tick.
-    refreshDetail();
+    if (!document.hidden) refreshDetail();
   }
 }
 
@@ -5210,7 +5274,7 @@ async function pollAndSync() {
     do {
       pollQueued = false;
       await poll(listHost);
-      afterPoll();
+      if (!document.hidden) afterPoll();
     } while (pollQueued);
   })().finally(() => { pollInFlight = null; });
   return pollInFlight;
@@ -5527,15 +5591,35 @@ window.addEventListener("DOMContentLoaded", async () => {
     return [...listEl.querySelectorAll(".dl-item:not(.hidden)")];
   }
 
+  let paintedSelection = new Set();
+  let paintedFocusGid = null;
+
   function paintSelection() {
     const rows = visibleItemRows();
     const focusGid = selected.size ? selectAnchor : rows[0]?.dataset.gid;
-    for (const li of listEl.querySelectorAll(".dl-item")) {
-      const on = selected.has(li.dataset.gid);
-      li.classList.toggle("is-selected", on);
-      li.setAttribute("aria-selected", String(on));
-      li.tabIndex = li.dataset.gid === focusGid ? 0 : -1;
+    const changed = new Set([...paintedSelection, ...selected]);
+    for (const gid of changed) {
+      const li = rowEl(gid);
+      if (!li) continue;
+      const on = selected.has(gid);
+      if (li.classList.contains("is-selected") !== on) {
+        li.classList.toggle("is-selected", on);
+      }
+      if (li.getAttribute("aria-selected") !== String(on)) {
+        li.setAttribute("aria-selected", String(on));
+      }
     }
+    if (paintedFocusGid !== focusGid) {
+      const previous = rowEl(paintedFocusGid);
+      if (previous && previous !== rowEl(focusGid)) previous.tabIndex = -1;
+      const next = rowEl(focusGid);
+      if (next) next.tabIndex = 0;
+    } else if (focusGid) {
+      const focused = rowEl(focusGid);
+      if (focused && focused.tabIndex !== 0) focused.tabIndex = 0;
+    }
+    paintedSelection = new Set(selected);
+    paintedFocusGid = focusGid || null;
     renderToolbar();
   }
 

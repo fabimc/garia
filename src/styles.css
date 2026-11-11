@@ -690,6 +690,13 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     transition: background 0.12s;
     cursor: pointer;
 }
+@supports (content-visibility: auto) {
+    .dl-item {
+        /* Reserve a typical row height while skipping offscreen row layout. */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 3.25rem;
+    }
+}
 .dl-item:hover {
     background: var(--tint);
 }

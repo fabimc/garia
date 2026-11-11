@@ -1,0 +1,9 @@
+{
+  "feature": "large-list-scale",
+  "entryPoint": "Queued filter, then row click",
+  "view": "Queued",
+  "count": "505 items",
+  "visibleRows": 505,
+  "selectedName": "bench-499.bin",
+  "selected": "true"
+}
