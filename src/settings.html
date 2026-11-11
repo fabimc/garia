@@ -3,6 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="color-scheme" content="light dark" />
         <title>Settings</title>
         <link rel="stylesheet" href="styles.css" />
         <script>
@@ -132,9 +133,8 @@
                             <input type="checkbox" id="settings-notify" />
                             <span>Notify me when a download finishes</span>
                         </label>
-                        <p class="field-hint">
-                            A notification, plus a count on the Dock icon while
-                            Garia is in the background.
+                        <p class="field-hint" id="settings-notify-hint">
+                            A desktop notification appears when a download finishes.
                         </p>
                     </div>
 
@@ -149,10 +149,10 @@
                         </p>
                         <details class="field-more">
                             <summary title="More info"><span class="info-dot" aria-label="More info">ⓘ</span></summary>
-                            <p>
-                                Closing the window is still fine. This starts
-                                the app at login — it does not keep a window
-                                open.
+                            <p id="settings-autostart-hint">
+                                At login, Garia starts the download engine for
+                                unfinished or scheduled downloads. You can close
+                                or hide the window afterward.
                             </p>
                         </details>
                     </div>
@@ -459,7 +459,7 @@
                         </p>
                         <details class="field-more">
                             <summary title="More info"><span class="info-dot" aria-label="More info">ⓘ</span></summary>
-                            <p>
+                            <p id="settings-extension-instructions">
                                 Chrome, Edge, Brave, or Arc — open
                                 <code>chrome://extensions</code>, turn on
                                 Developer mode, Load unpacked, and choose the
@@ -475,7 +475,7 @@
                                 once, then enable it under Safari → Settings →
                                 Extensions. Right-click a page to send every
                                 link, then uncheck the ones you don’t want.
-                                Hold Option while clicking a file to leave it
+                                Hold Option (or Alt) while clicking a file to leave it
                                 with the browser. The player button sends the
                                 page, not the stream — × hides it until the
                                 next video.

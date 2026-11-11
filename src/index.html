@@ -3,6 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="color-scheme" content="light dark" />
         <title>Garia</title>
         <link rel="stylesheet" href="styles.css" />
         <script>
@@ -468,6 +469,12 @@
 
                 <div class="content-body">
                     <div class="content-main">
+                        <p
+                            id="engine-status"
+                            class="engine-status hidden"
+                            role="status"
+                            aria-live="polite"
+                        ></p>
                         <div class="dl-table">
                             <div
                                 id="col-head"
@@ -1240,7 +1247,7 @@
                 <div class="modal-body help-body">
                     <dl class="help-list">
                         <dt>Add a download</dt>
-                        <dd>
+                        <dd id="help-add-copy">
                             File → New Download (⌘N), Open Torrent (⌘O), or
                             drop a torrent on the window. A magnet or
                             <code>.torrent</code> the system opens is
@@ -1251,7 +1258,7 @@
                             bookmarklet sends the page you are on.
                         </dd>
                         <dt>The window is not the app</dt>
-                        <dd>
+                        <dd id="help-window-copy">
                             The red button and ⌘W hide the list. Downloads
                             keep going. ⌘Q is the only quit.
                         </dd>
@@ -1259,14 +1266,33 @@
                         <dd>
                             Click selects. Arrows move the selection; ⌘A
                             selects all. Double-click or Enter opens
-                            detail. Space pauses. ⌘C copies the URL. ⌘⌫
-                            removes. ⌥↑ / ⌥↓ reorder a queued row — hold
-                            Shift for either end. Right-click also moves a
-                            selection to the top or the end, copies the file
-                            path, or removes the row and keeps the file.
-                            Download → Retry Failed and Clear Completed
-                            cover the whole list. ⌘F finds. ⌘? opens this
-                            sheet. Esc closes menus.
+                            detail. Space pauses or resumes while the list
+                            has focus. ⌘C copies the URL. ⌘⌫ removes.
+                            ⌥↑ / ⌥↓ reorder a queued row — hold Shift for
+                            either end. Right-click also moves a selection
+                            to the top or the end, copies the file path, or
+                            removes the row and keeps the file. Download →
+                            Retry Failed and Clear Completed cover the whole
+                            list. ⌘F finds. ⌘? opens this sheet. Escape
+                            closes the topmost dialog, then the inspector.
+                        </dd>
+                        <dt id="help-reveal-term">Show in folder</dt>
+                        <dd id="help-reveal-copy">
+                            Show in Finder opens the download's containing
+                            folder and selects the file.
+                        </dd>
+                        <dt>Keyboard-only path</dt>
+                        <dd>
+                            ⌘N opens New Download; paste a URL and press
+                            Enter (⌘↩ submits several). Tab to the sidebar,
+                            use ↑ / ↓ to choose a filter, then Enter. Focus
+                            the list for Space / Enter / ⌘C / ⌘⌫ — those
+                            keys stay with the focused control when the
+                            list is not focused. In the list, ↑ / ↓ selects;
+                            Space pauses or resumes. ⌘I opens details; Tab
+                            to reveal the file. ⌘F finds. Close the window
+                            to hide downloads; reopen Garia from the tray
+                            or app launcher. ⌘Q quits.
                         </dd>
                         <dt>Video downloads</dt>
                         <dd>
@@ -1349,8 +1375,11 @@
                     </button>
                 </div>
                 <div class="modal-body setup-body">
-                    <p class="setup-lead">
+                    <p class="setup-lead setup-generic">
                         Four things to check before the first download.
+                    </p>
+                    <p class="setup-lead setup-linux-only">
+                        Linux / Omarchy: four quick checks before your first download.
                     </p>
                     <div class="setup-row">
                         <div class="setup-row-head">
@@ -1364,9 +1393,12 @@
                             </button>
                         </div>
                         <p id="setup-dir" class="setup-value is-path">—</p>
-                        <p class="field-hint">New files are saved here.</p>
+                        <p class="field-hint setup-generic">New files are saved here.</p>
+                        <p class="field-hint setup-linux-only">
+                            New downloads go here. Confirm this location or choose another before adding a link.
+                        </p>
                     </div>
-                    <div class="setup-row">
+                    <div class="setup-row setup-generic">
                         <div class="modal-label">Categories</div>
                         <label class="field-check" for="setup-categories">
                             <input type="checkbox" id="setup-categories" />
@@ -1374,7 +1406,7 @@
                         </label>
                         <p id="setup-categories-hint" class="field-hint"></p>
                     </div>
-                    <div class="setup-row">
+                    <div class="setup-row setup-generic">
                         <div class="modal-label">Video pages</div>
                         <p id="setup-video" class="setup-value">Checking…</p>
                     </div>
@@ -1389,18 +1421,52 @@
                                 Show extension folder
                             </button>
                         </div>
-                        <p class="field-hint">
+                        <p class="field-hint setup-generic">
                             Load the folder as an unpacked extension in Chrome,
                             Edge, Brave, Arc, or Firefox. Or drag the bookmarklet
                             to your bookmarks bar.
                         </p>
+                        <p class="field-hint setup-linux-only">
+                            In Omarchy Chromium, open <code>chrome://extensions</code>,
+                            enable Developer mode, choose Load unpacked, then select
+                            the folder opened by this button.
+                            <a href="https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md" target="_blank" rel="noreferrer">Extension steps</a>
+                            ·
+                            <a href="https://github.com/fabimc/garia#linux" target="_blank" rel="noreferrer">Omarchy install notes</a>
+                        </p>
                         <a
                             id="setup-bookmarklet"
-                            class="bookmarklet"
+                            class="bookmarklet setup-generic"
                             href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
                             >Send this page to Garia</a
                         >
                         <p id="setup-extension-error" class="error hidden"></p>
+                    </div>
+                    <div class="setup-row setup-linux-only">
+                        <div class="setup-row-head">
+                            <div class="modal-label">Tray and login</div>
+                            <button type="button" class="btn-secondary" id="setup-settings">
+                                Open Settings
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            Closing the window hides Garia and leaves downloads running.
+                            Restore it from the tray, or launch it again if the tray is
+                            unavailable. Quit stops downloads. Notifications and login
+                            autostart are optional in Settings.
+                        </p>
+                    </div>
+                    <div class="setup-row setup-linux-only">
+                        <div class="setup-row-head">
+                            <div class="modal-label">Keyboard shortcuts</div>
+                            <button type="button" class="btn-secondary" id="setup-help">
+                                Open Help
+                            </button>
+                        </div>
+                        <p class="field-hint">
+                            Help lists the Ctrl shortcuts and a keyboard-only path from
+                            adding a download to managing it.
+                        </p>
                     </div>
                 </div>
                 <div class="modal-footer">

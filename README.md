@@ -43,6 +43,12 @@ chmod +x Garia_<version>_amd64.AppImage
 
 The AppImage is a temporary portable option: it is not managed by pacman and does not register a system menu entry or file and magnet handlers. OPR is the intended Omarchy install path.
 
+For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to an icon rail and optional list columns compact as the pane narrows; below the minimum width, use a floating window.
+
+Garia advertises light and dark `color-scheme` support and keeps its own palette under the system preference; it does not attempt to mirror every Omarchy theme. Live WebKitGTK toggle-without-relaunch behavior still needs host confirmation.
+
+For Chromium capture on Omarchy, see the [browser extension setup](docs/Browser-Capture.md#omarchy-chromium).
+
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation

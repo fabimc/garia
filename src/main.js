@@ -98,8 +98,8 @@ import {
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
-// Host OS for copy and chrome. The browser mock stays on macOS so the
-// traffic-light padding and ⌘ hints still show what the Mac build looks like.
+// Host OS for copy and chrome. The browser mock defaults to macOS, with a
+// query override for platform-specific browser-dev checks.
 let platform = "macos";
 
 function isMac() {
@@ -118,6 +118,44 @@ function computerLabel() {
   return isMac() ? "This Mac" : "This computer";
 }
 
+function localizeShortcutText(text) {
+  if (isMac()) return text;
+  return text
+    .replaceAll("⌘", modGlyph())
+    // Chorded Option keys need Alt+; a bare ⌥ becomes Alt (no trailing plus).
+    .replaceAll(/⌥(?=[\w↑↓←→⌫↩])/g, "Alt+")
+    .replaceAll("⌥", "Alt")
+    .replaceAll("⌫", "Backspace")
+    .replaceAll("↩", "Enter");
+}
+
+function altArrowHint() {
+  return isMac() ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓";
+}
+
+function enterHint() {
+  return isMac() ? "↩" : "Enter";
+}
+
+function deleteShortcutHint() {
+  return isMac() ? `${modGlyph()}⌫` : `${modGlyph()}Backspace`;
+}
+
+function localizeShortcutHints() {
+  if (isMac()) return;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    walker.currentNode.textContent = localizeShortcutText(walker.currentNode.textContent);
+  }
+  for (const element of document.body.querySelectorAll("[title], [placeholder], [aria-label]")) {
+    for (const attribute of ["title", "placeholder", "aria-label"]) {
+      if (element.hasAttribute(attribute)) {
+        element.setAttribute(attribute, localizeShortcutText(element.getAttribute(attribute)));
+      }
+    }
+  }
+}
+
 async function initPlatform() {
   const invoke = window.__TAURI__?.core?.invoke;
   if (typeof invoke === "function") {
@@ -125,6 +163,11 @@ async function initPlatform() {
       platform = await invoke("platform");
     } catch {
       platform = "macos";
+    }
+  } else {
+    const mockPlatform = new URLSearchParams(location.search).get("platform");
+    if (["macos", "linux", "windows"].includes(mockPlatform)) {
+      platform = mockPlatform;
     }
   }
   const root = document.documentElement;
@@ -142,10 +185,39 @@ async function initPlatform() {
   if (detailReveal) detailReveal.textContent = ACTION_TITLES.reveal;
   const kbd = document.querySelector(".kbd-hint kbd");
   if (kbd) kbd.textContent = `${modGlyph()}F`;
-  const emptySub = document.getElementById("empty-sub");
-  if (emptySub && emptySub.textContent.includes("⌘N")) {
-    emptySub.textContent = emptySub.textContent.replace("⌘N", `${modGlyph()}N`);
+  localizeShortcutHints();
+  const addHelp = document.getElementById("help-add-copy");
+  if (addHelp && !isMac()) {
+    addHelp.textContent =
+      "File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or drop a torrent " +
+      "on the window. A magnet or .torrent the system opens is queued, not " +
+      "offered. The browser extension in Settings (Ctrl+,) → Browser takes a " +
+      "clicked file, and the bookmarklet sends the page you are on.";
   }
+  const windowHelp = document.getElementById("help-window-copy");
+  if (windowHelp && platform === "linux") {
+    windowHelp.textContent =
+      "The close button and Ctrl+W hide the list. Downloads keep going. " +
+      "Ctrl+Q quits, and Tray → Quit stops downloads. Restore Garia from the " +
+      "tray, or reopen it from the application launcher if the tray is " +
+      "unavailable; the existing window returns.";
+  } else if (windowHelp && platform === "windows") {
+    windowHelp.textContent =
+      "Closing the window or Ctrl+W closes the list. Downloads stop when Garia " +
+      "quits. Ctrl+Q quits. Reopen Garia from the taskbar or Start menu.";
+  }
+  const revealHelp = document.getElementById("help-reveal-copy");
+  if (revealHelp && platform === "linux") {
+    revealHelp.textContent =
+      "Show in folder asks the desktop file manager to reveal the download. " +
+      "If selection is unavailable, the desktop portal opens its location; " +
+      "selection behavior depends on the file manager and desktop session.";
+  } else if (revealHelp && platform === "windows") {
+    revealHelp.textContent =
+      "Show in folder opens File Explorer and selects the download.";
+  }
+  const revealHelpTerm = document.getElementById("help-reveal-term");
+  if (revealHelpTerm) revealHelpTerm.textContent = revealLabel();
 }
 
 // aria2 usually gets port 6800, but the backend falls back to a free one when
@@ -760,21 +832,39 @@ function loginOptions(url) {
 // which aria2 then fetches in parallel like anything else, so a video download
 // is as fast, as resumable, and as visible in the list as every other row.
 
-// What the backend found to work with, asked for once at launch.
+// What the backend found to work with, loaded only when video tools are needed.
 let videoTools = { version: "", source: "", ffmpeg: false, ffmpegSource: "" };
+let videoToolsLoaded = false;
+let videoToolsRequest = null;
 
 async function loadVideoTools() {
   const invoker = window.__TAURI__?.core?.invoke;
-  if (typeof invoker !== "function") return;
-  try {
-    videoTools = await invoker("video_tools");
-  } catch (err) {
-    console.error(err);
+  if (typeof invoker !== "function") {
+    videoToolsLoaded = true;
+    return;
   }
-  renderVideoTools();
+  if (videoToolsRequest) return videoToolsRequest;
+  videoToolsRequest = (async () => {
+    try {
+      videoTools = await invoker("video_tools");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      videoToolsLoaded = true;
+      renderVideoTools();
+    }
+  })();
+  try {
+    await videoToolsRequest;
+  } finally {
+    videoToolsRequest = null;
+  }
 }
 
 function videoToolsSummary() {
+  if (!videoToolsLoaded) {
+    return { text: "Checking yt-dlp and ffmpeg…", missing: false };
+  }
   if (!videoTools.version) {
     return {
       text:
@@ -1822,7 +1912,11 @@ let visibleCols = columnsByView[viewColumnKey("all")] || loadColumns();
 // so Name keeps enough room to be read. The user's column choice is left
 // alone; only what is painted changes.
 const COMPACT_LIST_PX = 720;
-const COMPACT_HIDDEN = new Set(["speed", "eta", "upspeed", "connections", "source", "category", "saved"]);
+const COMPACT_HIDDEN = new Set([
+  "speed", "eta", "upspeed", "connections", "source", "category", "saved",
+  // Completed/Seeding extras overflow the Linux 660px tile with the icon rail.
+  "open", "ratio", "finished",
+]);
 let compactList = false;
 
 function columnChosen(id) {
@@ -1917,11 +2011,12 @@ function syncColLayout() {
   if (!table) return;
   // Compact: Status also carries the speed, so it shares the spare width with
   // Name instead of being pinned at 12rem and cutting "81% · 2…".
-  const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)"
+  const statusTrack = activeFilter === "error"
+    ? (compactList ? "minmax(10.5rem, 1.5fr)" : "minmax(14rem, 1.5fr)")
     : compactList ? "minmax(10.5rem, 0.9fr)"
     : "minmax(10.5rem, 12rem)";
-  const tracks = ["22px", "minmax(10rem, 1fr)"];
-  if (columnOn("size")) tracks.push("7.4rem");
+  const tracks = ["22px", compactList ? "minmax(8rem, 1fr)" : "minmax(10rem, 1fr)"];
+  if (columnOn("size")) tracks.push(compactList ? "6.4rem" : "7.4rem");
   tracks.push(statusTrack);
   for (const spec of extraColSpecs()) tracks.push(spec.width);
   tracks.push("max-content");
@@ -2106,7 +2201,7 @@ function createItemEl(dl) {
   li.innerHTML = `
     <div class="dl-lead">
       <span class="dl-icon" aria-hidden="true"></span>
-      <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
+      <span class="dl-grip" title="Drag to reorder the queue — or ${altArrowHint()}">${GRIP_ICON}</span>
     </div>
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
@@ -2578,21 +2673,45 @@ const resumedGids = new Set();
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
+let engineStartupTimer = 0;
 // Whether the filter pass has anything to do. It touches every row, so the
 // poll runs it only when a row's status, name or category moved, a row came
 // or went, or the connection did — searching and switching views run it
 // directly.
 let filterDirty = true;
+let filterGeneration = 0;
+const LARGE_LIST_THRESHOLD = 64;
+const FILTER_BATCH_SIZE = 16;
+const RENDER_BATCH_SIZE = 8;
 let onFilterApplied = () => {};
 let listHost = null;
 let afterPoll = () => {};
 let pollInFlight = null;
 let pollQueued = false;
+// While poll mutates the list DOM, external filter passes wait so yields cannot
+// interleave hide toggles with create/reorder.
+let pollDomLock = null;
+let filterInFlight = null;
 
 function applyFilter(listEl) {
+  filterInFlight = applyFilterAsync(listEl, { waitForPoll: true })
+    .catch((err) => console.error(err))
+    .finally(() => { filterInFlight = null; });
+  return filterInFlight;
+}
+
+async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
+  if (waitForPoll && pollDomLock) await pollDomLock;
+  if (document.hidden) {
+    filterDirty = true;
+    return;
+  }
+  const generation = ++filterGeneration;
   filterDirty = false;
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
+  const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
+  const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
   // Headers only earn their keep in the combined view; a single-status filter
   // would just repeat its own name. A package filter still wants them so the
   // grab reads as queued / running / failed the way JDownloader's packages do.
@@ -2604,6 +2723,8 @@ function applyFilter(listEl) {
   let inSection = 0;
 
   let lastShown = null;   // last visible row of the section being walked
+  const children = [...listEl.children];
+  let processed = 0;
 
   const closeSection = () => {
     if (header) {
@@ -2616,32 +2737,42 @@ function applyFilter(listEl) {
     lastShown = null;
   };
 
-  for (const el of listEl.children) {
+  for (const el of children) {
     if (el.classList.contains("dl-section")) {
       closeSection();
       header = el;
       inSection = 0;
-      continue;
+    } else {
+      const rowStatus = sidebarViewOf(el.dataset.status);
+      const statusMatch = pkgId
+        ? el.dataset.package === pkgId
+        : catId
+          ? el.dataset.category === catId
+          : activeFilter === "torrents"
+            ? el.dataset.torrent === "true"
+            : activeFilter === "all" || rowStatus === activeFilter;
+      const nameMatch = !needle
+        || el.dataset.name.toLowerCase().includes(needle)
+        || String(el.dataset.tags || "").toLowerCase().includes(needle);
+      const match = statusMatch && nameMatch;
+      el.classList.toggle("hidden", !match);
+      el.classList.remove("is-last-shown");
+      if (match) { visible++; inSection++; lastShown = el; }
     }
-    const rowStatus = sidebarViewOf(el.dataset.status);
-    const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
-    const pkgId = activeFilter.startsWith("pkg:") ? activeFilter.slice(4) : "";
-    const statusMatch = pkgId
-      ? el.dataset.package === pkgId
-      : catId
-        ? el.dataset.category === catId
-        : activeFilter === "torrents"
-          ? el.dataset.torrent === "true"
-          : activeFilter === "all" || rowStatus === activeFilter;
-    const nameMatch = !needle
-      || el.dataset.name.toLowerCase().includes(needle)
-      || String(el.dataset.tags || "").toLowerCase().includes(needle);
-    const match = statusMatch && nameMatch;
-    el.classList.toggle("hidden", !match);
-    el.classList.remove("is-last-shown");
-    if (match) { visible++; inSection++; lastShown = el; }
+
+    processed++;
+    if (children.length > LARGE_LIST_THRESHOLD &&
+        processed % FILTER_BATCH_SIZE === 0 && processed < children.length) {
+      await yieldToPaint();
+      if (generation !== filterGeneration) return;
+      if (document.hidden) {
+        filterDirty = true;
+        return;
+      }
+    }
   }
   closeSection();
+  if (generation !== filterGeneration) return;
 
   document.getElementById("view-count").textContent =
     visible === 1 ? "1 item" : `${visible} items`;
@@ -3343,7 +3474,7 @@ async function detailData(gid) {
     };
   }
   if (pulledHeavy) cache.at = now;
-  detailCache.set(gid, cache);
+  if (detailGid === gid && detailGids.length === 1) detailCache.set(gid, cache);
   return { gid, row, job: row?.job || null, parts };
 }
 
@@ -4644,6 +4775,9 @@ function openDetail(gidOrGids) {
     return;
   }
   const keep = new Set(next);
+  for (const gid of [...detailCache.keys()]) {
+    if (!keep.has(gid)) detailCache.delete(gid);
+  }
   for (const gid of [...fileSelection.keys()]) {
     if (!keep.has(gid)) fileSelection.delete(gid);
   }
@@ -4671,7 +4805,7 @@ function closeDetail() {
   // An unapplied pick is a thought, not a setting: it goes when the panel does.
   fileSelection.clear();
   filePriorityDraft.clear();
-  detailCache.delete(detailGid);
+  detailCache.clear();
   detailGid = null;
   detailGids = [];
   document.getElementById("detail-pane")?.classList.add("hidden");
@@ -4780,8 +4914,36 @@ function syncStatusItem(active) {
 }
 
 function setConn(state) {
-  if (state !== connState) filterDirty = true;
+  const changed = state !== connState;
+  if (changed) filterDirty = true;
   connState = state;
+  const engineStatus = document.getElementById("engine-status");
+  clearTimeout(engineStartupTimer);
+  engineStartupTimer = 0;
+  if (state === "ok") {
+    if (engineStatus && !engineStatus.classList.contains("hidden")) {
+      engineStatus.classList.add("hidden");
+      engineStatus.classList.remove("is-error");
+    }
+  } else if (state === "error") {
+    // Avoid rewriting aria-live polite text every failed poll tick.
+    if (engineStatus && (changed || engineStatus.classList.contains("hidden"))) {
+      engineStatus.textContent =
+        "Downloads engine unavailable. Garia will keep trying to connect.";
+      engineStatus.classList.remove("hidden");
+      engineStatus.classList.add("is-error");
+    }
+  } else {
+    engineStatus?.classList.remove("is-error");
+    engineStartupTimer = setTimeout(() => {
+      engineStartupTimer = 0;
+      if (connState !== "waiting" || !engineStatus) return;
+      if (engineStatus.classList.contains("hidden")) {
+        engineStatus.textContent = "Starting downloads engine…";
+        engineStatus.classList.remove("hidden");
+      }
+    }, 1000);
+  }
   const dot = document.getElementById("conn-dot");
   const text = document.getElementById("conn-text");
   dot.className = `conn-dot conn-${state}`;
@@ -4900,7 +5062,30 @@ async function fetchLists() {
   };
 }
 
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    let frame = 0;
+    let timer = 0;
+    let resumed = false;
+    const finish = () => {
+      if (resumed) return;
+      resumed = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      resolve();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) finish();
+    };
+    frame = requestAnimationFrame(finish);
+    timer = setTimeout(finish, 100);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  });
+}
+
 async function poll(listEl) {
+  let releasePollDom = null;
   try {
     const [{ active, waiting, stopped }] = await Promise.all([
       fetchLists(),
@@ -4957,6 +5142,12 @@ async function poll(listEl) {
     const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
     const seen = new Set();
+    let renderedRows = 0;
+    // Serialize with applyFilterAsync: cancel any in-flight filter, then hold
+    // the lock through create/update/reorder and the trailing filter pass.
+    pollDomLock = new Promise((resolve) => { releasePollDom = resolve; });
+    filterGeneration++;
+    if (document.hidden) filterDirty = true;
 
     for (const dl of all) {
       seen.add(dl.gid);
@@ -4989,13 +5180,23 @@ async function poll(listEl) {
       if (dl.status === "active") tally.speed += Number(dl.downloadSpeed) || 0;
       if (dl.status === "seeding") tally.upspeed += Number(dl.uploadSpeed) || 0;
 
-      let li = rowEls.get(dl.gid);
-      if (!li) {
-        li = createItemEl(dl);
-        rowEls.set(dl.gid, li);
-        listEl.appendChild(li);
+      if (document.hidden) {
+        filterDirty = true;
+      } else {
+        let li = rowEls.get(dl.gid);
+        if (!li) {
+          li = createItemEl(dl);
+          rowEls.set(dl.gid, li);
+          listEl.appendChild(li);
+        }
+        updateItemEl(li, dl);
+        renderedRows++;
+        if (!pollQueued &&
+            all.length > LARGE_LIST_THRESHOLD &&
+            renderedRows % RENDER_BATCH_SIZE === 0 && renderedRows < all.length) {
+          await yieldToPaint();
+        }
       }
-      updateItemEl(li, dl);
     }
 
     prunePackages(seen);
@@ -5025,37 +5226,41 @@ async function poll(listEl) {
     // through, inserting a section header whenever the status changes. Only
     // touch the DOM when the sequence really changed — moving nodes every tick
     // would cancel hover state and in-flight transitions.
-    const ordered = all.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
-    const desired = [];
-    let lastStatus = null;
-    for (const dl of ordered) {
-      if (dl.status !== lastStatus) {
-        lastStatus = dl.status;
-        desired.push(sectionEl(dl.status));
-      }
-      const li = rowEls.get(dl.gid);
-      if (li) desired.push(li);
-    }
-
-    const current = [...listEl.children];
-    if (!reorderHold &&
-        (current.length !== desired.length || desired.some((n, i) => current[i] !== n))) {
-      const frag = document.createDocumentFragment();
-      for (const node of desired) frag.appendChild(node);
-      listEl.textContent = "";   // drops headers for groups that no longer exist
-      listEl.appendChild(frag);
+    if (document.hidden) {
       filterDirty = true;
-    }
+    } else {
+      const ordered = all.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
+      const desired = [];
+      let lastStatus = null;
+      for (const dl of ordered) {
+        if (dl.status !== lastStatus) {
+          lastStatus = dl.status;
+          desired.push(sectionEl(dl.status));
+        }
+        const li = rowEls.get(dl.gid);
+        if (li) desired.push(li);
+      }
 
-    const usedSections = new Set(
-      desired.filter((n) => n.classList.contains("dl-section")).map((n) => n.dataset.section),
-    );
-    for (const [status, el] of [...sectionEls]) {
-      if (!usedSections.has(status)) sectionEls.delete(status);
-    }
+      const current = [...listEl.children];
+      if (!reorderHold &&
+          (current.length !== desired.length || desired.some((n, i) => current[i] !== n))) {
+        const frag = document.createDocumentFragment();
+        for (const node of desired) frag.appendChild(node);
+        listEl.textContent = "";   // drops headers for groups that no longer exist
+        listEl.appendChild(frag);
+        filterDirty = true;
+      }
 
-    // A queue of one has nowhere to go, and the grab cursor would be a lie.
-    listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
+      const usedSections = new Set(
+        desired.filter((n) => n.classList.contains("dl-section")).map((n) => n.dataset.section),
+      );
+      for (const [status, el] of [...sectionEls]) {
+        if (!usedSections.has(status)) sectionEls.delete(status);
+      }
+
+      // A queue of one has nowhere to go, and the grab cursor would be a lie.
+      listEl.classList.toggle("queue-reorderable", tally.waiting > 1);
+    }
 
     renderCounts(tally);
     syncStatusItem(tally.active);
@@ -5069,10 +5274,19 @@ async function poll(listEl) {
     if (err?.message) text.title = `${text.title} — ${err.message}`;
     syncStatusItem(0);
   } finally {
-    if (filterDirty) applyFilter(listEl);
-    // Whatever the list did, the open detail panel is looking at the same
-    // aria2 and wants the same tick.
-    refreshDetail();
+    try {
+      if (filterDirty && !document.hidden) {
+        await applyFilterAsync(listEl, { waitForPoll: false });
+      }
+      // Whatever the list did, the open detail panel is looking at the same
+      // aria2 and wants the same tick.
+      if (!document.hidden) refreshDetail();
+    } finally {
+      if (releasePollDom) {
+        releasePollDom();
+        pollDomLock = null;
+      }
+    }
   }
 }
 
@@ -5086,6 +5300,7 @@ async function pollAndSync() {
     do {
       pollQueued = false;
       await poll(listHost);
+      // Grab jobs / selection prune still run on the hidden 5s poll.
       afterPoll();
     } while (pollQueued);
   })().finally(() => { pollInFlight = null; });
@@ -5094,6 +5309,7 @@ async function pollAndSync() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
+  setConn("waiting");
   await initPlatform();
 
   window.__TAURI__?.core
@@ -5279,6 +5495,27 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (btn) setFilter(btn.dataset.filter);
   });
 
+  filterBar.addEventListener("keydown", (e) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const current = e.target.closest("button.nav-item[data-filter]");
+    if (!current) return;
+    const items = [...filterBar.querySelectorAll("button.nav-item[data-filter]")]
+      .filter((item) => !item.closest(".hidden") && !item.disabled);
+    const index = items.indexOf(current);
+    if (index < 0 || !items.length) return;
+    const nextIndex = e.key === "Home"
+      ? 0
+      : e.key === "End"
+        ? items.length - 1
+        : Math.max(
+          0,
+          Math.min(items.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)),
+        );
+    e.preventDefault();
+    e.stopPropagation();
+    items[nextIndex].focus();
+  });
+
   nameSearch.addEventListener("input", () => {
     nameFilter = nameSearch.value.trim();
     nameSearchClear.classList.toggle("hidden", !nameSearch.value);
@@ -5306,6 +5543,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
+    loadVideoTools,
     videoToolsSummary,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;
@@ -5380,15 +5618,35 @@ window.addEventListener("DOMContentLoaded", async () => {
     return [...listEl.querySelectorAll(".dl-item:not(.hidden)")];
   }
 
+  let paintedSelection = new Set();
+  let paintedFocusGid = null;
+
   function paintSelection() {
     const rows = visibleItemRows();
     const focusGid = selected.size ? selectAnchor : rows[0]?.dataset.gid;
-    for (const li of listEl.querySelectorAll(".dl-item")) {
-      const on = selected.has(li.dataset.gid);
-      li.classList.toggle("is-selected", on);
-      li.setAttribute("aria-selected", String(on));
-      li.tabIndex = li.dataset.gid === focusGid ? 0 : -1;
+    const changed = new Set([...paintedSelection, ...selected]);
+    for (const gid of changed) {
+      const li = rowEl(gid);
+      if (!li) continue;
+      const on = selected.has(gid);
+      if (li.classList.contains("is-selected") !== on) {
+        li.classList.toggle("is-selected", on);
+      }
+      if (li.getAttribute("aria-selected") !== String(on)) {
+        li.setAttribute("aria-selected", String(on));
+      }
     }
+    if (paintedFocusGid !== focusGid) {
+      const previous = rowEl(paintedFocusGid);
+      if (previous && previous !== rowEl(focusGid)) previous.tabIndex = -1;
+      const next = rowEl(focusGid);
+      if (next) next.tabIndex = 0;
+    } else if (focusGid) {
+      const focused = rowEl(focusGid);
+      if (focused && focused.tabIndex !== 0) focused.tabIndex = 0;
+    }
+    paintedSelection = new Set(selected);
+    paintedFocusGid = focusGid || null;
     renderToolbar();
   }
 
@@ -5482,7 +5740,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") {
         const path = extra.path || rowPath(snapshot.get(gid));
-        if (path) await window.__TAURI__.opener.revealItemInDir(path);
+        const reveal = window.__TAURI__?.opener?.revealItemInDir;
+        if (!path) {
+          failed("Couldn't reveal the file", new Error("No file path is available yet."));
+        } else if (typeof reveal !== "function") {
+          failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
+        } else {
+          await reveal(path);
+        }
       }
       if (action !== "reveal" && extra.poll !== false) await pollAndSync();
     } catch (err) {
@@ -5522,7 +5787,14 @@ window.addEventListener("DOMContentLoaded", async () => {
         path: rowPath(dl),
       })).filter(Boolean))];
       const openPath = window.__TAURI__?.opener?.openPath;
-      if (typeof openPath !== "function") return;
+      if (typeof openPath !== "function") {
+        failed("Couldn't open the containing folder", new Error("The system file manager is unavailable."));
+        return;
+      }
+      if (!folders.length) {
+        failed("Couldn't open the containing folder", new Error("No folder path is available yet."));
+        return;
+      }
       for (const folder of folders) {
         try {
           await openPath(folder);
@@ -5721,6 +5993,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   async function toggleSelectedPause() {
+    const focusedGid = document.activeElement?.closest(".dl-item")?.dataset.gid;
     let changed = false;
     for (const dl of selectedDownloads()) {
       if (dl.status === "active" || dl.status === "waiting") {
@@ -5731,7 +6004,17 @@ window.addEventListener("DOMContentLoaded", async () => {
         changed = true;
       }
     }
-    if (changed) await pollAndSync();
+    if (changed) {
+      await pollAndSync();
+      const focused = focusedGid ? rowEl(focusedGid) : null;
+      if (focused && !focused.classList.contains("hidden")) {
+        focused.focus({ preventScroll: true });
+      } else {
+        const fallback = [...listEl.querySelectorAll(".dl-item:not(.hidden)")]
+          .find((row) => selected.has(row.dataset.gid));
+        (fallback || listEl).focus?.({ preventScroll: true });
+      }
+    }
   }
 
   function sharedPackageOfSelection() {
@@ -5959,7 +6242,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
     items.push({ action: "move-top", label: "Move to Top", disabled: !canMoveTop });
     items.push({ action: "move-end", label: "Move to End", disabled: !canMoveEnd });
-    items.push({ action: "details", label: "Details", shortcut: "↩", disabled: dls.length < 1 });
+    items.push({ action: "details", label: "Details", shortcut: enterHint(), disabled: dls.length < 1 });
     // A contextual menu hides what doesn't apply (the menu bar dims instead),
     // so a finished row isn't followed by a column of greyed-out verbs.
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6027,7 +6310,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
-    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
+    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: deleteShortcutHint() });
     return items;
   }
 
@@ -6623,11 +6906,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("detail-close").addEventListener("click", closeDetail);
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
-    if (!path) return;
+    const reveal = window.__TAURI__?.opener?.revealItemInDir;
+    if (!path) {
+      failed("Couldn't reveal the file", new Error("No file path is available yet."));
+      return;
+    }
+    if (typeof reveal !== "function") {
+      failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
+      return;
+    }
     try {
-      await window.__TAURI__.opener.revealItemInDir(path);
+      await reveal(path);
     } catch (err) {
-      failed("Couldn't show it in Finder", err);
+      failed("Couldn't reveal the file", err);
     }
   });
   inspectorToggle?.addEventListener("click", () => {
@@ -7110,7 +7401,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    if (!selected.size && !listEl.contains(document.activeElement)) return;
+    if (!listEl.contains(document.activeElement)) return;
 
     if ((e.metaKey || e.ctrlKey) && key === "c") {
       e.preventDefault();
@@ -7214,8 +7505,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function openDownloadFolder() {
+    if (!settings.downloadDir) {
+      failed("Couldn't open the download folder", new Error("No download folder is configured."));
+      return;
+    }
     const openPath = window.__TAURI__?.opener?.openPath;
-    if (typeof openPath !== "function" || !settings.downloadDir) return;
+    if (typeof openPath !== "function") {
+      failed("Couldn't open the download folder", new Error("The system file manager is unavailable."));
+      return;
+    }
     openPath(settings.downloadDir).catch((err) => failed("Couldn't open the download folder", err));
   }
 
@@ -7299,6 +7597,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     setupExtError.textContent = "";
     paintSetup();
     openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
+    if (platform !== "linux" && !videoToolsLoaded) {
+      loadVideoTools().then(() => {
+        if (!setupOverlay.classList.contains("hidden")) paintSetup();
+      });
+    }
   }
 
   async function dismissSetup() {
@@ -7371,6 +7674,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("setup-bookmarklet").addEventListener("click", (e) => {
     e.preventDefault();
+  });
+  setupOverlay.addEventListener("click", async (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link || !window.__TAURI__?.opener?.openUrl) return;
+    if (link.classList.contains("bookmarklet")) return;
+    const href = link.getAttribute("href") || "";
+    if (!/^https?:/i.test(href)) return;
+    e.preventDefault();
+    try {
+      await window.__TAURI__.opener.openUrl(link.href);
+    } catch (err) {
+      failed("Couldn't open documentation", err);
+    }
+  });
+  document.getElementById("setup-settings").addEventListener("click", async () => {
+    await dismissSetup();
+    await openSettings();
+  });
+  document.getElementById("setup-help").addEventListener("click", async () => {
+    await dismissSetup();
+    openHelp();
   });
   document.getElementById("help-setup").addEventListener("click", () => {
     closeHelp();
@@ -7622,7 +7946,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     hideCatch();
     closeCapture();
     if (alreadyHaveUrl(url)) return;
-    if (!videoTools.version) await loadVideoTools();
     // A file (or magnet) can go straight in; a page still needs the picker.
     // An FTP directory is the other thing that needs a look first.
     if (isFtpUrl(url) && !looksLikeFtpFile(url)) {
@@ -7645,6 +7968,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
       return;
     }
+    if (!videoTools.version) await loadVideoTools();
     openModal(url);
     await submitUrl();
   }
@@ -7941,7 +8265,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   listenNotificationClicks();
   await hydrateFilePriorities();
   pollAndSync();
-  Promise.all([loadSettings(), loadVideoTools()]).then(() => {
+  loadSettings().then(() => {
     renderCategoryNav();
     renderPackageNav?.();
     if (!settings.setupSeen) openSetup();

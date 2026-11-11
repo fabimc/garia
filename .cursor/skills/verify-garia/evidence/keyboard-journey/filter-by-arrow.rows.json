@@ -1,0 +1,14 @@
+[
+  {
+    "gid": "eeee2222",
+    "name": "nixos-25.05-x86_64.iso",
+    "status": "seeding",
+    "selected": "false"
+  },
+  {
+    "gid": "eeee1111",
+    "name": "archive-linux-isos",
+    "status": "paused",
+    "selected": "false"
+  }
+]

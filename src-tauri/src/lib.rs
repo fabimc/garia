@@ -1837,8 +1837,8 @@ fn read_torrent(path: String) -> Result<String, String> {
     Ok(encode_base64(&bytes))
 }
 
-/// Launch at login lives in a LaunchAgent, not in settings.json: the OS is
-/// the source of truth, and System Settings can turn it off without us.
+/// Launch-at-login is owned by the OS (LaunchAgent on macOS, XDG autostart on
+/// Linux), so Settings reflects changes made outside Garia too.
 #[tauri::command]
 fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -4040,6 +4040,10 @@ fn session_path(dir: &Path) -> PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let autostart_args = Some(vec!["--garia-background"]);
+    #[cfg(not(target_os = "linux"))]
+    let autostart_args = None;
 
     // Linux and Windows start a new process for every link or file the
     // desktop opens. This hands it to the running instance instead — links
@@ -4074,7 +4078,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            autostart_args,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -4118,6 +4122,38 @@ pub fn run() {
             set_status_item
         ])
         .setup(|app| {
+            // Linux windows start hidden so --garia-background can stay
+            // tray-only; show interactive launches immediately so cold start
+            // does not look like a failed launch while aria2 boots.
+            #[cfg(target_os = "linux")]
+            let linux_background = std::env::args().any(|arg| arg == "--garia-background");
+            #[cfg(target_os = "linux")]
+            if !linux_background {
+                match app.get_webview_window("main") {
+                    Some(window) => {
+                        if let Err(e) = window.show() {
+                            eprintln!("[garia] Could not show the main window: {e}");
+                        }
+                    }
+                    None => eprintln!("[garia] Main window was unavailable during startup"),
+                }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // Rewrite an existing XDG autostart Exec so upgrades pick up
+                // --garia-background without requiring the user to toggle it.
+                use tauri_plugin_autostart::ManagerExt;
+                match app.autolaunch().is_enabled() {
+                    Ok(true) => {
+                        if let Err(e) = app.autolaunch().enable() {
+                            eprintln!("[garia] Could not refresh autostart entry: {e}");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!("[garia] Could not read autostart state: {e}"),
+                }
+            }
+
             let dir = app
                 .path()
                 .app_data_dir()
@@ -4576,6 +4612,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     let clear_completed = MenuItemBuilder::with_id("clear-completed", "Clear Completed").build(app)?;
     let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder").build(app)?;
     let show = MenuItemBuilder::with_id("show-window", "Show Garia").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&new_download)
@@ -4592,6 +4629,8 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&open_folder)
         .separator()
         .item(&show)
+        .separator()
+        .item(&quit)
         .build()?;
 
     // macOS: template silhouette (black on clear). The dock icon is the
@@ -4612,6 +4651,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     tray
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
+            "quit" => app.exit(0),
             id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
                 | "retry-failed" | "clear-completed" | "open-folder") => {
                 bring_to_front(app);

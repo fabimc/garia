@@ -2,18 +2,26 @@
 
 ## Close vs quit
 
-- Close / red button / ⌘W: hide the window. aria2 keeps running. Dock / tray bring it back.
+- Closing the window hides it; aria2 keeps running. The Dock, tray, or app launcher can bring it back.
 - Quit (⌘Q): save session, stop aria2, exit.
 - Window size and position survive quit.
 
 ## Dock and tray
 
-- macOS dock menu and Linux tray mirror verbs: New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, Open Download Folder.
-- Menu-bar extra while the window is hidden shows running count.
+- The macOS dock menu and desktop tray provide New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, and Open Download Folder.
+- The tray also provides Show Garia and Quit. On Linux, relaunching Garia from the application launcher restores the existing instance if the Wayland tray host is unavailable.
+- macOS menu-bar extra shows the running count while the window is hidden.
 
 ## Launch at login
 
-macOS LaunchAgent toggled from Settings so overnight schedules do not wait for a manual open.
+- macOS uses a LaunchAgent; Linux uses an XDG autostart entry.
+- Linux autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
+- Settings reports errors when the autostart state cannot be read or changed.
+
+## Notifications
+
+- Completion notifications use the desktop notification service.
+- Enabling notifications checks or requests permission; denied or unavailable notification services are reported in Settings.
 
 ## Crash recovery
 

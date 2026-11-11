@@ -1,0 +1,82 @@
+url: http://127.0.0.1:8765/?platform=linux
+title: Garia
+conn: aria2 · 127.0.0.1:6800
+view: Torrents
+
+- complementary:
+  - text: garia
+  - button "Hide sidebar":
+    - img
+  - button "Add download":
+    - img
+    - text: Add download
+  - navigation:
+    - text: Library
+    - button "All Downloads 25":
+      - img
+      - text: All Downloads 25
+    - button "Torrents 2":
+      - img
+      - text: Torrents 2
+    - button "Active 4":
+      - img
+      - text: Active 4
+    - button "Seeding 1":
+      - img
+      - text: Seeding 1
+    - button "Queued 6":
+      - img
+      - text: Queued 6
+    - button "Paused 3":
+      - img
+      - text: Paused 3
+    - text: Archive
+    - button "Completed 5":
+      - img
+      - text: Completed 5
+    - button "Failed 6":
+      - img
+      - text: Failed 6
+  - button "Settings":
+    - img
+    - text: Settings
+- main:
+  - heading "Torrents" [level=1]
+  - text: 2 items
+  - button "Stop seeding"
+  - button "Columns":
+    - img
+    - text: Columns
+  - button "Inspector"
+  - img
+  - searchbox "Search downloads…"
+  - row "Name Size Status Speed Time left"
+  - listbox "Downloads":
+    - text: Seeding 1
+    - button "View all"
+    - option "nixos-25.0 5-x86_64.iso 740.0 MB Seeding · 0.94 ↑ 1.4 MB/s — Stop uploading this torrent and file it as done — seeding it again means adding the torrent again Show in folder Delete download":
+      - img
+      - button "nixos-25.0 5-x86_64.iso"
+      - text: 740.0 MB Seeding · 0.94 ↑ 1.4 MB/s —
+      - button "Stop uploading this torrent and file it as done — seeding it again means adding the torrent again":
+        - img
+      - button "Show in folder":
+        - img
+      - button "Delete download":
+        - img
+    - text: Paused 1
+    - button "View all"
+    - option "archive-linux-isos 1.8 GB 83% · Paused — — Resume Show in folder Delete download":
+      - img
+      - button "archive-linux-isos"
+      - text: 1.8 GB 83% · Paused — —
+      - button "Resume":
+        - img
+      - button "Show in folder":
+        - img
+      - button "Delete download":
+        - img
+- contentinfo:
+  - text: aria2 · 127.0.0.1:6800 · 4 downloading · 1 seeding · 6 queued · 3 paused · 5 done · 6 failed ·
+  - button "Full speed"
+  - text: ↓ 10.6 MB/s ↑ 1.4 MB/s Ctrl+F search
