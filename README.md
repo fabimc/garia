@@ -45,6 +45,8 @@ The AppImage is a temporary portable option: it is not managed by pacman and doe
 
 For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to an icon rail and optional list columns compact as the pane narrows; below the minimum width, use a floating window.
 
+Garia follows the desktop light/dark preference while keeping its own palette; it does not attempt to mirror every Omarchy theme.
+
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation
