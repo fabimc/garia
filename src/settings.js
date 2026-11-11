@@ -144,6 +144,14 @@ async function initPlatform() {
       "At login, Garia starts the download engine without opening a tiled window. " +
       "Reopen it from the tray, or from the application launcher if the tray is unavailable.";
   }
+  const extensionInstructions = document.getElementById("settings-extension-instructions");
+  if (extensionInstructions && platform === "linux") {
+    extensionInstructions.textContent =
+      "For Omarchy Chromium, open chrome://extensions, enable Developer mode, choose " +
+      "Load unpacked, and select the folder opened above. Hold Alt while clicking a " +
+      "file to leave it with Chromium. The AppImage does not register garia://; use " +
+      "the packaged OPR install for system handoff.";
+  }
   const machine = computerLabel().replace(/^This /, "this ");
   const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
   const shutdown = document.querySelector('input[name="done-action"][value="shutdown"]');

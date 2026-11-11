@@ -6,6 +6,18 @@ A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner r
 
 The extension lives in `extensions/garia`. Settings → Browser → Show extension folder opens it. Chrome, Edge, Brave, and Arc load that folder unpacked. Firefox loads the same `manifest.json` from `about:debugging` (Load Temporary Add-on) until addons.mozilla.org signs it. Safari cannot cancel its own downloads, so the same package captures file-link clicks, the context menu, and the on-page Download button; `scripts/make-safari-extension.sh` runs Apple's converter. Right-click the page to send every link, reviewed in the add dialog. `npm run ext:pack` writes the two store zips; [Publishing the browser extension](Publishing-the-Extension.md) is the Chrome Web Store and AMO checklist.
 
-The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS only routes them to an app it has registered, so they work from `tauri build` output — not from `tauri dev`, where the binary isn't a bundle.
+## Omarchy: Chromium
+
+The package-bundled unpacked extension is the supported Omarchy install path; Chromium's Web Store is not required.
+
+1. Install Garia from Omarchy's OPR (`garia-bin`) when available, so the system can register the `garia://` handoff. The interim AppImage does not register protocol or file associations.
+2. In Garia, open Settings → Browser → **Show extension folder**.
+3. In Chromium, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the folder opened in the previous step.
+4. Click a normal file link; Garia's capture sheet opens in the running app. Confirm it to add the download. Hold **Alt** while clicking to leave that file with Chromium.
+5. The extension hands captures to Garia with `garia://`. A later handoff focuses the existing instance rather than starting a second tiled window.
+
+The bundled extension path is available in packaged builds, not `tauri dev`. If the system does not have a `garia://` handler, use a packaged install; Omarchy package availability and host validation are tracked by [#108](https://github.com/fabimc/garia/issues/108)–[#110](https://github.com/fabimc/garia/issues/110).
+
+The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS and Linux route them only after a package registers the app; they do not work from `tauri dev`, where the binary is not installed as a desktop app.
 
 The extension [privacy policy](../extensions/PRIVACY.md) is what the stores need as a public URL.

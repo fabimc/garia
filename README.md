@@ -47,6 +47,8 @@ For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to
 
 Garia advertises light and dark `color-scheme` support and keeps its own palette under the system preference; it does not attempt to mirror every Omarchy theme. Live WebKitGTK toggle-without-relaunch behavior still needs host confirmation.
 
+For Chromium capture on Omarchy, see the [browser extension setup](docs/Browser-Capture.md#omarchy-chromium).
+
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation
