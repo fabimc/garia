@@ -118,22 +118,39 @@ function computerLabel() {
   return isMac() ? "This Mac" : "This computer";
 }
 
+function localizeShortcutText(text) {
+  if (isMac()) return text;
+  return text
+    .replaceAll("⌘", modGlyph())
+    // Chorded Option keys need Alt+; a bare ⌥ becomes Alt (no trailing plus).
+    .replaceAll(/⌥(?=[\w↑↓←→⌫↩])/g, "Alt+")
+    .replaceAll("⌥", "Alt")
+    .replaceAll("⌫", "Backspace")
+    .replaceAll("↩", "Enter");
+}
+
+function altArrowHint() {
+  return isMac() ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓";
+}
+
+function enterHint() {
+  return isMac() ? "↩" : "Enter";
+}
+
+function deleteShortcutHint() {
+  return isMac() ? `${modGlyph()}⌫` : `${modGlyph()}Backspace`;
+}
+
 function localizeShortcutHints() {
   if (isMac()) return;
-  const replaceShortcuts = (text) =>
-    text
-      .replaceAll("⌘", modGlyph())
-      .replaceAll("⌥", "Alt+")
-      .replaceAll("⌫", "Backspace")
-      .replaceAll("↩", "Enter");
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
-    walker.currentNode.textContent = replaceShortcuts(walker.currentNode.textContent);
+    walker.currentNode.textContent = localizeShortcutText(walker.currentNode.textContent);
   }
   for (const element of document.body.querySelectorAll("[title], [placeholder], [aria-label]")) {
     for (const attribute of ["title", "placeholder", "aria-label"]) {
       if (element.hasAttribute(attribute)) {
-        element.setAttribute(attribute, replaceShortcuts(element.getAttribute(attribute)));
+        element.setAttribute(attribute, localizeShortcutText(element.getAttribute(attribute)));
       }
     }
   }
@@ -164,13 +181,23 @@ async function initPlatform() {
   const kbd = document.querySelector(".kbd-hint kbd");
   if (kbd) kbd.textContent = `${modGlyph()}F`;
   localizeShortcutHints();
-  if (!isMac()) {
-    const windowHelp = document.getElementById("help-window-copy");
-    if (windowHelp) {
-      windowHelp.textContent =
-        "The close button and Ctrl+W hide the list. Downloads keep going. " +
-        "Ctrl+Q quits. Restore Garia from the tray or application launcher.";
-    }
+  const addHelp = document.getElementById("help-add-copy");
+  if (addHelp && !isMac()) {
+    addHelp.textContent =
+      "File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or drop a torrent " +
+      "on the window. A magnet or .torrent the system opens is queued, not " +
+      "offered. The browser extension in Settings (Ctrl+,) → Browser takes a " +
+      "clicked file, and the bookmarklet sends the page you are on.";
+  }
+  const windowHelp = document.getElementById("help-window-copy");
+  if (windowHelp && platform === "linux") {
+    windowHelp.textContent =
+      "The close button and Ctrl+W hide the list. Downloads keep going. " +
+      "Ctrl+Q quits. Restore Garia from the tray or application launcher.";
+  } else if (windowHelp && platform === "windows") {
+    windowHelp.textContent =
+      "Closing the window or Ctrl+W closes the list. Downloads stop when Garia " +
+      "quits. Ctrl+Q quits. Reopen Garia from the taskbar or Start menu.";
   }
 }
 
@@ -2132,7 +2159,7 @@ function createItemEl(dl) {
   li.innerHTML = `
     <div class="dl-lead">
       <span class="dl-icon" aria-hidden="true"></span>
-      <span class="dl-grip" title="Drag to reorder the queue — or ⌥↑ / ⌥↓">${GRIP_ICON}</span>
+      <span class="dl-grip" title="Drag to reorder the queue — or ${altArrowHint()}">${GRIP_ICON}</span>
     </div>
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
@@ -5985,7 +6012,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
     items.push({ action: "move-top", label: "Move to Top", disabled: !canMoveTop });
     items.push({ action: "move-end", label: "Move to End", disabled: !canMoveEnd });
-    items.push({ action: "details", label: "Details", shortcut: "↩", disabled: dls.length < 1 });
+    items.push({ action: "details", label: "Details", shortcut: enterHint(), disabled: dls.length < 1 });
     // A contextual menu hides what doesn't apply (the menu bar dims instead),
     // so a finished row isn't followed by a column of greyed-out verbs.
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6053,7 +6080,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
-    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: `${modGlyph()}⌫` });
+    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: deleteShortcutHint() });
     return items;
   }
 
