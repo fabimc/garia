@@ -1217,7 +1217,7 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
 for (const input of [settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsQuietMode, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
   input?.addEventListener("change", persistSettings);
 }
-settingsNotify.addEventListener("change", persistNotificationPreference);
+settingsNotify?.addEventListener("change", persistNotificationPreference);
 for (const input of document.querySelectorAll('input[name="done-action"]')) {
   input.addEventListener("change", persistSettings);
 }
