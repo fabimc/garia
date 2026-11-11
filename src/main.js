@@ -121,7 +121,11 @@ function computerLabel() {
 function localizeShortcutHints() {
   if (isMac()) return;
   const replaceShortcuts = (text) =>
-    text.replaceAll("⌘", modGlyph()).replaceAll("⌥", "Alt+");
+    text
+      .replaceAll("⌘", modGlyph())
+      .replaceAll("⌥", "Alt+")
+      .replaceAll("⌫", "Backspace")
+      .replaceAll("↩", "Enter");
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     walker.currentNode.textContent = replaceShortcuts(walker.currentNode.textContent);
