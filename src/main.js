@@ -2688,12 +2688,20 @@ let listHost = null;
 let afterPoll = () => {};
 let pollInFlight = null;
 let pollQueued = false;
+// While poll mutates the list DOM, external filter passes wait so yields cannot
+// interleave hide toggles with create/reorder.
+let pollDomLock = null;
+let filterInFlight = null;
 
 function applyFilter(listEl) {
-  void applyFilterAsync(listEl).catch((err) => console.error(err));
+  filterInFlight = applyFilterAsync(listEl, { waitForPoll: true })
+    .catch((err) => console.error(err))
+    .finally(() => { filterInFlight = null; });
+  return filterInFlight;
 }
 
-async function applyFilterAsync(listEl) {
+async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
+  if (waitForPoll && pollDomLock) await pollDomLock;
   if (document.hidden) {
     filterDirty = true;
     return;
@@ -5074,6 +5082,7 @@ function yieldToPaint() {
 }
 
 async function poll(listEl) {
+  let releasePollDom = null;
   try {
     const [{ active, waiting, stopped }] = await Promise.all([
       fetchLists(),
@@ -5131,6 +5140,10 @@ async function poll(listEl) {
     for (const cat of activeCategories()) tally[cat.id] = 0;
     const seen = new Set();
     let renderedRows = 0;
+    // Serialize with applyFilterAsync: cancel any in-flight filter, then hold
+    // the lock through create/update/reorder and the trailing filter pass.
+    pollDomLock = new Promise((resolve) => { releasePollDom = resolve; });
+    filterGeneration++;
     if (document.hidden) filterDirty = true;
 
     for (const dl of all) {
@@ -5175,7 +5188,8 @@ async function poll(listEl) {
         }
         updateItemEl(li, dl);
         renderedRows++;
-        if (all.length > LARGE_LIST_THRESHOLD &&
+        if (!pollQueued &&
+            all.length > LARGE_LIST_THRESHOLD &&
             renderedRows % RENDER_BATCH_SIZE === 0 && renderedRows < all.length) {
           await yieldToPaint();
         }
@@ -5257,10 +5271,19 @@ async function poll(listEl) {
     if (err?.message) text.title = `${text.title} — ${err.message}`;
     syncStatusItem(0);
   } finally {
-    if (filterDirty && !document.hidden) applyFilter(listEl);
-    // Whatever the list did, the open detail panel is looking at the same
-    // aria2 and wants the same tick.
-    if (!document.hidden) refreshDetail();
+    try {
+      if (filterDirty && !document.hidden) {
+        await applyFilterAsync(listEl, { waitForPoll: false });
+      }
+      // Whatever the list did, the open detail panel is looking at the same
+      // aria2 and wants the same tick.
+      if (!document.hidden) refreshDetail();
+    } finally {
+      if (releasePollDom) {
+        releasePollDom();
+        pollDomLock = null;
+      }
+    }
   }
 }
 
@@ -5274,7 +5297,8 @@ async function pollAndSync() {
     do {
       pollQueued = false;
       await poll(listHost);
-      if (!document.hidden) afterPoll();
+      // Grab jobs / selection prune still run on the hidden 5s poll.
+      afterPoll();
     } while (pollQueued);
   })().finally(() => { pollInFlight = null; });
   return pollInFlight;

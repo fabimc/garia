@@ -691,7 +691,8 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     cursor: pointer;
 }
 @supports (content-visibility: auto) {
-    .dl-item {
+    /* Skip on Linux WebKitGTK: variable-height rows + focus/scroll quirks. */
+    html:not(.platform-linux) .dl-item {
         /* Reserve a typical row height while skipping offscreen row layout. */
         content-visibility: auto;
         contain-intrinsic-size: auto 3.25rem;
