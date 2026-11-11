@@ -214,8 +214,10 @@ async function initPlatform() {
       "selection behavior depends on the file manager and desktop session.";
   } else if (revealHelp && platform === "windows") {
     revealHelp.textContent =
-      "Show in folder opens the download's location in File Explorer.";
+      "Show in folder opens File Explorer and selects the download.";
   }
+  const revealHelpTerm = document.getElementById("help-reveal-term");
+  if (revealHelpTerm) revealHelpTerm.textContent = revealLabel();
 }
 
 // aria2 usually gets port 6800, but the backend falls back to a free one when
@@ -5578,7 +5580,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") {
         const path = extra.path || rowPath(snapshot.get(gid));
-        if (path) await window.__TAURI__.opener.revealItemInDir(path);
+        const reveal = window.__TAURI__?.opener?.revealItemInDir;
+        if (!path) {
+          failed("Couldn't reveal the file", new Error("No file path is available yet."));
+        } else if (typeof reveal !== "function") {
+          failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
+        } else {
+          await reveal(path);
+        }
       }
       if (action !== "reveal" && extra.poll !== false) await pollAndSync();
     } catch (err) {
@@ -5618,7 +5627,14 @@ window.addEventListener("DOMContentLoaded", async () => {
         path: rowPath(dl),
       })).filter(Boolean))];
       const openPath = window.__TAURI__?.opener?.openPath;
-      if (typeof openPath !== "function") return;
+      if (typeof openPath !== "function") {
+        failed("Couldn't open the containing folder", new Error("The system file manager is unavailable."));
+        return;
+      }
+      if (!folders.length) {
+        failed("Couldn't open the containing folder", new Error("No folder path is available yet."));
+        return;
+      }
       for (const folder of folders) {
         try {
           await openPath(folder);
@@ -6730,9 +6746,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("detail-close").addEventListener("click", closeDetail);
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
-    if (!path) return;
+    const reveal = window.__TAURI__?.opener?.revealItemInDir;
+    if (!path) {
+      failed("Couldn't reveal the file", new Error("No file path is available yet."));
+      return;
+    }
+    if (typeof reveal !== "function") {
+      failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
+      return;
+    }
     try {
-      await window.__TAURI__.opener.revealItemInDir(path);
+      await reveal(path);
     } catch (err) {
       failed("Couldn't reveal the file", err);
     }
