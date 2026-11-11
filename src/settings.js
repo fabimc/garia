@@ -146,11 +146,19 @@ async function initPlatform() {
   }
   const extensionInstructions = document.getElementById("settings-extension-instructions");
   if (extensionInstructions && platform === "linux") {
-    extensionInstructions.textContent =
-      "For Omarchy Chromium, open chrome://extensions, enable Developer mode, choose " +
-      "Load unpacked, and select the folder opened above. Hold Alt while clicking a " +
-      "file to leave it with Chromium. The AppImage does not register garia://; use " +
-      "the packaged OPR install for system handoff.";
+    // Keep the multi-browser HTML help; append an Omarchy Chromium note.
+    let omarchyNote = document.getElementById("settings-extension-omarchy");
+    if (!omarchyNote) {
+      omarchyNote = document.createElement("p");
+      omarchyNote.id = "settings-extension-omarchy";
+      omarchyNote.className = "field-hint";
+      extensionInstructions.insertAdjacentElement("afterend", omarchyNote);
+    }
+    omarchyNote.textContent =
+      "Omarchy Chromium: Load unpacked from the folder that Show extension folder " +
+      "opens. Hold Alt while clicking a file to leave it with Chromium. The " +
+      "AppImage does not register garia://; use the packaged OPR install for " +
+      "system handoff.";
   }
   const machine = computerLabel().replace(/^This /, "this ");
   const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
