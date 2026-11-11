@@ -45,7 +45,7 @@ The AppImage is a temporary portable option: it is not managed by pacman and doe
 
 For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to an icon rail and optional list columns compact as the pane narrows; below the minimum width, use a floating window.
 
-Garia follows the desktop light/dark preference while keeping its own palette; it does not attempt to mirror every Omarchy theme.
+Garia advertises light and dark `color-scheme` support and keeps its own palette under the system preference; it does not attempt to mirror every Omarchy theme. Live WebKitGTK toggle-without-relaunch behavior still needs host confirmation.
 
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
