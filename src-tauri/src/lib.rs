@@ -1837,8 +1837,8 @@ fn read_torrent(path: String) -> Result<String, String> {
     Ok(encode_base64(&bytes))
 }
 
-/// Launch at login lives in a LaunchAgent, not in settings.json: the OS is
-/// the source of truth, and System Settings can turn it off without us.
+/// Launch-at-login is owned by the OS (LaunchAgent on macOS, XDG autostart on
+/// Linux), so Settings reflects changes made outside Garia too.
 #[tauri::command]
 fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -4040,6 +4040,10 @@ fn session_path(dir: &Path) -> PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let autostart_args = Some(vec!["--garia-background"]);
+    #[cfg(not(target_os = "linux"))]
+    let autostart_args = None;
 
     // Linux and Windows start a new process for every link or file the
     // desktop opens. This hands it to the running instance instead — links
@@ -4074,7 +4078,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            autostart_args,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -4307,6 +4311,17 @@ pub fn run() {
             // Closing the window no longer stops it — only Quit does — so a
             // schedule that opens at 2am has a process to talk to.
             spawn_schedule_watch(app.handle().clone());
+            #[cfg(target_os = "linux")]
+            if !std::env::args().any(|arg| arg == "--garia-background") {
+                match app.get_webview_window("main") {
+                    Some(window) => {
+                        if let Err(e) = window.show() {
+                            eprintln!("[garia] Could not show the main window: {e}");
+                        }
+                    }
+                    None => eprintln!("[garia] Main window was unavailable during startup"),
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -109,6 +109,11 @@ async function initPlatform() {
     } catch {
       platform = "macos";
     }
+  } else {
+    const mockPlatform = new URLSearchParams(location.search).get("platform");
+    if (["macos", "linux", "windows"].includes(mockPlatform)) {
+      platform = mockPlatform;
+    }
   }
   const root = document.documentElement;
   root.classList.remove("platform-mac", "platform-linux", "platform-windows");
@@ -122,13 +127,22 @@ async function initPlatform() {
   const notifyHint = document.getElementById("settings-notify-hint");
   if (notifyHint && platform === "linux") {
     notifyHint.textContent =
-      "A desktop notification appears when a download finishes. Keep Garia " +
-      "running to restore it from the tray, or from the application launcher " +
-      "if the tray is unavailable.";
+      "Garia uses your desktop notification service. Allow notifications for " +
+      "Garia in system settings if no permission prompt appears.";
   } else if (notifyHint && platform === "windows") {
     notifyHint.textContent =
       "A desktop notification appears when a download finishes. Keep Garia " +
       "running to restore it from the tray or taskbar.";
+  } else if (notifyHint && platform === "macos") {
+    notifyHint.textContent =
+      "A desktop notification appears when a download finishes. While Garia is " +
+      "in the background, the Dock badge also counts unseen completions.";
+  }
+  const autostartHint = document.getElementById("settings-autostart-hint");
+  if (autostartHint && platform === "linux") {
+    autostartHint.textContent =
+      "At login, Garia starts the download engine without opening a tiled window. " +
+      "Reopen it from the tray, or from the application launcher if the tray is unavailable.";
   }
   const machine = computerLabel().replace(/^This /, "this ");
   const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
@@ -721,9 +735,11 @@ async function loadAutostart() {
   }
   try {
     settingsAutostart.checked = await invoke("autostart_enabled");
+    settingsAutostart.disabled = false;
   } catch (err) {
     console.error(err);
-    settingsAutostart.closest(".field")?.classList.add("hidden");
+    settingsAutostart.disabled = true;
+    showError(`Could not check login startup status: ${err?.message || err}`);
   }
 }
 
@@ -736,6 +752,62 @@ async function persistAutostart() {
   } catch (err) {
     showError(err);
     await loadAutostart();
+  }
+}
+
+async function checkNotificationPermission() {
+  if (!settingsNotify.checked) return;
+  const api = window.__TAURI__?.notification;
+  if (!api) {
+    if (typeof invoker() === "function") {
+      showError("The desktop notification service is unavailable.");
+    }
+    return;
+  }
+  try {
+    if (!(await api.isPermissionGranted())) {
+      showError(
+        "Desktop notifications are blocked. Allow notifications for Garia in system settings.",
+      );
+    }
+  } catch (err) {
+    console.error(err);
+    showError(`Could not check notification permissions: ${err?.message || err}`);
+  }
+}
+
+async function persistNotificationPreference() {
+  if (!settingsNotify.checked) {
+    await persistSettings();
+    return;
+  }
+  const api = window.__TAURI__?.notification;
+  if (!api) {
+    if (typeof invoker() !== "function") {
+      await persistSettings();
+      return;
+    }
+    settingsNotify.checked = settings.notifyOnComplete !== false;
+    showError("The desktop notification service is unavailable.");
+    return;
+  }
+  hideError();
+  try {
+    if (!(await api.isPermissionGranted())) {
+      const permission = await api.requestPermission();
+      if (permission !== "granted") {
+        settingsNotify.checked = settings.notifyOnComplete !== false;
+        showError(
+          "Desktop notifications are blocked. Allow notifications for Garia in system settings, then try again.",
+        );
+        return;
+      }
+    }
+    await persistSettings();
+  } catch (err) {
+    console.error(err);
+    settingsNotify.checked = settings.notifyOnComplete !== false;
+    showError(`Could not enable desktop notifications: ${err?.message || err}`);
   }
 }
 
@@ -1143,9 +1215,10 @@ document.querySelector(".prefs-nav").addEventListener("click", (e) => {
   showPane(item.dataset.pane);
 });
 
-for (const input of [settingsNotify, settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsQuietMode, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
+for (const input of [settingsSmart, settingsCatch, settingsCatchPage, settingsConfirmCapture, settingsQuietMode, settingsInOrder, settingsSched, settingsQueueStopped, settingsRemote]) {
   input?.addEventListener("change", persistSettings);
 }
+settingsNotify.addEventListener("change", persistNotificationPreference);
 for (const input of document.querySelectorAll('input[name="done-action"]')) {
   input.addEventListener("change", persistSettings);
 }
@@ -1608,6 +1681,7 @@ if (typeof listen === "function") {
   showPane(pane);
   await loadSettings();
   fillForm();
+  await checkNotificationPermission();
   await Promise.all([loadLogins(), loadSidecarTools(), loadAutostart(), loadRemote()]);
   renderLogins();
   loadSiteRules();
