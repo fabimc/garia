@@ -98,8 +98,8 @@ import {
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
 
-// Host OS for copy and chrome. The browser mock stays on macOS so the
-// traffic-light padding and ⌘ hints still show what the Mac build looks like.
+// Host OS for copy and chrome. The browser mock defaults to macOS, with a
+// query override for platform-specific browser-dev checks.
 let platform = "macos";
 
 function isMac() {
@@ -163,6 +163,11 @@ async function initPlatform() {
       platform = await invoke("platform");
     } catch {
       platform = "macos";
+    }
+  } else {
+    const mockPlatform = new URLSearchParams(location.search).get("platform");
+    if (["macos", "linux", "windows"].includes(mockPlatform)) {
+      platform = mockPlatform;
     }
   }
   const root = document.documentElement;
@@ -5332,6 +5337,27 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (btn) setFilter(btn.dataset.filter);
   });
 
+  filterBar.addEventListener("keydown", (e) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const current = e.target.closest("button.nav-item[data-filter]");
+    if (!current) return;
+    const items = [...filterBar.querySelectorAll("button.nav-item[data-filter]")]
+      .filter((item) => !item.closest(".hidden") && !item.disabled);
+    const index = items.indexOf(current);
+    if (index < 0 || !items.length) return;
+    const nextIndex = e.key === "Home"
+      ? 0
+      : e.key === "End"
+        ? items.length - 1
+        : Math.max(
+          0,
+          Math.min(items.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)),
+        );
+    e.preventDefault();
+    e.stopPropagation();
+    items[nextIndex].focus();
+  });
+
   nameSearch.addEventListener("input", () => {
     nameFilter = nameSearch.value.trim();
     nameSearchClear.classList.toggle("hidden", !nameSearch.value);
@@ -5774,6 +5800,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   async function toggleSelectedPause() {
+    const focusedGid = document.activeElement?.closest(".dl-item")?.dataset.gid;
     let changed = false;
     for (const dl of selectedDownloads()) {
       if (dl.status === "active" || dl.status === "waiting") {
@@ -5784,7 +5811,10 @@ window.addEventListener("DOMContentLoaded", async () => {
         changed = true;
       }
     }
-    if (changed) await pollAndSync();
+    if (changed) {
+      await pollAndSync();
+      if (focusedGid) rowEl(focusedGid)?.focus({ preventScroll: true });
+    }
   }
 
   function sharedPackageOfSelection() {
@@ -7163,7 +7193,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    if (!selected.size && !listEl.contains(document.activeElement)) return;
+    if (!listEl.contains(document.activeElement)) return;
 
     if ((e.metaKey || e.ctrlKey) && key === "c") {
       e.preventDefault();

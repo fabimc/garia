@@ -46,3 +46,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Pause and resume](./pause-resume.md) covers pausing an active row from the row action group.
 - [Download details](./download-detail.md) covers opening the detail inspector from a row name.
 - [Filter by name](./filter-by-name.md) covers the in-list name search box.
+- [Keyboard-first download journey](./keyboard-journey.md) covers adding, filtering, pausing/resuming, details, Help, and Escape order.
