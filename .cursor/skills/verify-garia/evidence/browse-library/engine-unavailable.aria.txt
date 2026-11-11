@@ -1,0 +1,67 @@
+url: http://127.0.0.1:8765/?platform=linux
+title: Garia
+conn: aria2 unreachable
+view: All Downloads
+
+- complementary:
+  - text: garia
+  - button "Hide sidebar":
+    - img
+  - button "Add download":
+    - img
+    - text: Add download
+  - navigation:
+    - text: Library
+    - button "All Downloads":
+      - img
+      - text: All Downloads
+    - button "Torrents":
+      - img
+      - text: Torrents
+    - button "Active":
+      - img
+      - text: Active
+    - button "Seeding":
+      - img
+      - text: Seeding
+    - button "Queued":
+      - img
+      - text: Queued
+    - button "Paused":
+      - img
+      - text: Paused
+    - text: Archive
+    - button "Completed":
+      - img
+      - text: Completed
+    - button "Failed":
+      - img
+      - text: Failed
+  - button "Settings":
+    - img
+    - text: Settings
+- main:
+  - heading "All Downloads" [level=1]
+  - text: 0 items
+  - button "Pause all" [disabled]:
+    - img
+    - text: Pause all
+  - button "Resume all" [disabled]:
+    - img
+    - text: Resume all
+  - button "Stop Queue"
+  - button "Columns":
+    - img
+    - text: Columns
+  - button "Inspector"
+  - img
+  - searchbox "Search downloads…"
+  - status: Downloads engine unavailable. Garia will keep trying to connect.
+  - row "Name Size Status Speed Time left"
+  - img
+  - paragraph: Can't reach aria2
+  - paragraph: Start aria2 and garia will reconnect on its own
+- contentinfo:
+  - text: aria2 unreachable · no downloads ·
+  - button "Full speed"
+  - text: Ctrl+F search

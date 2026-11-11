@@ -832,21 +832,39 @@ function loginOptions(url) {
 // which aria2 then fetches in parallel like anything else, so a video download
 // is as fast, as resumable, and as visible in the list as every other row.
 
-// What the backend found to work with, asked for once at launch.
+// What the backend found to work with, loaded only when video tools are needed.
 let videoTools = { version: "", source: "", ffmpeg: false, ffmpegSource: "" };
+let videoToolsLoaded = false;
+let videoToolsRequest = null;
 
 async function loadVideoTools() {
   const invoker = window.__TAURI__?.core?.invoke;
-  if (typeof invoker !== "function") return;
-  try {
-    videoTools = await invoker("video_tools");
-  } catch (err) {
-    console.error(err);
+  if (typeof invoker !== "function") {
+    videoToolsLoaded = true;
+    return;
   }
-  renderVideoTools();
+  if (videoToolsRequest) return videoToolsRequest;
+  videoToolsRequest = (async () => {
+    try {
+      videoTools = await invoker("video_tools");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      videoToolsLoaded = true;
+      renderVideoTools();
+    }
+  })();
+  try {
+    await videoToolsRequest;
+  } finally {
+    videoToolsRequest = null;
+  }
 }
 
 function videoToolsSummary() {
+  if (!videoToolsLoaded) {
+    return { text: "Checking yt-dlp and ffmpeg…", missing: false };
+  }
   if (!videoTools.version) {
     return {
       text:
@@ -2655,6 +2673,7 @@ const resumedGids = new Set();
 let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
+let engineStartupTimer = 0;
 // Whether the filter pass has anything to do. It touches every row, so the
 // poll runs it only when a row's status, name or category moved, a row came
 // or went, or the connection did — searching and switching views run it
@@ -4859,6 +4878,27 @@ function syncStatusItem(active) {
 function setConn(state) {
   if (state !== connState) filterDirty = true;
   connState = state;
+  const engineStatus = document.getElementById("engine-status");
+  clearTimeout(engineStartupTimer);
+  engineStartupTimer = 0;
+  engineStatus?.classList.remove("is-error");
+  if (state === "ok") {
+    engineStatus?.classList.add("hidden");
+  } else if (state === "error") {
+    if (engineStatus) {
+      engineStatus.textContent =
+        "Downloads engine unavailable. Garia will keep trying to connect.";
+      engineStatus.classList.remove("hidden");
+      engineStatus.classList.add("is-error");
+    }
+  } else {
+    engineStartupTimer = setTimeout(() => {
+      engineStartupTimer = 0;
+      if (connState !== "waiting" || !engineStatus) return;
+      engineStatus.textContent = "Starting downloads engine…";
+      engineStatus.classList.remove("hidden");
+    }, 1000);
+  }
   const dot = document.getElementById("conn-dot");
   const text = document.getElementById("conn-text");
   dot.className = `conn-dot conn-${state}`;
@@ -5171,6 +5211,7 @@ async function pollAndSync() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
+  setConn("waiting");
   await initPlatform();
 
   window.__TAURI__?.core
@@ -7437,6 +7478,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     setupExtError.textContent = "";
     paintSetup();
     openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
+    if (!videoToolsLoaded) {
+      loadVideoTools().then(() => {
+        if (!setupOverlay.classList.contains("hidden")) paintSetup();
+      });
+    }
   }
 
   async function dismissSetup() {
@@ -7760,7 +7806,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     hideCatch();
     closeCapture();
     if (alreadyHaveUrl(url)) return;
-    if (!videoTools.version) await loadVideoTools();
     // A file (or magnet) can go straight in; a page still needs the picker.
     // An FTP directory is the other thing that needs a look first.
     if (isFtpUrl(url) && !looksLikeFtpFile(url)) {
@@ -7783,6 +7828,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
       return;
     }
+    if (!videoTools.version) await loadVideoTools();
     openModal(url);
     await submitUrl();
   }
@@ -8079,7 +8125,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   listenNotificationClicks();
   await hydrateFilePriorities();
   pollAndSync();
-  Promise.all([loadSettings(), loadVideoTools()]).then(() => {
+  loadSettings().then(() => {
     renderCategoryNav();
     renderPackageNav?.();
     if (!settings.setupSeen) openSetup();

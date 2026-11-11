@@ -525,6 +525,22 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     overflow-y: auto;
 }
 
+.engine-status {
+    margin: 0.75rem 1rem 0;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+    color: var(--text);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+.engine-status.is-error {
+    border-color: color-mix(in srgb, var(--danger) 40%, var(--border-strong));
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 .btn-primary {
     padding: 0.55rem 1.1rem;
