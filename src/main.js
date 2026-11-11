@@ -5813,7 +5813,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (changed) {
       await pollAndSync();
-      if (focusedGid) rowEl(focusedGid)?.focus({ preventScroll: true });
+      const focused = focusedGid ? rowEl(focusedGid) : null;
+      if (focused && !focused.classList.contains("hidden")) {
+        focused.focus({ preventScroll: true });
+      } else {
+        const fallback = [...listEl.querySelectorAll(".dl-item:not(.hidden)")]
+          .find((row) => selected.has(row.dataset.gid));
+        (fallback || listEl).focus?.({ preventScroll: true });
+      }
     }
   }
 
