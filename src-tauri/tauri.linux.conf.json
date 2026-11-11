@@ -1,4 +1,17 @@
 {
+  "app": {
+    "windows": [
+      {
+        "title": "Garia",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 660,
+        "minHeight": 440,
+        "acceptFirstMouse": true,
+        "dragDropEnabled": false
+      }
+    ]
+  },
   "bundle": {
     "targets": ["appimage", "deb"]
   }

@@ -1014,6 +1014,9 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     width: 48px;
     flex-basis: 48px;
 }
+.dl-table.is-compact {
+    column-gap: 0.5rem;
+}
 
 /* Full width and slid into place, rather than sized: a width is a layout on
    every frame of the transition, for every running row, every second. The

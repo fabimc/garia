@@ -43,6 +43,8 @@ chmod +x Garia_<version>_amd64.AppImage
 
 The AppImage is a temporary portable option: it is not managed by pacman and does not register a system menu entry or file and magnet handlers. OPR is the intended Omarchy install path.
 
+For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to an icon rail and optional list columns compact as the pane narrows; below the minimum width, use a floating window.
+
 Visit https://fabimc.github.io/garia/ for the download, a feature tour, and the FAQ, or https://github.com/fabimc/garia for source, issues, and releases.
 
 ## Documentation

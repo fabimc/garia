@@ -1978,8 +1978,8 @@ function syncColLayout() {
   const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)"
     : compactList ? "minmax(10.5rem, 0.9fr)"
     : "minmax(10.5rem, 12rem)";
-  const tracks = ["22px", "minmax(10rem, 1fr)"];
-  if (columnOn("size")) tracks.push("7.4rem");
+  const tracks = ["22px", compactList ? "minmax(8rem, 1fr)" : "minmax(10rem, 1fr)"];
+  if (columnOn("size")) tracks.push(compactList ? "6.4rem" : "7.4rem");
   tracks.push(statusTrack);
   for (const spec of extraColSpecs()) tracks.push(spec.width);
   tracks.push("max-content");
