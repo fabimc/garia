@@ -4876,27 +4876,34 @@ function syncStatusItem(active) {
 }
 
 function setConn(state) {
-  if (state !== connState) filterDirty = true;
+  const changed = state !== connState;
+  if (changed) filterDirty = true;
   connState = state;
   const engineStatus = document.getElementById("engine-status");
   clearTimeout(engineStartupTimer);
   engineStartupTimer = 0;
-  engineStatus?.classList.remove("is-error");
   if (state === "ok") {
-    engineStatus?.classList.add("hidden");
+    if (engineStatus && !engineStatus.classList.contains("hidden")) {
+      engineStatus.classList.add("hidden");
+      engineStatus.classList.remove("is-error");
+    }
   } else if (state === "error") {
-    if (engineStatus) {
+    // Avoid rewriting aria-live polite text every failed poll tick.
+    if (engineStatus && (changed || engineStatus.classList.contains("hidden"))) {
       engineStatus.textContent =
         "Downloads engine unavailable. Garia will keep trying to connect.";
       engineStatus.classList.remove("hidden");
       engineStatus.classList.add("is-error");
     }
   } else {
+    engineStatus?.classList.remove("is-error");
     engineStartupTimer = setTimeout(() => {
       engineStartupTimer = 0;
       if (connState !== "waiting" || !engineStatus) return;
-      engineStatus.textContent = "Starting downloads engine…";
-      engineStatus.classList.remove("hidden");
+      if (engineStatus.classList.contains("hidden")) {
+        engineStatus.textContent = "Starting downloads engine…";
+        engineStatus.classList.remove("hidden");
+      }
     }, 1000);
   }
   const dot = document.getElementById("conn-dot");
@@ -5445,6 +5452,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // loadVideoTools() replaces the object after this runs, so hand over a
     // way to read it rather than the empty placeholder.
     getVideoTools: () => videoTools,
+    loadVideoTools,
     videoToolsSummary,
   });
   const { openModal, closeModal, submitUrl, ingestTorrentPath } = addDialog;

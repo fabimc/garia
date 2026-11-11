@@ -33,6 +33,7 @@ export function initAddDialog(api) {
     parseChecksum,
     checksumOption,
     getVideoTools,
+    loadVideoTools,
     videoToolsSummary,
     looksLikeAPage,
     isFtpUrl,
@@ -706,8 +707,11 @@ export function initAddDialog(api) {
       return;
     }
     if (!getVideoTools().version) {
-      offerAsIs("no-ytdlp");
-      return;
+      if (typeof loadVideoTools === "function") await loadVideoTools();
+      if (!getVideoTools().version) {
+        offerAsIs("no-ytdlp");
+        return;
+      }
     }
 
     const token = ++probeToken;
