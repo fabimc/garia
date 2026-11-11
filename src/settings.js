@@ -123,7 +123,8 @@ async function initPlatform() {
   if (notifyHint && platform === "linux") {
     notifyHint.textContent =
       "A desktop notification appears when a download finishes. Keep Garia " +
-      "running to restore it from the tray or application launcher.";
+      "running to restore it from the tray, or from the application launcher " +
+      "if the tray is unavailable.";
   } else if (notifyHint && platform === "windows") {
     notifyHint.textContent =
       "A desktop notification appears when a download finishes. Keep Garia " +

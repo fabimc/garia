@@ -4576,6 +4576,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     let clear_completed = MenuItemBuilder::with_id("clear-completed", "Clear Completed").build(app)?;
     let open_folder = MenuItemBuilder::with_id("open-folder", "Open Download Folder").build(app)?;
     let show = MenuItemBuilder::with_id("show-window", "Show Garia").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&new_download)
@@ -4592,6 +4593,8 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&open_folder)
         .separator()
         .item(&show)
+        .separator()
+        .item(&quit)
         .build()?;
 
     // macOS: template silhouette (black on clear). The dock icon is the
@@ -4612,6 +4615,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     tray
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
+            "quit" => app.exit(0),
             id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
                 | "retry-failed" | "clear-completed" | "open-folder") => {
                 bring_to_front(app);

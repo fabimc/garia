@@ -198,7 +198,9 @@ async function initPlatform() {
   if (windowHelp && platform === "linux") {
     windowHelp.textContent =
       "The close button and Ctrl+W hide the list. Downloads keep going. " +
-      "Ctrl+Q quits. Restore Garia from the tray or application launcher.";
+      "Ctrl+Q quits, and Tray → Quit stops downloads. Restore Garia from the " +
+      "tray, or reopen it from the application launcher if the tray is " +
+      "unavailable; the existing window returns.";
   } else if (windowHelp && platform === "windows") {
     windowHelp.textContent =
       "Closing the window or Ctrl+W closes the list. Downloads stop when Garia " +
