@@ -875,6 +875,21 @@ test("the welcome sheet is where categories are introduced", () => {
   assert.match(html, /id="setup-categories-hint"/);
 });
 
+test("Linux first-run links the Omarchy checklist without changing other platforms", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(html, /Linux \/ Omarchy: four quick checks/);
+  assert.match(html, /New downloads go here/);
+  assert.match(html, /closing the window hides Garia/i);
+  assert.match(html, /chrome:\/\/extensions/);
+  assert.match(html, /Browser-Capture\.md#omarchy-chromium/);
+  assert.match(html, /github\.com\/fabimc\/garia#linux/);
+  assert.match(html, /id="setup-settings"/);
+  assert.match(html, /id="setup-help"/);
+  assert.match(css, /html\.platform-linux \.setup-generic/);
+  assert.match(css, /html\.platform-linux \.setup-linux-only/);
+});
+
 // Folx parity §5–§6: tags, destinations, organize menu, queue groups, schedule review.
 
 test("tags normalize, parse, and summarize for the row", () => {

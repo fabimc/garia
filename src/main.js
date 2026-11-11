@@ -7597,7 +7597,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     setupExtError.textContent = "";
     paintSetup();
     openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
-    if (!videoToolsLoaded) {
+    if (platform !== "linux" && !videoToolsLoaded) {
       loadVideoTools().then(() => {
         if (!setupOverlay.classList.contains("hidden")) paintSetup();
       });
@@ -7674,6 +7674,24 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("setup-bookmarklet").addEventListener("click", (e) => {
     e.preventDefault();
+  });
+  setupOverlay.addEventListener("click", async (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link || !window.__TAURI__?.opener?.openUrl) return;
+    e.preventDefault();
+    try {
+      await window.__TAURI__.opener.openUrl(link.href);
+    } catch (err) {
+      failed("Couldn't open documentation", err);
+    }
+  });
+  document.getElementById("setup-settings").addEventListener("click", async () => {
+    await dismissSetup();
+    await openSettings();
+  });
+  document.getElementById("setup-help").addEventListener("click", async () => {
+    await dismissSetup();
+    openHelp();
   });
   document.getElementById("help-setup").addEventListener("click", () => {
     closeHelp();

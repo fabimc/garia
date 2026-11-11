@@ -48,3 +48,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Filter by name](./filter-by-name.md) covers the in-list name search box.
 - [Keyboard-first download journey](./keyboard-journey.md) covers adding, filtering, pausing/resuming, details, Help, and Escape order.
 - [Large-library scale](./large-list-scale.md) covers rendering, filtering, selecting, and restoring lists with hundreds of rows.
+- [Linux / Omarchy first-run setup](./first-run-omarchy.md) covers the platform-specific checklist, Help and Settings links, and Chromium guidance.

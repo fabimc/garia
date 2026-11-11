@@ -1883,6 +1883,18 @@ html.in-app .modal {
     padding-top: 0.85rem;
     border-top: 1px solid var(--border);
 }
+.setup-linux-only {
+    display: none;
+}
+html.platform-linux .setup-generic {
+    display: none;
+}
+html.platform-linux .setup-linux-only {
+    display: block;
+}
+html.platform-linux .setup-row.setup-linux-only {
+    display: flex;
+}
 .setup-row:first-of-type {
     padding-top: 0;
     border-top: 0;
