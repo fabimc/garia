@@ -1880,7 +1880,11 @@ let visibleCols = columnsByView[viewColumnKey("all")] || loadColumns();
 // so Name keeps enough room to be read. The user's column choice is left
 // alone; only what is painted changes.
 const COMPACT_LIST_PX = 720;
-const COMPACT_HIDDEN = new Set(["speed", "eta", "upspeed", "connections", "source", "category", "saved"]);
+const COMPACT_HIDDEN = new Set([
+  "speed", "eta", "upspeed", "connections", "source", "category", "saved",
+  // Completed/Seeding extras overflow the Linux 660px tile with the icon rail.
+  "open", "ratio", "finished",
+]);
 let compactList = false;
 
 function columnChosen(id) {
@@ -1975,7 +1979,8 @@ function syncColLayout() {
   if (!table) return;
   // Compact: Status also carries the speed, so it shares the spare width with
   // Name instead of being pinned at 12rem and cutting "81% · 2…".
-  const statusTrack = activeFilter === "error" ? "minmax(14rem, 1.5fr)"
+  const statusTrack = activeFilter === "error"
+    ? (compactList ? "minmax(10.5rem, 1.5fr)" : "minmax(14rem, 1.5fr)")
     : compactList ? "minmax(10.5rem, 0.9fr)"
     : "minmax(10.5rem, 12rem)";
   const tracks = ["22px", compactList ? "minmax(8rem, 1fr)" : "minmax(10rem, 1fr)"];
