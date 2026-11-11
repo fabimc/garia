@@ -206,6 +206,16 @@ async function initPlatform() {
       "Closing the window or Ctrl+W closes the list. Downloads stop when Garia " +
       "quits. Ctrl+Q quits. Reopen Garia from the taskbar or Start menu.";
   }
+  const revealHelp = document.getElementById("help-reveal-copy");
+  if (revealHelp && platform === "linux") {
+    revealHelp.textContent =
+      "Show in folder asks the desktop file manager to reveal the download. " +
+      "If selection is unavailable, the desktop portal opens its location; " +
+      "selection behavior depends on the file manager and desktop session.";
+  } else if (revealHelp && platform === "windows") {
+    revealHelp.textContent =
+      "Show in folder opens the download's location in File Explorer.";
+  }
 }
 
 // aria2 usually gets port 6800, but the backend falls back to a free one when
@@ -7311,8 +7321,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function openDownloadFolder() {
+    if (!settings.downloadDir) {
+      failed("Couldn't open the download folder", new Error("No download folder is configured."));
+      return;
+    }
     const openPath = window.__TAURI__?.opener?.openPath;
-    if (typeof openPath !== "function" || !settings.downloadDir) return;
+    if (typeof openPath !== "function") {
+      failed("Couldn't open the download folder", new Error("The system file manager is unavailable."));
+      return;
+    }
     openPath(settings.downloadDir).catch((err) => failed("Couldn't open the download folder", err));
   }
 

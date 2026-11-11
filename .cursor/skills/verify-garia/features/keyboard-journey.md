@@ -9,7 +9,7 @@ The keyboard path covers adding a URL, filtering the library, pausing and resumi
 - `keyboard-pause-resume` pauses and resumes the focused row with Space while preserving focus.
 - `keyboard-inspector` opens details with the platform shortcut.
 - `keyboard-escape` closes a dialog before the inspector.
-- `keyboard-help` opens Help with the platform shortcut and shows the keyboard path.
+- `keyboard-help` opens Help with the platform shortcut and shows platform-aware keyboard and file-location guidance.
 
 ## How to get to it (user POV)
 
@@ -30,8 +30,8 @@ Preconditions:
 - **Filter by keyboard.** Focus `#filter-bar .nav-item[data-filter=all]`, press `ArrowDown`, then `Enter`. The Torrents filter is active and the focus ring remains visible.
 - **Pause and resume.** Focus an active `#download-list [role=option]`, press `ArrowDown` to select it, then press `Space`. The row becomes paused and retains focus. Press `Space` again; it becomes active and retains focus.
 - **Inspector and Escape.** With a row selected, press `Control+i` to open the inspector. Press `Control+n`, then `Escape`: the Add dialog closes and the inspector stays open. Press `Escape` again; the inspector closes.
-- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels.
-- **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, and Help snapshots and screenshots.
+- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note.
+- **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, and Help snapshots and screenshots, including `show-in-folder-help.aria.txt`, `.rows.json`, and `.png`.
 
 ## Gotchas
 
