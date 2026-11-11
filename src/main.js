@@ -118,6 +118,23 @@ function computerLabel() {
   return isMac() ? "This Mac" : "This computer";
 }
 
+function localizeShortcutHints() {
+  if (isMac()) return;
+  const replaceShortcuts = (text) =>
+    text.replaceAll("⌘", modGlyph()).replaceAll("⌥", "Alt+");
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    walker.currentNode.textContent = replaceShortcuts(walker.currentNode.textContent);
+  }
+  for (const element of document.body.querySelectorAll("[title], [placeholder], [aria-label]")) {
+    for (const attribute of ["title", "placeholder", "aria-label"]) {
+      if (element.hasAttribute(attribute)) {
+        element.setAttribute(attribute, replaceShortcuts(element.getAttribute(attribute)));
+      }
+    }
+  }
+}
+
 async function initPlatform() {
   const invoke = window.__TAURI__?.core?.invoke;
   if (typeof invoke === "function") {
@@ -142,9 +159,14 @@ async function initPlatform() {
   if (detailReveal) detailReveal.textContent = ACTION_TITLES.reveal;
   const kbd = document.querySelector(".kbd-hint kbd");
   if (kbd) kbd.textContent = `${modGlyph()}F`;
-  const emptySub = document.getElementById("empty-sub");
-  if (emptySub && emptySub.textContent.includes("⌘N")) {
-    emptySub.textContent = emptySub.textContent.replace("⌘N", `${modGlyph()}N`);
+  localizeShortcutHints();
+  if (!isMac()) {
+    const windowHelp = document.getElementById("help-window-copy");
+    if (windowHelp) {
+      windowHelp.textContent =
+        "The close button and Ctrl+W hide the list. Downloads keep going. " +
+        "Ctrl+Q quits. Restore Garia from the tray or application launcher.";
+    }
   }
 }
 
@@ -6627,7 +6649,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     try {
       await window.__TAURI__.opener.revealItemInDir(path);
     } catch (err) {
-      failed("Couldn't show it in Finder", err);
+      failed("Couldn't reveal the file", err);
     }
   });
   inspectorToggle?.addEventListener("click", () => {

@@ -2,7 +2,7 @@
 
 ## Close vs quit
 
-- Close / red button / ⌘W: hide the window. aria2 keeps running. Dock / tray bring it back.
+- Closing the window hides it; aria2 keeps running. The Dock, tray, or app launcher can bring it back.
 - Quit (⌘Q): save session, stop aria2, exit.
 - Window size and position survive quit.
 

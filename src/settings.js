@@ -119,6 +119,12 @@ async function initPlatform() {
         ? "platform-linux"
         : "platform-windows",
   );
+  const notifyHint = document.getElementById("settings-notify-hint");
+  if (notifyHint && platform !== "macos") {
+    notifyHint.textContent =
+      "A desktop notification appears when a download finishes. Keep Garia " +
+      "running to restore it from the tray or application launcher.";
+  }
   const machine = computerLabel().replace(/^This /, "this ");
   const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
   const shutdown = document.querySelector('input[name="done-action"][value="shutdown"]');
