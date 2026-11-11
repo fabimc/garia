@@ -4122,6 +4122,38 @@ pub fn run() {
             set_status_item
         ])
         .setup(|app| {
+            // Linux windows start hidden so --garia-background can stay
+            // tray-only; show interactive launches immediately so cold start
+            // does not look like a failed launch while aria2 boots.
+            #[cfg(target_os = "linux")]
+            let linux_background = std::env::args().any(|arg| arg == "--garia-background");
+            #[cfg(target_os = "linux")]
+            if !linux_background {
+                match app.get_webview_window("main") {
+                    Some(window) => {
+                        if let Err(e) = window.show() {
+                            eprintln!("[garia] Could not show the main window: {e}");
+                        }
+                    }
+                    None => eprintln!("[garia] Main window was unavailable during startup"),
+                }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // Rewrite an existing XDG autostart Exec so upgrades pick up
+                // --garia-background without requiring the user to toggle it.
+                use tauri_plugin_autostart::ManagerExt;
+                match app.autolaunch().is_enabled() {
+                    Ok(true) => {
+                        if let Err(e) = app.autolaunch().enable() {
+                            eprintln!("[garia] Could not refresh autostart entry: {e}");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!("[garia] Could not read autostart state: {e}"),
+                }
+            }
+
             let dir = app
                 .path()
                 .app_data_dir()
@@ -4311,17 +4343,6 @@ pub fn run() {
             // Closing the window no longer stops it — only Quit does — so a
             // schedule that opens at 2am has a process to talk to.
             spawn_schedule_watch(app.handle().clone());
-            #[cfg(target_os = "linux")]
-            if !std::env::args().any(|arg| arg == "--garia-background") {
-                match app.get_webview_window("main") {
-                    Some(window) => {
-                        if let Err(e) = window.show() {
-                            eprintln!("[garia] Could not show the main window: {e}");
-                        }
-                    }
-                    None => eprintln!("[garia] Main window was unavailable during startup"),
-                }
-            }
             Ok(())
         })
         .on_window_event(|window, event| {
