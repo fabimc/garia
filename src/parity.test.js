@@ -584,6 +584,83 @@ test("the extension collector matches the shared page-capture helper", () => {
   );
 });
 
+test("interrupted large-list filters stay dirty until a complete pass", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function applyFilterAsync(");
+  const end = source.indexOf("\n// Assigned from DOMContentLoaded", start);
+  assert.ok(start >= 0 && end > start);
+  const classes = (...initial) => {
+    const values = new Set(initial);
+    return {
+      contains: (name) => values.has(name),
+      add: (name) => values.add(name),
+      remove: (name) => values.delete(name),
+      toggle: (name, force) => force ? values.add(name) : values.delete(name),
+    };
+  };
+  const count = { textContent: "" };
+  const sectionCount = { textContent: "" };
+  const header = {
+    classList: classes("dl-section"),
+    querySelector: () => sectionCount,
+  };
+  const rows = Array.from({ length: 500 }, (_, i) => ({
+    classList: classes("dl-item"),
+    dataset: { status: "paused", name: `file-${i}.bin` },
+  }));
+  const listEl = {
+    children: [header, ...rows],
+    querySelectorAll: () => rows,
+  };
+  const yields = [];
+  const context = vm.createContext({
+    listEl, filterDirty: true, filterGeneration: 0, pollDomLock: null,
+    document: {
+      hidden: false,
+      getElementById: (id) => id === "view-count" ? count
+        : id === "empty-state" ? { classList: classes() } : null,
+    },
+    nameFilter: "file-49", activeFilter: "all",
+    LARGE_LIST_THRESHOLD: 64, FILTER_BATCH_SIZE: 16,
+    sidebarViewOf: (status) => status,
+    yieldToPaint: () => new Promise((resolve) => yields.push(resolve)),
+    onFilterApplied: () => {},
+  });
+  vm.runInContext(source.slice(start, end), context);
+  const interrupt = async () => {
+    const pass = context.applyFilterAsync(listEl);
+    assert.equal(yields.length, 1);
+    context.filterGeneration++;
+    yields.shift()();
+    await pass;
+    assert.equal(context.filterDirty, true);
+  };
+  const finish = async () => {
+    let done = false;
+    const pass = context.applyFilterAsync(listEl).then(() => { done = true; });
+    while (!done) {
+      assert.ok(yields.length);
+      yields.shift()();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await pass;
+    assert.equal(context.filterDirty, false);
+  };
+
+  await interrupt();
+  await finish();
+  assert.equal(count.textContent, "11 items");
+  assert.equal(sectionCount.textContent, 11);
+  assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, 11);
+
+  context.nameFilter = "";
+  await interrupt();
+  await finish();
+  assert.equal(count.textContent, "500 items");
+  assert.equal(sectionCount.textContent, 500);
+  assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, 500);
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",

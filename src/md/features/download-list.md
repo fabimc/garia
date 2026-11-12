@@ -7,6 +7,10 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 - Show progress without making the user watch the engine.
 - Keep unfinished work across relaunch via aria2's session file.
 - Route new files into category folders at add time — never move files already on disk.
+- Large filter passes yield to paint. A poll that interrupts one must finish the
+  current filter before the list count and row visibility can be trusted.
+- Keyboard selection should not scan every row more than needed; hidden windows
+  keep the slower poll interval.
 
 ## Statuses Garia invents
 
