@@ -2711,7 +2711,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     return;
   }
   const generation = ++filterGeneration;
-  filterDirty = true;
+  filterDirty = false;
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
   const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
@@ -2768,7 +2768,10 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     if (children.length > LARGE_LIST_THRESHOLD &&
         processed % FILTER_BATCH_SIZE === 0 && processed < children.length) {
       await yieldToPaint();
-      if (generation !== filterGeneration) return;
+      if (generation !== filterGeneration) {
+        filterDirty = true;
+        return;
+      }
       if (document.hidden) {
         filterDirty = true;
         return;
@@ -2776,7 +2779,10 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     }
   }
   closeSection();
-  if (generation !== filterGeneration) return;
+  if (generation !== filterGeneration) {
+    filterDirty = true;
+    return;
+  }
 
   document.getElementById("view-count").textContent =
     visible === 1 ? "1 item" : `${visible} items`;
@@ -2814,7 +2820,6 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     emptyAction.textContent = "";
   }
 
-  filterDirty = false;
   onFilterApplied();
 }
 

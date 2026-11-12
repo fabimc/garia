@@ -584,7 +584,7 @@ test("the extension collector matches the shared page-capture helper", () => {
   );
 });
 
-test("interrupted large-list filters stay dirty until a complete pass", async () => {
+test("large-list filters preserve interruptions and concurrent invalidations", async () => {
   const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
   const start = source.indexOf("async function applyFilterAsync(");
   const end = source.indexOf("\n// Assigned from DOMContentLoaded", start);
@@ -635,16 +635,17 @@ test("interrupted large-list filters stay dirty until a complete pass", async ()
     await pass;
     assert.equal(context.filterDirty, true);
   };
-  const finish = async () => {
+  const finish = async (invalidate = false) => {
     let done = false;
     const pass = context.applyFilterAsync(listEl).then(() => { done = true; });
+    if (invalidate) context.filterDirty = true;
     while (!done) {
       assert.ok(yields.length);
       yields.shift()();
       await new Promise((resolve) => setImmediate(resolve));
     }
     await pass;
-    assert.equal(context.filterDirty, false);
+    assert.equal(context.filterDirty, invalidate);
   };
 
   await interrupt();
@@ -659,6 +660,9 @@ test("interrupted large-list filters stay dirty until a complete pass", async ()
   assert.equal(count.textContent, "500 items");
   assert.equal(sectionCount.textContent, 500);
   assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, 500);
+
+  await finish(true);
+  await finish();
 });
 
 test("page capture lists embedded media before links and drops the page itself", () => {
