@@ -1862,7 +1862,7 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         let executable = match app.env().appimage {
-            Some(path) => path,
+            Some(path) => PathBuf::from(path),
             None => std::env::current_exe().map_err(|e| e.to_string())?,
         };
         return linux_autostart::set(enabled, &executable).map_err(|e| e.to_string());
