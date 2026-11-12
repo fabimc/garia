@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 mod catch;
+#[cfg(target_os = "linux")]
+mod autostart_linux;
 #[cfg(target_os = "macos")]
 mod dock;
 mod file_priorities;
@@ -1841,21 +1843,36 @@ fn read_torrent(path: String) -> Result<String, String> {
 /// Linux), so Settings reflects changes made outside Garia too.
 #[tauri::command]
 fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri_plugin_autostart::ManagerExt;
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|e| e.to_string())
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        autostart_linux::is_enabled(dirs::home_dir().as_deref()).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        app.autolaunch().is_enabled().map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri_plugin_autostart::ManagerExt;
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        autostart_linux::set_enabled(enabled, dirs::home_dir().as_deref())
+            .map_err(|e| e.to_string())
     }
-    .map_err(|e| e.to_string())
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        if enabled {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        }
+        .map_err(|e| e.to_string())
+    }
 }
 
 fn encode_base64(data: &[u8]) -> String {
@@ -4138,22 +4155,6 @@ pub fn run() {
                     None => eprintln!("[garia] Main window was unavailable during startup"),
                 }
             }
-            #[cfg(target_os = "linux")]
-            {
-                // Rewrite an existing XDG autostart Exec so upgrades pick up
-                // --garia-background without requiring the user to toggle it.
-                use tauri_plugin_autostart::ManagerExt;
-                match app.autolaunch().is_enabled() {
-                    Ok(true) => {
-                        if let Err(e) = app.autolaunch().enable() {
-                            eprintln!("[garia] Could not refresh autostart entry: {e}");
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(e) => eprintln!("[garia] Could not read autostart state: {e}"),
-                }
-            }
-
             let dir = app
                 .path()
                 .app_data_dir()

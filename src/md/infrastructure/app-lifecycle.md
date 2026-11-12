@@ -15,6 +15,7 @@
 ## Launch at login
 
 - macOS uses a LaunchAgent; Linux uses an XDG autostart entry.
+- On Linux the entry lives in `$XDG_CONFIG_HOME/autostart` (or `~/.config/autostart` by default) and is changed only when the setting is toggled.
 - Linux autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
 - Settings reports errors when the autostart state cannot be read or changed.
 
