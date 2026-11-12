@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Garia — the free download manager for Mac and Linux</title>
-  <meta name="description" content="Garia is a fast, free, open-source download manager for macOS and Linux. Multi-connection downloads, torrents and magnets, video pages, browser capture, scheduling, and a docked inspector — built on aria2.">
+  <title>Garia — the free download manager for Linux</title>
+  <meta name="description" content="Garia is a fast, free, open-source download manager for Linux. Multi-connection downloads, torrents and magnets, video pages, browser capture, scheduling, and a docked inspector — built on aria2.">
   <link rel="canonical" href="https://fabimc.github.io/garia/">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#faf6ef" media="(prefers-color-scheme: light)">
@@ -12,7 +12,7 @@
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Garia">
-  <meta property="og:title" content="Garia — the free download manager for Mac and Linux">
+  <meta property="og:title" content="Garia — the free download manager for Linux">
   <meta property="og:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections, scheduled from a daily window, and caught straight from your browser.">
   <meta property="og:url" content="https://fabimc.github.io/garia/">
   <meta property="og:image" content="https://fabimc.github.io/garia/assets/og.png">
@@ -20,7 +20,7 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Garia's main window in dark mode, with active downloads and the miner-helmet icon.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Garia — the free download manager for Mac and Linux">
+  <meta name="twitter:title" content="Garia — the free download manager for Linux">
   <meta name="twitter:description" content="Fast, free, and open source. Files, torrents, magnets and video pages — split across 16 connections, scheduled, and caught from your browser.">
   <meta name="twitter:image" content="https://fabimc.github.io/garia/assets/og.png">
 
@@ -35,9 +35,9 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Garia",
-    "operatingSystem": "macOS 11 or later, Linux",
+    "operatingSystem": "Linux",
     "applicationCategory": "UtilitiesApplication",
-    "description": "A fast, free, open-source download manager for macOS and Linux built on aria2.",
+    "description": "A fast, free, open-source download manager for Linux built on aria2.",
     "url": "https://fabimc.github.io/garia/",
     "downloadUrl": "https://github.com/fabimc/garia/releases/latest",
     "license": "https://opensource.org/licenses/MIT",
@@ -71,20 +71,16 @@
     <!-- Hero -->
     <section class="hero">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pill">Free &amp; open source</span> <span class="muted">MIT licensed · Mac &amp; Linux</span></p>
+        <p class="eyebrow"><span class="pill">Free &amp; open source</span> <span class="muted">MIT licensed · Linux</span></p>
         <h1>The download manager <br>you were missing.</h1>
         <p class="lede">Garia makes big downloads fast and boring in the best way. Files, torrents, magnet links and video pages — split across 16 connections, resumed after a restart, scheduled when you want them, and caught straight from your browser.</p>
         <div class="cta">
           <a class="btn btn-primary btn-lg" id="dl-btn" href="https://github.com/fabimc/garia/releases/latest">
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 3a1 1 0 0 1 2 0v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42L11 13.6V3ZM5 19a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"/></svg>
-            <span>Download for Mac</span>
+            <span>Download for Linux</span>
           </a>
-          <button class="btn btn-code" type="button" data-copy="brew tap fabimc/garia &amp;&amp; brew trust fabimc/garia &amp;&amp; brew install --cask garia" aria-label="Copy the Homebrew install command">
-            <span class="prompt">$</span> brew install --cask garia
-            <svg class="ico copy-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          </button>
         </div>
-        <p class="fineprint" id="dl-meta">macOS 11+ · Linux AppImage &amp; .deb · <a href="https://github.com/fabimc/garia/releases">All releases</a></p>
+        <p class="fineprint" id="dl-meta">Linux AppImage &amp; .deb · <a href="https://github.com/fabimc/garia/releases">All releases</a></p>
       </div>
 
       <div class="wrap">
@@ -95,7 +91,6 @@
             <source srcset="assets/screens/app-light.webp" type="image/webp">
             <img src="assets/screens/app-light.png" width="2560" height="1440" alt="Garia's main window showing active, seeding and queued downloads with speeds, sizes and time left for each.">
           </picture>
-          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
         </figure>
       </div>
 
@@ -202,7 +197,7 @@
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M21.17 8H12M3.95 6.06 8.54 14M10.88 21.94 15.46 14"/></svg>
           <h4>Browser capture</h4>
-          <p>An extension for Chrome, Firefox, Edge, Brave, Arc and Safari. Click a file and Garia takes it — hold ⌥ to leave it with the browser.</p>
+          <p>An extension for Chrome, Firefox, Edge, Brave and Arc. Click a file and Garia takes it — hold Alt to leave it with the browser.</p>
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
@@ -222,7 +217,7 @@
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
           <h4>Sleep when done</h4>
-          <p>When the last download finishes, do nothing, put the Mac to sleep, or shut it down — after a 30-second warning.</p>
+          <p>When the last download finishes, do nothing, put the computer to sleep, or shut it down — after a 30-second warning.</p>
         </li>
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -242,7 +237,7 @@
         <li>
           <svg class="fi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           <h4>Native where it counts</h4>
-          <p>Real menus and shortcuts on Mac, a tray on Linux, notifications, a Dock badge, drag-out to Finder, and light and dark mode.</p>
+          <p>Real menus and shortcuts, a tray, notifications, and light and dark mode.</p>
         </li>
       </ul>
     </section>
@@ -255,28 +250,8 @@
         <p class="sub">Garia is an alpha — it's already a daily driver, but expect rough edges. <a href="https://github.com/fabimc/garia/issues">Reports</a> are very welcome.</p>
       </div>
       <div class="wrap install-grid">
-        <div class="card">
-          <h3><span class="num">1</span> Download for Mac</h3>
-          <p>Get the universal <code>.dmg</code> — one app for Apple Silicon and Intel — then drag Garia to Applications.</p>
-          <a class="btn btn-primary" id="dl-btn-2" href="https://github.com/fabimc/garia/releases/latest">Download for Mac</a>
-          <details>
-            <summary>macOS says Garia can't be opened?</summary>
-            <p>Early builds may not be notarized by Apple yet. Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down, and click <strong>Open Anyway</strong> next to Garia. Or, in Terminal:</p>
-            <pre><code>xattr -dr com.apple.quarantine /Applications/Garia.app</code></pre>
-          </details>
-        </div>
-        <div class="card">
-          <h3><span class="num">2</span> Or use Homebrew</h3>
-          <p>Install from the Garia tap. After that, Garia updates itself from the Garia menu.</p>
-          <div class="term">
-            <button class="copy" type="button" data-copy="brew tap fabimc/garia&#10;brew trust fabimc/garia&#10;brew install --cask garia" aria-label="Copy Homebrew commands">Copy</button>
-<pre><code>brew tap fabimc/garia
-brew trust fabimc/garia
-brew install --cask garia</code></pre>
-          </div>
-        </div>
         <div class="card" id="linux-install">
-          <h3><span class="num">3</span> Download for Linux</h3>
+          <h3><span class="num">1</span> Download for Linux</h3>
           <p>Prefer the <code>.deb</code> on Debian/Ubuntu for deep links and torrent associations. The AppImage runs without installing. Both are x86_64.</p>
           <div class="cta" style="gap:0.5rem;flex-wrap:wrap">
             <a class="btn btn-primary" id="dl-btn-deb" href="https://github.com/fabimc/garia/releases/latest">Download .deb</a>
@@ -285,7 +260,7 @@ brew install --cask garia</code></pre>
           <p class="small">On Omarchy, install <code>garia-bin</code> from OPR with <code>omarchy pkg add garia-bin</code> once it is available. Until then, download the x86_64 AppImage, run <code>chmod +x Garia_&lt;version&gt;_amd64.AppImage</code>, then launch it manually. This temporary option is not pacman-managed and does not register a menu entry or file and magnet handlers; OPR is the intended Omarchy path.</p>
         </div>
         <div class="card">
-          <h3><span class="num">4</span> Add the browser extension</h3>
+          <h3><span class="num">2</span> Add the browser extension</h3>
           <p>In Garia, open <strong>Settings → Browser → Show extension folder</strong>, then load it in your browser. Store listings are on the way.</p>
           <p class="small"><a href="https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md">Browser capture guide →</a></p>
         </div>
@@ -320,8 +295,8 @@ brew install --cask garia</code></pre>
           <p>Anything <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> supports, which is well over a thousand sites. If you already have a newer <code>yt-dlp</code> on your PATH, Garia prefers it. Please respect the terms of the sites you use and download only what you have the right to.</p>
         </details>
         <details>
-          <summary>Is there a Windows or Linux version?</summary>
-          <p>Linux yes — AppImage and <code>.deb</code> (x86_64) on the <a href="https://github.com/fabimc/garia/releases">Releases</a> page. macOS 11 Big Sur and later on Apple Silicon and Intel. Windows is not available yet.</p>
+          <summary>Which platforms does Garia run on?</summary>
+          <p>Linux — AppImage and <code>.deb</code> (x86_64) on the <a href="https://github.com/fabimc/garia/releases">Releases</a> page.</p>
         </details>
         <details>
           <summary>How do I install Garia on Omarchy?</summary>
@@ -339,9 +314,9 @@ brew install --cask garia</code></pre>
       <div class="wrap final-inner">
         <img src="assets/icon-512.png" alt="" width="96" height="96" loading="lazy">
         <h2>Dig in.</h2>
-        <p>Free, open source, and made for Mac and Linux.</p>
+        <p>Free, open source, and made for Linux.</p>
         <div class="cta center">
-          <a class="btn btn-primary btn-lg" id="dl-btn-3" href="https://github.com/fabimc/garia/releases/latest">Download for Mac</a>
+          <a class="btn btn-primary btn-lg" id="dl-btn-3" href="https://github.com/fabimc/garia/releases/latest">Download for Linux</a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/fabimc/garia">Star on GitHub</a>
         </div>
       </div>

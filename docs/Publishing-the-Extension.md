@@ -1,6 +1,6 @@
 # Publishing the Garia capture extension
 
-The same folder, `extensions/garia`, is the Chrome / Edge / Brave / Arc package and the Firefox package. Safari still goes through `scripts/make-safari-extension.sh`. This note is the store path — Chrome Web Store and addons.mozilla.org — after you have loaded it unpacked and used it for a week.
+The same folder, `extensions/garia`, is the Chrome / Edge / Brave / Arc package and the Firefox package. This note is the store path — Chrome Web Store and addons.mozilla.org — after you have loaded it unpacked and used it for a week.
 
 You cannot finish either store from the command line alone. Each wants an account, a listing, screenshots, and a human review. The zip and the copy-paste text below are what you take to those forms.
 
@@ -42,18 +42,18 @@ Host this privacy policy at a public URL before either dashboard will accept the
 **Summary** (132 characters max):
 
 ```
-Catch file downloads and video pages and send them to the Garia desktop app for macOS.
+Catch file downloads and video pages and send them to the Garia desktop app for Linux.
 ```
 
 **Description**:
 
 ```
-Garia is a companion for the Garia download manager on the Mac. The extension does not download files itself. It sends the URL to the desktop app — the same way Internet Download Manager and Free Download Manager do.
+Garia is a companion for the Garia download manager on Linux. The extension does not download files itself. It sends the URL to the desktop app — the same way Internet Download Manager and Free Download Manager do.
 
 You need the Garia app installed. Without it, a click opens a short “Opening Garia…” tab and stops there.
 
 What it does
-• Click a file link and Garia takes it. Hold Option (Alt) to leave that one with the browser.
+• Click a file link and Garia takes it. Hold Alt to leave that one with the browser.
 • A download the browser had already started is cancelled and handed over — archives, disk images, video, audio, documents, torrents.
 • Right-click a link, a selection, or the page: Download with Garia, send this page, or send every link (reviewed in Garia before they start).
 • On a watch page, a Download chip sits on the player. It sends the page, not the stream, so playlists still work and you do not have to press play first. × hides it until the next video.
@@ -110,7 +110,7 @@ After it is live, the public URL looks like `https://chromewebstore.google.com/d
 
 ### Updates
 
-Bump `version` in `extensions/garia/manifest.json` (and `manifest.safari.json` if Safari should match). Pack again. Dashboard → the item → **Package** → upload the new zip. Same review, usually faster.
+Bump `version` in `extensions/garia/manifest.json`. Pack again. Dashboard → the item → **Package** → upload the new zip. Same review, usually faster.
 
 ## 2. Firefox Add-ons (AMO)
 
@@ -122,10 +122,10 @@ Bump `version` in `extensions/garia/manifest.json` (and `manifest.safari.json` i
 ### Lint locally (optional, useful)
 
 ```sh
-npx --yes web-ext lint --source-dir extensions/garia --ignore-files manifest.safari.json
+npx --yes web-ext lint --source-dir extensions/garia
 ```
 
-Warnings about `browser_specific_settings.safari` are noise. Errors are not.
+Fix every error.
 
 ### Upload
 
@@ -143,7 +143,7 @@ Warnings about `browser_specific_settings.safari` are noise. Errors are not.
 
 **Categories:** Download Management, and Productivity.
 
-On the compatibility form, leave **Firefox for Android** unchecked. Garia is a Mac app; the extension has nowhere to send a URL on a phone.
+On the compatibility form, leave **Firefox for Android** unchecked. Garia is a desktop app; the extension has nowhere to send a URL on a phone.
 
 **Support / homepage:** `https://github.com/fabimc/garia`
 
@@ -152,9 +152,9 @@ On the compatibility form, leave **Firefox for Android** unchecked. Garia is a M
 ### Notes for reviewers (the form asks)
 
 ```
-Companion extension for the Garia macOS download manager (https://github.com/fabimc/garia).
+Companion extension for the Garia Linux download manager (https://github.com/fabimc/garia).
 It does not fetch files. It opens garia://add?… so the desktop app can queue them.
-Requires the Garia app. Tested on Firefox 140+ / macOS.
+Requires the Garia app. Tested on Firefox 140+ / Linux.
 To try a capture: install Garia, load any page with a .zip or .pdf link, right-click → Download with Garia.
 ```
 
@@ -172,7 +172,6 @@ Same version bump, new zip, **Upload a new version** on the AMO developer page. 
 
 1. Replace the sideload instructions in Settings → Browser and in [Browser capture](Browser-Capture.md) with the two store links.
 2. Edge and Brave can install the Chrome Web Store listing, or you can submit the same zip to [Partner Center](https://partner.microsoft.com/dashboard/microsoftedge/overview) later. That is a third review, not a third codebase.
-3. Safari is still the converter script, then Developer ID / App Store Connect if you want it signed. That is a Mac app, not an AMO/CWS listing.
 
 ## 4. What you cannot skip
 

@@ -16,7 +16,7 @@ Garia already covers a large share of the core download-manager experience that 
 - Optional checksum verification while a file is downloading
 - Video downloads through yt-dlp and ffmpeg
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
-- Notification, status, and tray/dock integrations
+- Notification, status, and tray integrations
 
 That means Garia already matches the everyday "do my downloads, organize them, and keep them running" experience that uGet is known for. The remaining work below was the batch, queue, and browser-capture depth that makes a uGet-style client feel faster and more complete on large or repetitive download tasks.
 
@@ -47,7 +47,7 @@ Priority: high — shipped
 
 Priority: high — shipped
 
-- Move to top / move to end, Retry All Failed, and Clear Completed stay on the Download menu, dock, and tray.
+- Move to top / move to end, Retry All Failed, and Clear Completed stay on the Download menu and tray.
 - Scan chips distinguish a user **Paused** row from **Stopped** (queue), **Held** (daily window), and **Scheduled** (start time).
 - The header status line and detail panel keep saying why the queue or schedule is holding work.
 
@@ -57,7 +57,7 @@ Priority: medium — shipped
 
 - Per-download speed caps and traffic modes share one detail-panel sentence via the same scope helper used in tests.
 - Failed rows name Login, Checksum, Network, Disk, Server, or Media merge, with a recovery next step on the tooltip and detail panel.
-- Retry and Retry All Failed stay discoverable on the row, menu, dock, and tray.
+- Retry and Retry All Failed stay discoverable on the row, menu, and tray.
 
 ### 5. Media and browser-native convenience
 
@@ -71,7 +71,7 @@ Priority: medium — shipped (Garia-shaped)
 
 Priority: medium — shipped (Garia-shaped)
 
-- macOS and Linux menus, tray, and dock share the same core verbs where behavior is equivalent: New Download, Pause / Resume All, Stop / Start Queue, Retry Failed, Clear Completed, Open Download Folder.
+- The menu and tray share the same core verbs: New Download, Pause / Resume All, Stop / Start Queue, Retry Failed, Clear Completed, Open Download Folder.
 - Queue status and row actions stay consistent across those surfaces.
 
 ### 7. Multi-source mirrors
@@ -85,7 +85,7 @@ Priority: medium — shipped
 These remain explicitly outside the product shape rather than unfinished checklist items:
 
 - Per-category active-download limits as a second concurrency system — aria2 only exposes one `max-concurrent-downloads`, so true per-category caps need an app-side pause/resume scheduler on top of packages. Not a small additive field.
-- FlashGot / browser-native download takeover beyond the existing extension — click capture, `downloads.onCreated` takeover, context menus, and the video chip already cover Chromium/Firefox; Safari cannot cancel in-flight browser downloads, and deeper engine hooks are speculative.
+- FlashGot / browser-native download takeover beyond the existing extension — click capture, `downloads.onCreated` takeover, context menus, and the video chip already cover Chromium/Firefox, and deeper engine hooks are speculative.
 - A separate plugin marketplace or Metalink authoring UI
 
 ## Recommended implementation order

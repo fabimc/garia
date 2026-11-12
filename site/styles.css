@@ -22,8 +22,8 @@
   --shadow-md: 0 2px 10px rgba(60, 42, 26, 0.07);
   --radius: 12px;
   --radius-lg: 18px;
-  --display: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --display: system-ui, sans-serif;
+  --body: system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -143,13 +143,6 @@ h1 { font-size: clamp(40px, 7vw, 76px); font-weight: 800; letter-spacing: -0.035
   box-shadow: var(--shadow-lg);
   background: var(--bg-alt);
 }
-/* Marketing shots are full-bleed app chrome without OS traffic lights, so
-   draw a small window-chrome trio on every theme. */
-.lights { display: flex; position: absolute; left: 1.55%; top: 2.2%; width: 4%; justify-content: space-between; pointer-events: none; }
-.lights i { display: block; width: 22.5%; aspect-ratio: 1; border-radius: 50%; }
-.lights i:nth-child(1) { background: #ff5f57; }
-.lights i:nth-child(2) { background: #febc2e; }
-.lights i:nth-child(3) { background: #28c840; }
 
 .trust {
   list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;

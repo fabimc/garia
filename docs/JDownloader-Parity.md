@@ -16,7 +16,7 @@ Garia already covers a large share of the core download-manager experience that 
 - Optional checksum verification while a file is downloading
 - Video downloads through yt-dlp and ffmpeg
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
-- Notification, status, and tray/dock integrations
+- Notification, status, and tray integrations
 
 That means Garia is already strong on the core “download manager” experience. The remaining work below was the batch, packaging, site-rule, automation, and export depth that JDownloader users expect on top of basic downloading.
 

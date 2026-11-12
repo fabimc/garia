@@ -82,7 +82,7 @@ The plan below is the implementation order a later agent should follow.
 
 ## Priority 5: polish the UX to feel like a desktop XDM alternative
 
-- Align the macOS and Linux menus with the same verbs and expectations where behavior is equivalent.
+- Keep the menu and tray verbs aligned.
 - Improve empty states, notices, badges, and the detail panel so users know what is happening without reading logs.
 - Add a fuller, native-feeling detail sidebar for torrents and active downloads.
 - Make the app feel like a “download manager that understands torrents and media” instead of a slimmer utility tool.

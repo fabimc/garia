@@ -18,11 +18,11 @@ Garia already matches a substantial portion of the core download-manager experie
 - Checksum verification while a file is downloading
 - Video downloads via yt-dlp and ffmpeg merging
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
-- Notification, dock, and tray-style status indicators
+- Notification and tray-style status indicators
 
 ## Parity work now in the app
 
-Torrent detail and seeding, queue and row actions, per-download caps, the Torrents filter, and the same Download-menu verbs on macOS and Linux are in the app. The bullets are the spec that shipped.
+Torrent detail and seeding, queue and row actions, per-download caps, the Torrents filter, and the same Download-menu verbs are in the app. The bullets are the spec that shipped.
 
 That work was deeper torrent management, richer queue controls, and UX polish rather than basic downloads themselves.
 
@@ -64,9 +64,8 @@ Priority: medium
 
 Priority: medium
 
-- Use macOS and Linux native menus/trays more consistently so the app feels as integrated as a desktop torrent client should
+- Use the native menu and tray more consistently so the app feels as integrated as a desktop torrent client should
 - Continue platform-specific behavior work around badges, menu entries, and launch persistence
-- Keep the Linux implementation aligned with the macOS feature set where behavior is equivalent
 
 ## Recommended implementation order
 

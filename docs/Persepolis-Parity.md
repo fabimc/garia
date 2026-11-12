@@ -18,7 +18,7 @@ Garia already covers a large part of the everyday download-manager experience Pe
 - Video downloads with yt-dlp and ffmpeg merge support
 - Checksum verification during or after download
 - Remote control and persistent queue behavior across relaunches
-- Notifications and tray/dock-style status indicators
+- Notifications and tray-style status indicators
 
 In other words, Garia already matches the core “desktop downloader” workflow that Persepolis is known for: add links, let them download in the background, keep a queue, and make browser capture and media downloads feel native.
 
@@ -64,7 +64,7 @@ Priority: medium
 
 Priority: medium
 
-- Extend the app’s native menu, tray, and dock behavior so the desktop experience feels as polished as a dedicated download manager
+- Extend the app’s native menu and tray behavior so the desktop experience feels as polished as a dedicated download manager
 - Improve first-run onboarding and the “what this app can do” experience for less technical users
 - Keep empty states, notices, and the detail panel more explicit about why a job is waiting, stalled, or failed
 - Add product polish so Garia feels like a fully native “download manager” rather than a lightweight utility app

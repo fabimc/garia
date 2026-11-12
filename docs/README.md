@@ -4,8 +4,8 @@
 
 New to Garia?
 
- * Try **Garia Help** in the Help menu (⌘?).
- * Closing the window is not quitting — downloads keep going until you press ⌘Q.
+ * Try **Garia Help** in the Help menu (Ctrl+?).
+ * Closing the window is not quitting — downloads keep going until you press Ctrl+Q.
  * Paste a [sample file](Test-Downloads.md) to see the progress bar move.
  * The [feature list](Features.md) is the short tour.
 
@@ -18,13 +18,13 @@ Want to learn more?
 ## 2. FAQ
 
 * **Why do downloads keep going after I close the window?**
-  Closing the window hides the list. aria2 keeps running; use the tray (or the Dock on Mac) to bring it back. Quit is the only exit.
+  Closing the window hides the list. aria2 keeps running; use the tray to bring it back. Quit is the only exit.
 
 * **Where do files land?**
   Settings names the download folder. Optional categories sort new files into folders you name, by file type or by site.
 
 * **How do I catch a download from the browser?**
-  See [Browser capture](Browser-Capture.md). Hold Option (or Alt) on a file link to leave that one with the browser.
+  See [Browser capture](Browser-Capture.md). Hold Alt on a file link to leave that one with the browser.
 
 * **Can I play a video before it finishes?**
   Yes, if the front of the file is on disk. See [Playing a download before it finishes](Playing-Incomplete.md).
@@ -67,7 +67,7 @@ Want to learn more?
 Garia welcomes help.
 
  * Code contribution
- * Testing on Intel and Apple Silicon Macs
+ * Testing on more distros and desktops
  * Documentation
  * The [browser extension store listings](Publishing-the-Extension.md)
 
