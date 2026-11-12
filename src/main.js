@@ -27,6 +27,7 @@ import {
   trackerRows,
   trackerStatus,
   formatEmptyQueueState,
+  connectionStateAfterPollError,
   formatRecoverableNextStep,
   formatFfmpegMergeLine,
   formatCaptureFlowHint,
@@ -2674,6 +2675,8 @@ let activeFilter = "all";
 let nameFilter = "";
 let connState = "waiting";
 let engineStartupTimer = 0;
+let engineStartupGraceUntil = 0;
+const ENGINE_STARTUP_GRACE_MS = 5000;
 // Whether the filter pass has anything to do. It touches every row, so the
 // poll runs it only when a row's status, name or category moved, a row came
 // or went, or the connection did — searching and switching views run it
@@ -4918,8 +4921,10 @@ function setConn(state) {
   if (changed) filterDirty = true;
   connState = state;
   const engineStatus = document.getElementById("engine-status");
-  clearTimeout(engineStartupTimer);
-  engineStartupTimer = 0;
+  if (changed || state !== "waiting") {
+    clearTimeout(engineStartupTimer);
+    engineStartupTimer = 0;
+  }
   if (state === "ok") {
     if (engineStatus && !engineStatus.classList.contains("hidden")) {
       engineStatus.classList.add("hidden");
@@ -4935,17 +4940,16 @@ function setConn(state) {
     }
   } else {
     engineStatus?.classList.remove("is-error");
-    // A previous error message can still be visible while the app retries. Hide
-    // it before the delayed startup notice so the user sees a consistent state.
-    if (engineStatus && !engineStatus.classList.contains("hidden")) {
-      engineStatus.classList.add("hidden");
+    if (engineStatus?.classList.contains("hidden") && !engineStartupTimer) {
+      engineStartupTimer = setTimeout(() => {
+        engineStartupTimer = 0;
+        if (connState !== "waiting" || !engineStatus) return;
+        if (engineStatus.classList.contains("hidden")) {
+          engineStatus.textContent = "Starting downloads engine…";
+          engineStatus.classList.remove("hidden");
+        }
+      }, 1000);
     }
-    engineStartupTimer = setTimeout(() => {
-      engineStartupTimer = 0;
-      if (connState !== "waiting" || !engineStatus) return;
-      engineStatus.textContent = "Starting downloads engine…";
-      engineStatus.classList.remove("hidden");
-    }, 1000);
   }
   const dot = document.getElementById("conn-dot");
   const text = document.getElementById("conn-text");
@@ -5273,8 +5277,17 @@ async function poll(listEl) {
     firstPoll = false;
   } catch (err) {
     console.error(err);
-    const text = setConn("error");
-    if (err?.message) text.title = `${text.title} — ${err.message}`;
+    const state = connectionStateAfterPollError(
+      firstPoll,
+      engineStartupGraceUntil,
+      Date.now(),
+    );
+    if (state === "waiting") {
+      setConn("waiting");
+    } else {
+      const text = setConn("error");
+      if (err?.message) text.title = `${text.title} — ${err.message}`;
+    }
     syncStatusItem(0);
   } finally {
     try {
@@ -8267,6 +8280,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadLogins();
   listenNotificationClicks();
   await hydrateFilePriorities();
+  engineStartupGraceUntil = Date.now() + ENGINE_STARTUP_GRACE_MS;
   pollAndSync();
   loadSettings().then(() => {
     renderCategoryNav();

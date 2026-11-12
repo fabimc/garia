@@ -28,6 +28,7 @@ import {
   torrentHealth,
   trackerRows,
   trackerStatus,
+  connectionStateAfterPollError,
   formatEmptyQueueState,
   formatRecoverableNextStep,
   formatFfmpegMergeLine,
@@ -330,6 +331,12 @@ test("empty queue copy follows filter and connection state", () => {
     "view-all",
   );
   assert.equal(formatEmptyQueueState({ connError: true }).title, "Can't reach aria2");
+});
+
+test("initial poll failures wait only during the engine startup grace period", () => {
+  assert.equal(connectionStateAfterPollError(true, 5_000, 4_999), "waiting");
+  assert.equal(connectionStateAfterPollError(true, 5_000, 5_000), "error");
+  assert.equal(connectionStateAfterPollError(false, 5_000, 4_999), "error");
 });
 
 test("recoverable failures name a next step", () => {

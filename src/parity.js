@@ -320,6 +320,10 @@ export function pickByRule(choices, rule) {
 // XDM-style copy for empty states, media capture, limits, and failure recovery
 // (P3–P5 in docs/XDM-Parity-Plan.md). Shared so list, detail, and settings agree.
 
+export function connectionStateAfterPollError(firstPoll, startupGraceUntil, now) {
+  return firstPoll && now < startupGraceUntil ? "waiting" : "error";
+}
+
 export function formatEmptyQueueState({
   filter = "all",
   hasAnyDownloads = false,
