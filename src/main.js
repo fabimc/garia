@@ -4935,13 +4935,16 @@ function setConn(state) {
     }
   } else {
     engineStatus?.classList.remove("is-error");
+    // A previous error message can still be visible while the app retries. Hide
+    // it before the delayed startup notice so the user sees a consistent state.
+    if (engineStatus && !engineStatus.classList.contains("hidden")) {
+      engineStatus.classList.add("hidden");
+    }
     engineStartupTimer = setTimeout(() => {
       engineStartupTimer = 0;
       if (connState !== "waiting" || !engineStatus) return;
-      if (engineStatus.classList.contains("hidden")) {
-        engineStatus.textContent = "Starting downloads engine…";
-        engineStatus.classList.remove("hidden");
-      }
+      engineStatus.textContent = "Starting downloads engine…";
+      engineStatus.classList.remove("hidden");
     }, 1000);
   }
   const dot = document.getElementById("conn-dot");
