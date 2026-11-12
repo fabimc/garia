@@ -1,5 +1,3 @@
-import { notificationPermissionMessage } from "./parity.js";
-
 const MB = 1024 * 1024;
 const PANE_KEY = "garia:settings-pane";
 const LOGINS_KEY = "garia:logins";
@@ -785,6 +783,7 @@ async function checkNotificationPermission() {
   // On desktop this is only false when the webview has denied notifications;
   // an unprompted state does not trigger it.
   try {
+    const { notificationPermissionMessage } = await import("./parity.js");
     const message = notificationPermissionMessage(await api.isPermissionGranted());
     if (message) showError(message);
   } catch (err) {
