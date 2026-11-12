@@ -899,6 +899,18 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(css, /html\.platform-linux \.setup-linux-only/);
 });
 
+test("Help keeps its body keyboard-scrollable within the sheet", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  const main = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  assert.match(html, /class="modal-body help-body" tabindex="0"/);
+  assert.match(main, /focus: helpOverlay\.querySelector\("\.help-body"\)/);
+  assert.match(css, /#help-overlay \.modal\s*\{[^}]*max-height:/);
+  assert.match(css, /html\.in-app #help-overlay \.modal\s*\{[^}]*max-height:/);
+  assert.match(css, /#help-overlay \.modal-footer\s*\{[^}]*flex-shrink:\s*0/);
+  assert.match(css, /\.help-body\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/);
+});
+
 test("notification permission message is shown only when permission is denied", () => {
   assert.equal(
     notificationPermissionMessage(false),

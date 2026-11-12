@@ -1827,6 +1827,20 @@ html.in-app .modal {
     flex-direction: column;
     gap: 0.85rem;
 }
+#help-overlay .modal {
+    max-height: calc(100vh - 40px);
+}
+html.in-app #help-overlay .modal {
+    max-height: calc(100vh - 58px);
+}
+#help-overlay .modal-header,
+#help-overlay .modal-footer {
+    flex-shrink: 0;
+}
+.help-body {
+    min-height: 0;
+    overflow-y: auto;
+}
 .licenses-list,
 .help-list {
     display: flex;
