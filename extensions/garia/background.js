@@ -1,5 +1,5 @@
 // Service workers do not import the content-script files. Chromium loads
-// this file alone; Firefox and Safari load helpers first via
+// this file alone; Firefox loads helpers first via
 // `background.scripts`. The importScripts call covers Chromium.
 if (typeof importScripts === "function") {
   if (typeof gariaIsFileUrl !== "function") importScripts("file-types.js");
