@@ -1284,3 +1284,17 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.match(failedEmpty.sub, /⌘N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
+
+test("tray and application menu actions share one event dispatcher", () => {
+  const source = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const handler = source.split("app.on_menu_event(|app, event| {")[1].split("spawn_clipboard_watch")[0];
+  const tray = source.split("fn install_status_item(")[1].split("#[cfg(test)]")[0];
+  for (const id of ["new-download", "pause-all", "resume-all", "stop-queue", "start-queue",
+    "retry-failed", "clear-completed", "open-folder"]) {
+    assert.match(tray, new RegExp(`with_id\\("${id}"`));
+    assert.match(handler, new RegExp(`"${id}"`));
+  }
+  assert.match(handler, /"show-window"\s*=>\s*bring_to_front\(app\)/);
+  assert.match(handler, /"quit"\s*=>\s*app\.exit\(0\)/);
+  assert.doesNotMatch(tray, /\.on_menu_event\s*\(/);
+});

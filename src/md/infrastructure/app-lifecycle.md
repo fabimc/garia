@@ -10,6 +10,7 @@
 
 - The macOS dock menu and desktop tray provide New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, and Open Download Folder.
 - The tray also provides Show Garia and Quit. On Linux, relaunching Garia from the application launcher restores the existing instance if the Wayland tray host is unavailable.
+- Shared menu and tray actions must be dispatched only once per native menu event.
 - macOS menu-bar extra shows the running count while the window is hidden.
 
 ## Launch at login
