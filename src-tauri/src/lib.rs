@@ -15,6 +15,7 @@ mod catch;
 #[cfg(target_os = "macos")]
 mod dock;
 mod file_priorities;
+mod history;
 mod ftp;
 mod logins;
 mod schedule;
@@ -1033,6 +1034,22 @@ where
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|e| format!("the task did not finish: {e}"))?
+}
+
+#[tauri::command]
+async fn load_download_history(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    off_main(move || {
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        history::read(&dir.join("download-history.json"))
+    }).await
+}
+
+#[tauri::command]
+async fn save_download_history(app: tauri::AppHandle, history: serde_json::Value) -> Result<(), String> {
+    off_main(move || {
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        history::write(&dir.join("download-history.json"), &history)
+    }).await
 }
 
 #[tauri::command]
@@ -3460,12 +3477,6 @@ fn mux_video_blocking(
         return Err(reason);
     }
 
-    // The halves have served their purpose. Trash rather than unlink, for the
-    // same reason deleting a download does.
-    for p in [&video_path, &audio_path] {
-        let _ = trash::delete(Path::new(p));
-    }
-
     Ok(out_path)
 }
 
@@ -4083,6 +4094,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
+            load_download_history,
+            save_download_history,
             aria2_endpoint,
             platform,
             trash_files,

@@ -1,6 +1,7 @@
 import { initAddDialog } from "./add-dialog.js";
 import { bytesToBase64 } from "./encode.js";
 import { closeOverlay, closeTopOverlay, openOverlay, overlayOpen } from "./overlays.js";
+import { historyState, reconcileHistory, historyRows, forgetHistory, createHistoryGuard, purgeHistoryResults } from "./history.js";
 import {
   bulkPriorityMap,
   desiredIndices,
@@ -1104,6 +1105,47 @@ function loadJobs() {
 
 const jobs = loadJobs();
 
+const HISTORY_KEY = "garia:download-history";
+let history = historyState(null);
+let historyReady = false;
+let historySaved = "";
+let historyWrites = Promise.resolve();
+let historyHydration = Promise.resolve();
+let ariaGids = new Set();
+const historyGuard = createHistoryGuard();
+
+async function hydrateHistory() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  try {
+    const data = typeof invoke === "function"
+      ? await invoke("load_download_history")
+      : JSON.parse(localStorage.getItem(HISTORY_KEY) || "null");
+    history = historyState(data);
+    historySaved = JSON.stringify(history);
+    historyReady = true;
+  } catch (err) {
+    console.error("Could not load download history", err);
+    showNotice("Could not load download history; it will not be overwritten.", { error: true });
+  }
+}
+
+function saveHistory() {
+  if (!historyReady) return Promise.resolve();
+  const data = JSON.stringify(history);
+  historyWrites = historyWrites.catch(() => {}).then(async () => {
+    if (data === historySaved) return;
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (typeof invoke === "function") await invoke("save_download_history", { history: JSON.parse(data) });
+    else localStorage.setItem(HISTORY_KEY, data);
+    historySaved = data;
+  });
+  return historyWrites.catch((err) => {
+    console.error("Could not save download history", err);
+    showNotice("Could not save download history.", { error: true });
+    throw err;
+  });
+}
+
 function saveJobs() {
   try {
     localStorage.setItem(JOBS_KEY, JSON.stringify([...jobs]));
@@ -1471,11 +1513,30 @@ function runPendingMerges(rows) {
     const outPath = `${pathDir(videoPath) || job.dir}/${job.out}`;
     muxProgress = { gid: row.gid, outPath, fraction: 0 };
     invoker("mux_video", { videoPath, audioPath, outPath })
-      .then((path) => {
+      .then(async (path) => {
+        while (historyGuard.removing(row.gid)) await historyGuard.wait(row.gid);
+        if (jobs.get(row.gid) !== job) return;
         job.outPath = path;
         job.state = "done";
+        saveJobs();
+        if (!historyReady) return;
+        const complete = {
+          ...row, status: "complete", files: [{ path, uris: [] }], onDisk: true,
+          job: { ...job, videoGid: row.gid, audioGid: job.audioGid },
+        };
+        history = reconcileHistory(history, [], [complete], jobs);
+        try {
+          await saveHistory();
+          while (historyGuard.removing(row.gid)) await historyGuard.wait(row.gid);
+          if (jobs.get(row.gid) !== job) return;
+          await invoker("trash_files", { paths: [videoPath, audioPath] });
+        } catch (err) {
+          console.error("Could not save merged history or trash its halves", err);
+        }
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        while (historyGuard.removing(row.gid)) await historyGuard.wait(row.gid);
+        if (jobs.get(row.gid) !== job) return;
         console.error(err);
         job.state = "failed";
         const message = String(err?.message || err);
@@ -1487,6 +1548,7 @@ function runPendingMerges(rows) {
         muxBusy = false;
         muxProgress = null;
         saveJobs();
+        if (listHost) void pollAndSync();
       });
     return;
   }
@@ -3451,6 +3513,7 @@ async function detailData(gid) {
     const id = ids[i];
     let status = null;
     try { status = await rpc("aria2.tellStatus", [id, DETAIL_KEYS]); } catch { /* forgotten */ }
+    if (!status && ids.length === 1 && row?.status === "complete") status = row;
     const live = status?.status === "active";
     const prev = cache.parts[id] || {};
     const done = Number(status?.completedLength) || 0;
@@ -5099,6 +5162,10 @@ function yieldToPaint() {
 async function poll(listEl) {
   let releasePollDom = null;
   try {
+    await historyHydration;
+    await historyGuard.waitAll();
+    const historyVersion = historyGuard.version();
+    if (historyVersion === null) return;
     const [{ active, waiting, stopped }] = await Promise.all([
       fetchLists(),
       // Asked alongside rather than after: which rows are held changes on the
@@ -5106,6 +5173,10 @@ async function poll(listEl) {
       // second before it says "Scheduled" is the flicker worth avoiding.
       loadSchedule(),
     ]);
+    if (!historyGuard.current(historyVersion)) {
+      stoppedCache.key = "";
+      return;
+    }
 
     setConn("ok");
     renderSchedule();
@@ -5116,10 +5187,11 @@ async function poll(listEl) {
     queueOrder = waiting.map((d) => d.gid);
 
     const raw = [...active, ...waiting, ...stopped].map(withSeeding);
+    ariaGids = new Set(raw.map((dl) => dl.gid));
     // Where each half actually landed, kept before the pairs are folded away —
     // the merge needs both paths, and only aria2 knows them.
     rawPaths.clear();
-    for (const dl of raw) {
+    for (const dl of [...history.parts, ...raw]) {
       const path = dl.files?.[0]?.path;
       if (path) rawPaths.set(dl.gid, path);
     }
@@ -5137,19 +5209,26 @@ async function poll(listEl) {
     }
 
     rememberMagnets(raw);
-    const folded = collapseMagnetDownloads(collapseJobs(raw));
+    const mergeInput = [...raw, ...history.parts.filter((dl) => !ariaGids.has(dl.gid))];
+    const folded = collapseMagnetDownloads(collapseJobs(mergeInput));
     for (const link of folded.handoffs) rekeyDownload(link.from, link.to);
     // A finished metadata gid is not a download. Drop it from aria2 before
     // the next session save, so a relaunch cannot bring the [METADATA] row back.
     if (folded.forget.length) {
       void rpcBatch(folded.forget.map((gid) => ["aria2.removeDownloadResult", [gid]])).catch(() => {});
     }
-    const all = folded.rows
+    const liveRows = folded.rows
       .map((dl) => {
         const magnetUri = rememberedMagnet(dl);
         return magnetUri && !dl.magnetUri ? { ...dl, magnetUri } : dl;
       })
       .filter((dl) => !removing.has(dl.gid));
+    if (historyReady) {
+      history = reconcileHistory(history, raw, liveRows, jobs, removing);
+      try { await saveHistory(); } catch { /* retry on the next poll */ }
+    }
+    if (!historyGuard.current(historyVersion)) return;
+    const all = historyRows(history, liveRows).filter((dl) => !removing.has(dl.gid));
     runPendingMerges(all);
     const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
@@ -5162,6 +5241,7 @@ async function poll(listEl) {
     if (document.hidden) filterDirty = true;
 
     for (const dl of all) {
+      if (!historyGuard.current(historyVersion)) return;
       seen.add(dl.gid);
       const before = snapshot.get(dl.gid);
       snapshot.set(dl.gid, dl);
@@ -5211,6 +5291,7 @@ async function poll(listEl) {
       }
     }
 
+    if (!historyGuard.current(historyVersion)) return;
     prunePackages(seen);
 
     // Drop rows for downloads aria2 no longer reports
@@ -5329,6 +5410,7 @@ async function pollAndSync() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  historyHydration = hydrateHistory();
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
   setConn("waiting");
   await initPlatform();
@@ -6430,12 +6512,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     }]);
     if (spec && typeof newGid === "string") rowChecksums.set(newGid, spec);
     await purgeResult(gid);
+    stoppedCache.key = "";
+    history = forgetHistory(history, [gid]);
+    await saveHistory();
   }
 
   // The hash the detail panel was given, put wherever aria2 will take it. See
   // buildCheckBlock for why the two halves are different calls.
   async function checkAgainst(gid, spec) {
-    const st = await rpc("aria2.tellStatus", [gid, ["status", "dir", "files"]]);
+    const st = await rpc("aria2.tellStatus", [gid, ["status", "dir", "files"]])
+      .catch(() => snapshot.get(gid));
+    if (!st) throw new Error("Download is no longer available.");
     if (LIMITABLE.has(st.status)) {
       await rpc("aria2.changeOption", [gid, { checksum: spec }]);
       rowChecksums.set(gid, spec);
@@ -6456,6 +6543,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     }]);
     rowChecksums.set(newGid, spec);
     await purgeResult(gid);
+    stoppedCache.key = "";
+    history = forgetHistory(history, [gid]);
+    await saveHistory();
     return newGid;
   }
 
@@ -6463,15 +6553,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // result, so what it refuses is asked again, twice. Answers the gids it
   // could not forget, and the last reason why.
   async function purgeResults(gids) {
-    let left = gids;
-    let reason = "";
-    for (let attempt = 0; attempt < 3 && left.length; attempt++) {
-      if (attempt) await new Promise((r) => setTimeout(r, 120));
-      const answers = await rpcBatch(left.map((g) => ["aria2.removeDownloadResult", [g]]));
-      reason = answers.find((a) => a.error)?.error || "";
-      left = left.filter((_, i) => answers[i].error);
-    }
-    return { left, reason };
+    return purgeHistoryResults(gids, rpcBatch, () => new Promise((r) => setTimeout(r, 120)));
   }
 
   // What a row has on disk. A merged download can have left three files: the
@@ -6490,59 +6572,66 @@ window.addEventListener("DOMContentLoaded", async () => {
   // is still going, one to forget the records — rather than a round trip and
   // a back-off per row while the list sits there unchanged.
   async function removeDownloads(gids, alsoTrash) {
-    const rows = gids.map((gid) => snapshot.get(gid)).filter(Boolean);
+    const rows = gids.map((gid) => snapshot.get(gid)).filter((dl) => dl && !removing.has(dl.gid));
     if (!rows.length) return;
 
-    for (const dl of rows) {
-      removing.add(dl.gid);
-      selected.delete(dl.gid);
-      const li = rowEls.get(dl.gid);
-      if (li) { li.remove(); rowEls.delete(dl.gid); }
-    }
-    filterDirty = true;
-    applyFilter(listEl);
-
-    // Anything aria2 has not filed as stopped has to be stopped before its
-    // record can go — a seeding torrent included, which is running to aria2.
-    // The second half of a merged video is not on the list, so it is asked
-    // either way; an already-stopped download just says no.
-    const STOPPED = ["complete", "error", "removed"];
-    const halves = rows.flatMap((dl) => gidsFor(dl.gid).map((g) => ({
-      gid: g,
-      running: g !== dl.gid || !STOPPED.includes(dl.status),
-    })));
-    await rpcBatch(halves.filter((h) => h.running).map((h) => ["aria2.remove", [h.gid]]));
-    const { left, reason } = await purgeResults(halves.map((h) => h.gid));
-    // The metadata gid is already stopped once the torrent exists. Forgetting
-    // it is what keeps a removed magnet from leaving a [METADATA] result behind.
-    const metas = rows
-      .map((dl) => dl.metadataGid)
-      .filter((gid) => gid && !halves.some((half) => half.gid === gid));
-    if (metas.length) await purgeResults(metas);
-    const stuck = new Set(left);
-    const kept = rows.filter((dl) => gidsFor(dl.gid).some((g) => stuck.has(g)));
-    if (kept.length) {
-      failed(`Couldn't delete ${kept.length} of ${rows.length} downloads`, reason);
-    }
-
-    const invoker = window.__TAURI__?.core?.invoke;
-    // Only what aria2 has let go of: a record it kept still points at its file.
-    const paths = alsoTrash ? rows.filter((dl) => !kept.includes(dl)).flatMap(filesOf) : [];
-    if (paths.length && typeof invoker === "function") {
-      try {
-        await invoker("trash_files", { paths });
-      } catch (err) {
-        failed("Removed from the list, but the files couldn't all go to the Trash", err);
+    const finishRemoval = historyGuard.begin(rows.map((dl) => dl.gid));
+    try {
+      for (const dl of rows) {
+        removing.add(dl.gid);
+        selected.delete(dl.gid);
+        const li = rowEls.get(dl.gid);
+        if (li) { li.remove(); rowEls.delete(dl.gid); }
       }
-    }
+      filterDirty = true;
+      applyFilter(listEl);
 
-    let jobsChanged = false;
-    for (const dl of rows) {
-      if (!kept.includes(dl) && jobs.delete(dl.gid)) jobsChanged = true;
+      // Anything aria2 has not filed as stopped has to be stopped before its
+      // record can go — a seeding torrent included, which is running to aria2.
+      // The second half of a merged video is not on the list, so it is asked
+      // either way; an already-stopped download just says no.
+      const STOPPED = ["complete", "error", "removed"];
+      const halves = rows.flatMap((dl) => (dl.job ? [dl.gid, dl.job.audioGid] : gidsFor(dl.gid)).filter(Boolean).map((g) => ({
+        gid: g,
+        running: g !== dl.gid || !STOPPED.includes(dl.status),
+      })));
+      await rpcBatch(halves.filter((h) => h.running).map((h) => ["aria2.remove", [h.gid]]));
+      // The metadata gid is already stopped once the torrent exists. Forgetting
+      // it is what keeps a removed magnet from leaving a [METADATA] result behind.
+      const metas = rows
+        .map((dl) => dl.metadataGid)
+        .filter((gid) => gid && !halves.some((half) => half.gid === gid));
+      const { left, reason } = await purgeResults([...halves.map((h) => h.gid), ...metas]);
+      const stuck = new Set(left);
+      const kept = rows.filter((dl) => [dl.gid, dl.job?.audioGid, dl.metadataGid].some((g) => stuck.has(g)));
+      if (kept.length) {
+        failed(`Couldn't delete ${kept.length} of ${rows.length} downloads`, reason);
+      }
+
+      const invoker = window.__TAURI__?.core?.invoke;
+      // Only what aria2 has let go of: a record it kept still points at its file.
+      const paths = alsoTrash ? rows.filter((dl) => !kept.includes(dl)).flatMap(filesOf) : [];
+      if (paths.length && typeof invoker === "function") {
+        try {
+          await invoker("trash_files", { paths });
+        } catch (err) {
+          failed("Removed from the list, but the files couldn't all go to the Trash", err);
+        }
+      }
+
+      let jobsChanged = false;
+      for (const dl of rows) {
+        if (!kept.includes(dl) && jobs.delete(dl.gid)) jobsChanged = true;
+      }
+      if (jobsChanged) saveJobs();
+      const forgotten = rows.filter((dl) => !kept.includes(dl));
+      history = forgetHistory(history, forgotten.flatMap((dl) => [dl.gid, dl.job?.audioGid]));
+      try { await saveHistory(); } catch { /* report above and retry on the next poll */ }
+    } finally {
+      stoppedCache.key = "";
+      for (const dl of rows) removing.delete(dl.gid);
+      finishRemoval();
     }
-    if (jobsChanged) saveJobs();
-    // A row aria2 would not forget comes back on the next poll, as it should.
-    for (const dl of rows) removing.delete(dl.gid);
     await pollAndSync();
   }
 
@@ -8277,6 +8366,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadLogins();
   listenNotificationClicks();
   await hydrateFilePriorities();
+  await historyHydration;
   engineStartupGraceUntil = Date.now() + ENGINE_STARTUP_GRACE_MS;
   pollAndSync();
   loadSettings().then(() => {

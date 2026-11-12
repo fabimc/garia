@@ -6,6 +6,14 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 
 - Show progress without making the user watch the engine.
 - Keep unfinished work across relaunch via aria2's session file.
+- Keep completed history separately from the aria2 session. Save it as states
+  change, so a quit or SIGTERM does not need a final save. Clearing history
+  removes entries only, not downloaded files.
+- State changes are observed by the list poll (one second when visible, five
+  seconds when hidden). Termination before the next poll can miss a completion.
+- Live aria2 rows take precedence over stored history. A seeding torrent is
+  complete for history, but remains live while seeding. Magnet metadata is not
+  history. A merged video is one history row only after the merge succeeds.
 - Route new files into category folders at add time — never move files already on disk.
 
 ## Statuses Garia invents

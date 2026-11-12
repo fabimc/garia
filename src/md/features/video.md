@@ -17,6 +17,10 @@ Large sites serve video and audio as separate streams. A merged quality is:
 3. On both complete: ffmpeg `-c copy` into one container; trash the halves
 
 Pairing (both gids + paths) is stored in `localStorage` so a quit mid-download still merges on next launch. aria2 forgets finished downloads on restart; the pairing must not live only in aria2.
+Finished halves are stored separately from visible history until mux succeeds.
+This lets a pair finish after restart even when aria2 forgot both halves. Only
+the merged output enters completed history. Save that row before trashing the
+halves, so termination after mux cannot destroy the inputs before recovery.
 
 ## Retry
 

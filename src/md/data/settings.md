@@ -26,6 +26,7 @@ Frontend-facing copies strip secrets and may add `hasProxyPassword`. Disk writes
 | `proxy-passwd` | Proxy password |
 | `remote-secret` | Persistent RPC token while remote control is on |
 | `session.txt` | aria2 unfinished downloads |
+| `download-history.json` | Completed rows and finished merge halves; may contain source URLs |
 
 ## Categories
 
