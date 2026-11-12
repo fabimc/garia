@@ -1600,6 +1600,11 @@ html.in-app .modal {
     animation: sheet-down 0.18s ease-out;
 }
 
+html.in-app #help-overlay .help-body {
+    overflow: auto;
+    min-height: 0;
+}
+
 @keyframes sheet-down {
     from {
         transform: translateY(-10px);

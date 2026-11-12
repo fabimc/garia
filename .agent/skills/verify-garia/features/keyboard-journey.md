@@ -1,21 +1,25 @@
 # Keyboard-first download journey
 
-The keyboard path covers adding a URL, filtering the library, pausing and resuming a row, opening details, and closing the topmost surface. Browser-dev can verify Linux copy and focus behavior; hide/restore and Quit require the native app.
+The keyboard path covers adding a URL, filtering the library, pausing and resuming a row or row action, opening details, deleting a queued row, and closing the topmost surface. Browser-dev can verify Linux copy and focus behavior; hide/restore and Quit require the native app.
 
 ## Sub-features
 
 - `keyboard-add` opens Add download, submits a URL, and shows its row.
 - `keyboard-filter` moves among sidebar filters with arrow keys and applies one with Enter.
 - `keyboard-pause-resume` pauses and resumes the focused row with Space while preserving focus.
+- `keyboard-row-actions` activates a focused row action with Enter or Space instead of invoking row selection behavior.
+- `keyboard-delete` removes a queued row with the keyboard and leaves no false error when aria2 has no result to purge.
 - `keyboard-inspector` opens details with the platform shortcut.
 - `keyboard-escape` closes a dialog before the inspector.
 - `keyboard-help` opens Help with the platform shortcut and shows platform-aware keyboard and file-location guidance.
+- `keyboard-help-scroll` reaches the keyboard-only path inside the height-limited Help sheet.
 
 ## How to get to it (user POV)
 
 - Press the platform New Download shortcut (⌘N / Ctrl+N).
 - Use Tab to reach the sidebar; use Up / Down to move between filters and Enter to apply one.
 - Focus a download row to move through, pause, resume, inspect, or delete it.
+- Focus a row action and press Enter or Space to activate it; use the platform delete chord to remove a selected row.
 - Press the platform Help shortcut (⌘? / Ctrl+Shift+/).
 - Native only: close the window to hide Garia, restore it from the tray or launcher, and use the platform Quit shortcut to exit.
 
@@ -29,9 +33,11 @@ Preconditions:
 - **Add by keyboard.** Run `./helpers/control-garia browser press --key Control+n`. `#modal-overlay` is visible and `#modal-url-input` has focus. Fill `#modal-url-input` with a unique URL and press `Control+Enter`; the dialog closes and one matching row appears.
 - **Filter by keyboard.** Focus `#filter-bar .nav-item[data-filter=all]`, press `ArrowDown`, then `Enter`. The Torrents filter is active and the focus ring remains visible.
 - **Pause and resume.** Focus an active `#download-list [role=option]`, press `ArrowDown` to select it, then press `Space`. The row becomes paused and retains focus. Press `Space` again; it becomes active and retains focus.
+- **Focused row actions.** Press `Enter` on `#download-list [data-gid="aaaa1111"] .dl-actions [data-action="stop"]`; the row becomes paused and the inspector stays closed. Press `Space` on another active row's Pause button and confirm it pauses rather than toggling the selection.
+- **Delete a queued row.** Filter to Queued, focus the first row and press `ArrowDown`, then `Control+Delete`. The confirmation opens with Cancel focused; press `Tab`, then `Enter`. The row disappears and `#notice-banner` stays hidden.
 - **Inspector and Escape.** With a row selected, press `Control+i` to open the inspector. Press `Control+n`, then `Escape`: the Add dialog closes and the inspector stays open. Press `Escape` again; the inspector closes.
-- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note.
-- **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, and Help snapshots and screenshots, including `show-in-folder-help.aria.txt`, `.rows.json`, and `.png`.
+- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note. In a height-limited native-style sheet, scroll `.help-body` and confirm the keyboard-only path is reachable.
+- **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, row-action, and Help snapshots and screenshots, including `keyboard-row-actions.aria.txt`, `help-scroll.aria.txt`, and their `.rows.json` / `.png` files.
 
 ## Gotchas
 

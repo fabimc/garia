@@ -6468,8 +6468,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     for (let attempt = 0; attempt < 3 && left.length; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, 120));
       const answers = await rpcBatch(left.map((g) => ["aria2.removeDownloadResult", [g]]));
-      reason = answers.find((a) => a.error)?.error || "";
-      left = left.filter((_, i) => answers[i].error);
+      const missing = (error) => /^GID(?:#|\s).+ is not found\.?$/i.test(error.trim());
+      const failedAnswers = answers.filter((answer) => answer.error && !missing(answer.error));
+      reason = failedAnswers[0]?.error || "";
+      left = left.filter((_, i) => answers[i].error && !missing(answers[i].error));
     }
     return { left, reason };
   }
@@ -7426,6 +7428,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       runOnSelected("remove");
       return;
     }
+    if (document.activeElement?.closest("button, a, input, select, textarea, [contenteditable='true']")) return;
     if (e.key === "Enter") {
       e.preventDefault();
       runOnSelected("details");
