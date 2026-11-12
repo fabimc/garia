@@ -5,6 +5,12 @@
 
 const TIER = ["high", "normal", "low"];
 
+export function notificationPermissionMessage(isGranted) {
+  return isGranted
+    ? null
+    : "Desktop notifications are blocked. Allow notifications for Garia in system settings.";
+}
+
 function asString(value) {
   return String(value ?? "").trim();
 }

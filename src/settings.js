@@ -1,3 +1,5 @@
+import { notificationPermissionMessage } from "./parity.js";
+
 const MB = 1024 * 1024;
 const PANE_KEY = "garia:settings-pane";
 const LOGINS_KEY = "garia:logins";
@@ -780,14 +782,11 @@ async function checkNotificationPermission() {
     }
     return;
   }
-  // Avoid prompting at launch, but report a missing grant so enabled
-  // notifications are not a silent no-op.
+  // On desktop this is only false when the webview has denied notifications;
+  // an unprompted state does not trigger it.
   try {
-    if (!(await api.isPermissionGranted())) {
-      showError(
-        "Desktop notifications are not currently permitted. Turn notifications off and on to request access, or allow notifications for Garia in system settings.",
-      );
-    }
+    const message = notificationPermissionMessage(await api.isPermissionGranted());
+    if (message) showError(message);
   } catch (err) {
     console.error(err);
     showError(`Could not check notification permissions: ${err?.message || err}`);
