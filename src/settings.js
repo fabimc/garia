@@ -787,6 +787,7 @@ async function checkNotificationPermission() {
     const { notificationPermissionMessage } = await import("./parity.js");
     const message = notificationPermissionMessage(await api.isPermissionGranted());
     if (message) showError(message);
+    else if (platform === "linux") await invoker()("check_notification_service");
   } catch (err) {
     console.error(err);
     showError(`Could not check notification permissions: ${err?.message || err}`);
@@ -795,6 +796,7 @@ async function checkNotificationPermission() {
 
 async function persistNotificationPreference() {
   if (!settingsNotify.checked) {
+    hideError();
     await persistSettings();
     return;
   }
@@ -820,6 +822,7 @@ async function persistNotificationPreference() {
         return;
       }
     }
+    if (platform === "linux") await invoker()("check_notification_service");
     await persistSettings();
   } catch (err) {
     console.error(err);

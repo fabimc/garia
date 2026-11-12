@@ -17,6 +17,8 @@ mod dock;
 mod file_priorities;
 mod ftp;
 mod logins;
+#[cfg(target_os = "linux")]
+mod linux_autostart;
 mod schedule;
 #[cfg(target_os = "macos")]
 mod service;
@@ -1841,21 +1843,54 @@ fn read_torrent(path: String) -> Result<String, String> {
 /// Linux), so Settings reflects changes made outside Garia too.
 #[tauri::command]
 fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri_plugin_autostart::ManagerExt;
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|e| e.to_string())
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        return linux_autostart::enabled().map_err(|e| e.to_string());
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        app.autolaunch()
+            .is_enabled()
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri_plugin_autostart::ManagerExt;
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
+    #[cfg(target_os = "linux")]
+    {
+        let executable = match app.env().appimage {
+            Some(path) => PathBuf::from(path),
+            None => std::env::current_exe().map_err(|e| e.to_string())?,
+        };
+        return linux_autostart::set(enabled, &executable).map_err(|e| e.to_string());
     }
-    .map_err(|e| e.to_string())
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        if enabled {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        }
+        .map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn check_notification_service() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        tauri::async_runtime::spawn_blocking(notify_rust::get_server_information)
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| {
+                format!("The desktop notification service is unavailable. Check your notification daemon and session bus: {e}")
+            })?;
+    }
+    Ok(())
 }
 
 fn encode_base64(data: &[u8]) -> String {
@@ -4113,6 +4148,7 @@ pub fn run() {
             cancel_queue_drain,
             autostart_enabled,
             set_autostart,
+            check_notification_service,
             open_settings_window,
             sync_view_menu,
             browser_extension_dir,
@@ -4138,22 +4174,6 @@ pub fn run() {
                     None => eprintln!("[garia] Main window was unavailable during startup"),
                 }
             }
-            #[cfg(target_os = "linux")]
-            {
-                // Rewrite an existing XDG autostart Exec so upgrades pick up
-                // --garia-background without requiring the user to toggle it.
-                use tauri_plugin_autostart::ManagerExt;
-                match app.autolaunch().is_enabled() {
-                    Ok(true) => {
-                        if let Err(e) = app.autolaunch().enable() {
-                            eprintln!("[garia] Could not refresh autostart entry: {e}");
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(e) => eprintln!("[garia] Could not read autostart state: {e}"),
-                }
-            }
-
             let dir = app
                 .path()
                 .app_data_dir()

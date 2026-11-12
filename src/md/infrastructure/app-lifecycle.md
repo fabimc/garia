@@ -14,14 +14,15 @@
 
 ## Launch at login
 
-- macOS uses a LaunchAgent; Linux uses an XDG autostart entry.
+- macOS uses a LaunchAgent; Linux uses an XDG autostart entry under `$XDG_CONFIG_HOME/autostart` (or `~/.config/autostart`).
 - Linux autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
+- Garia writes the login entry only when the user enables login startup; launching another build does not rewrite it. If an older entry opens a window, disable and re-enable login startup in Settings.
 - Settings reports errors when the autostart state cannot be read or changed.
 
 ## Notifications
 
 - Completion notifications use the desktop notification service.
-- Enabling notifications checks or requests permission; denied or unavailable notification services are reported in Settings.
+- Enabling notifications checks or requests permission; denied or unavailable notification services are reported in Settings. On Linux, Settings also checks the session notification service because the plugin reports permission as granted even when no daemon is available.
 
 ## Crash recovery
 
