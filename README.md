@@ -28,7 +28,7 @@ brew install --cask garia
 
 Grab the `.AppImage` (run anywhere) or the `.deb` (Debian/Ubuntu — preferred if you want `garia://`, magnet, and `.torrent` associations) from [Releases](https://github.com/fabimc/garia/releases).
 
-On Omarchy, the recommended package will be `garia-bin` from OPR:
+On Omarchy, the `garia-bin` package is proposed in [omacom/omarchy-pkgs#2449](https://github.com/omacom/omarchy-pkgs/pull/2449) and is not published to OPR yet. Once published, install it with:
 
 ```sh
 omarchy pkg add garia-bin
