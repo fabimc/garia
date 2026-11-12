@@ -584,6 +584,136 @@ test("the extension collector matches the shared page-capture helper", () => {
   );
 });
 
+test("extension captures keep an active handoff tab open for the protocol prompt", async () => {
+  const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
+  const tabs = [];
+  const cancelled = [];
+  const timers = [];
+  const listeners = {};
+  const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
+  const sandbox = {
+    URLSearchParams,
+    setTimeout: (...args) => { timers.push(args); },
+    gariaIsHttpUrl: (url) => /^https?:/.test(url),
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasename: () => "file.zip",
+    gariaBasenameFromUrl: () => "file.zip",
+    chrome: {
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
+      contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
+      action: { onClicked: event("action") },
+      tabs: { create: (tab) => { tabs.push(tab); return Promise.resolve({ id: tabs.length }); } },
+      downloads: { onCreated: event("download"), cancel: async (id) => { cancelled.push(id); } },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  listeners.message({ type: "capture", url: "https://example.test/file.zip", referrer: "https://example.test/" });
+  listeners.download({ id: 3, url: "https://example.test/other.zip", filename: "file.zip" });
+  vm.runInContext(`sendBatchToGaria(["https://example.test/a.zip", "https://example.test/b.zip"], "")`, sandbox);
+  vm.runInContext(`sendBatchToGaria(["https://example.test/${"x".repeat(5500)}.zip"], "")`, sandbox);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(cancelled, [3]);
+  assert.equal(timers.length, 0);
+  assert.equal(tabs.length, 4);
+  assert.ok(tabs.every((tab) => tab.active && tab.url.startsWith("handoff.html?")));
+  const capture = new URL(tabs[0].url, "https://extension.test/");
+  assert.equal(capture.searchParams.get("url"), "https://example.test/file.zip");
+  assert.equal(capture.searchParams.get("confirm"), "1");
+  assert.ok(tabs.some((tab) => tab.url.includes("urls=")));
+  assert.ok(tabs.some((tab) => tab.url.includes("#")));
+});
+
+test("extension leaves Alt-clicked file links to the browser", () => {
+  const source = readFileSync(new URL("../extensions/garia/content.js", import.meta.url), "utf8");
+  let click;
+  const messages = [];
+  const sandbox = {
+    URL,
+    location: { href: "https://example.test/" },
+    document: { baseURI: "https://example.test/", addEventListener: (_type, fn) => { click = fn; } },
+    window: {},
+    chrome: { runtime: { sendMessage: (message) => messages.push(message) } },
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasenameFromUrl: () => "file.zip",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  let prevented = false;
+  const event = {
+    button: 0, altKey: true,
+    target: { closest: () => ({ href: "https://example.test/file.zip", getAttribute: () => "" }) },
+    preventDefault: () => { prevented = true; },
+    stopPropagation() {},
+  };
+  click(event);
+  assert.equal(prevented, false);
+  assert.equal(messages[0].type, "bypass-download");
+  assert.equal(messages[0].url, "https://example.test/file.zip");
+  event.altKey = false;
+  click(event);
+  assert.equal(prevented, true);
+  assert.equal(messages[1].type, "capture");
+  assert.equal(messages[1].url, "https://example.test/file.zip");
+});
+
+test("Alt-click bypass prevents download takeover once, including redirects", async () => {
+  const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
+  const listeners = {};
+  const cancelled = [];
+  const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
+  let now = 1000;
+  const sandbox = {
+    URLSearchParams, Date: { now: () => now },
+    gariaIsHttpUrl: (url) => /^https?:/.test(url),
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasename: () => "file.zip",
+    chrome: {
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
+      contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
+      action: { onClicked: event("action") },
+      tabs: { create: () => Promise.resolve({ id: 1 }) },
+      downloads: { onCreated: event("download"), cancel: async (id) => { cancelled.push(id); } },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  const url = "https://example.test/file.zip";
+  listeners.message({ type: "bypass-download", url });
+  listeners.download({ id: 1, url, finalUrl: "https://cdn.test/file.zip" });
+  listeners.download({ id: 2, url, finalUrl: "https://cdn.test/file.zip" });
+  listeners.message({ type: "bypass-download", url });
+  now += 10001;
+  listeners.download({ id: 3, url });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(cancelled, [2, 3]);
+});
+
+test("extension handoff preserves the request for retry, including clipboard batches", async () => {
+  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
+  for (const hash of ["", `#${encodeURIComponent("https://example.test/a.zip\nhttps://example.test/b.zip")}`]) {
+    const retry = { hidden: true };
+    const copied = [];
+    const location = { search: "?url=https%3A%2F%2Fexample.test%2Ffile.zip&confirm=1", hash };
+    const sandbox = {
+      URLSearchParams, location,
+      document: { getElementById: () => retry },
+      navigator: { clipboard: { writeText: async (text) => { copied.push(text); } } },
+    };
+    vm.createContext(sandbox);
+    await vm.runInContext(source, sandbox);
+    assert.equal(retry.hidden, false);
+    assert.equal(retry.href, location.href);
+    const url = new URL(retry.href);
+    assert.equal(url.searchParams.get("url"), "https://example.test/file.zip");
+    assert.equal(url.searchParams.get("confirm"), "1");
+    if (hash) {
+      assert.equal(copied[0], "https://example.test/a.zip\nhttps://example.test/b.zip");
+      assert.equal(url.searchParams.get("batch"), "1");
+    }
+  }
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",

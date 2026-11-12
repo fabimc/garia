@@ -8,6 +8,7 @@ if (typeof importScripts === "function") {
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 const recent = new Map();
+const bypassDownloads = new Map();
 let downloadTakeover = true;
 
 function refreshPrefs() {
@@ -115,6 +116,14 @@ api.action.onClicked.addListener((tab) => {
 
 api.runtime.onMessage.addListener((message) => {
   if (!message || !message.url) return;
+  if (message.type === "bypass-download") {
+    const now = Date.now();
+    for (const [url, at] of bypassDownloads) {
+      if (now - at > 10000) bypassDownloads.delete(url);
+    }
+    bypassDownloads.set(message.url, now);
+    return;
+  }
   if (message.type === "send-page") {
     if (gariaIsHttpUrl(message.url)) sendToGaria(message.url, { from: "extension" });
     return;
@@ -128,15 +137,9 @@ api.runtime.onMessage.addListener((message) => {
   });
 });
 
-function openHandoff(params, { active = false, closeMs = 1500 } = {}) {
-  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}`);
-  const opened = api.tabs.create({ url: handoff, active });
-  Promise.resolve(opened).then((tab) => {
-    if (!tab?.id) return;
-    setTimeout(() => {
-      api.tabs.remove(tab.id).catch(() => {});
-    }, closeMs);
-  }).catch(() => {});
+function openHandoff(params, hash = "") {
+  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}${hash}`);
+  Promise.resolve(api.tabs.create({ url: handoff, active: true })).catch(() => {});
 }
 
 function sendToGaria(url, extras = {}) {
@@ -147,7 +150,7 @@ function sendToGaria(url, extras = {}) {
   if (extras.name) params.set("name", extras.name);
   if (extras.referrer) params.set("referrer", extras.referrer);
   if (extras.confirm) params.set("confirm", "1");
-  openHandoff(params, { active: Boolean(extras.active) });
+  openHandoff(params);
 }
 
 function sendBatchToGaria(urls, referrer) {
@@ -169,15 +172,7 @@ function sendBatchToGaria(urls, referrer) {
     openHandoff(params);
     return;
   }
-  const hash = encodeURIComponent(packed);
-  const handoff = api.runtime.getURL(`handoff.html?${params.toString()}#${hash}`);
-  const opened = api.tabs.create({ url: handoff, active: false });
-  Promise.resolve(opened).then((tab) => {
-    if (!tab?.id) return;
-    setTimeout(() => {
-      api.tabs.remove(tab.id).catch(() => {});
-    }, 2000);
-  }).catch(() => {});
+  openHandoff(params, `#${encodeURIComponent(packed)}`);
 }
 
 function collectFromTab(tab) {
@@ -200,6 +195,15 @@ function urlsFromSelection(text) {
 }
 
 function shouldTakeDownload(item) {
+  const now = Date.now();
+  for (const [url, at] of bypassDownloads) {
+    if (now - at > 10000) {
+      bypassDownloads.delete(url);
+    } else if (url === item.url || url === item.finalUrl) {
+      bypassDownloads.delete(url);
+      return false;
+    }
+  }
   const url = item.finalUrl || item.url || "";
   if (item.byExtensionId) return false;
   if (!gariaIsHttpUrl(url)) return false;
@@ -220,15 +224,13 @@ async function takeOverDownload(item) {
   const url = item.finalUrl || item.url;
   if (!url) return;
   // Stop the browser's copy, but leave the row — if Garia isn't installed the
-  // cancelled download is still there to retry. The handoff tab opens in front
-  // so "If nothing happens…" is hard to miss.
+  // cancelled download is still there to retry.
   try { await api.downloads.cancel(item.id); } catch { /* already gone */ }
   sendToGaria(url, {
     from: "extension",
     name: gariaBasename(item.filename) || gariaBasenameFromUrl(url),
     referrer: item.referrer || "",
     confirm: true,
-    active: true,
   });
 }
 

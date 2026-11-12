@@ -13,10 +13,10 @@ The package-bundled unpacked extension is the supported Omarchy install path; Ch
 1. Install Garia from Omarchy's OPR (`garia-bin`) when available, so the system can register the `garia://` handoff. The interim AppImage does not register protocol or file associations.
 2. In Garia, open Settings → Browser → **Show extension folder**.
 3. In Chromium, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the folder opened in the previous step.
-4. Click a normal file link; Garia's capture sheet opens in the running app. Confirm it to add the download. Hold **Alt** while clicking to leave that file with Chromium.
+4. Click a normal file link. If Chromium asks **Open xdg-open?**, choose **Open**; optionally check **Always allow** for later captures. Garia's capture sheet opens in the running app. Confirm it to add the download. Hold **Alt** while clicking to leave that file with Chromium.
 5. The extension hands captures to Garia with `garia://`. A later handoff focuses the existing instance rather than starting a second tiled window.
 
-The bundled extension path is available in packaged builds, not `tauri dev`. If the system does not have a `garia://` handler, use a packaged install; Omarchy package availability and host validation are tracked by [#108](https://github.com/fabimc/garia/issues/108)–[#110](https://github.com/fabimc/garia/issues/110).
+The handoff tab stays open until you close it, so you have time to answer the browser prompt. If Garia does not open, use the retry link in that tab or return to the file link and hold **Alt** to download with Chromium. The bundled extension path is available in packaged builds, not `tauri dev`. If the system does not have a `garia://` handler, use a packaged install; Omarchy package availability and host validation are tracked by [#108](https://github.com/fabimc/garia/issues/108)–[#110](https://github.com/fabimc/garia/issues/110).
 
 The `garia://` and `magnet:` schemes, and `.torrent` as a document type, are declared in `src-tauri/Info.plist` and `tauri.conf.json`. macOS and Linux route them only after a package registers the app; they do not work from `tauri dev`, where the binary is not installed as a desktop app.
 
