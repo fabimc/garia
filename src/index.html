@@ -11,9 +11,6 @@
                 var root = document.documentElement;
                 if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
                     root.classList.add("in-app");
-                } else {
-                    // Browser mock: mac chrome and copy keep the layout honest.
-                    root.classList.add("platform-mac");
                 }
             })();
         </script>
@@ -419,7 +416,7 @@
                             </svg>
                             Columns
                         </button>
-                        <button class="pill" id="inspector-toggle" title="Show inspector (⌘I)" aria-pressed="false">
+                        <button class="pill" id="inspector-toggle" title="Show inspector (Ctrl+I)" aria-pressed="false">
                             Inspector
                         </button>
                         <div class="search-field" data-tauri-drag-region="false">
@@ -506,7 +503,7 @@
                             </p>
                             <p class="empty-sub" id="empty-sub">
                                 Drag a URL or .torrent file anywhere, copy a file
-                                link, or hit ⌘N
+                                link, or hit Ctrl+N
                             </p>
                             <button type="button" class="btn-primary hidden" id="empty-action"></button>
                         </div>
@@ -533,7 +530,7 @@
                         <div class="modal-body detail-body" id="detail-body"></div>
                         <div class="detail-pane-footer">
                             <button class="btn-secondary hidden" id="detail-reveal">
-                                Show in Finder
+                                Show in folder
                             </button>
                         </div>
                     </aside>
@@ -586,7 +583,7 @@
                     Full speed
                 </button>
                 <span id="stat-speed" class="status-right status-chip"></span>
-                <span class="kbd-hint"><kbd>&#8984;F</kbd> search</span>
+                <span class="kbd-hint"><kbd>Ctrl+F</kbd> search</span>
             </footer>
 
             <!-- Anchored to the status bar button, but outside it: the bar
@@ -666,7 +663,7 @@
                         <textarea
                             id="modal-url-input"
                             rows="2"
-                            placeholder="A link, magnet, or FTP address&#10;Several? One per line, then ⌘↩"
+                            placeholder="A link, magnet, or FTP address&#10;Several? One per line, then Ctrl+Enter"
                             autocomplete="off"
                             spellcheck="false"
                         ></textarea>
@@ -1248,51 +1245,59 @@
                     <dl class="help-list">
                         <dt>Add a download</dt>
                         <dd id="help-add-copy">
-                            File → New Download (⌘N), Open Torrent (⌘O), or
-                            drop a torrent on the window. A magnet or
-                            <code>.torrent</code> the system opens is
-                            queued, not offered. In another app, select a
-                            URL and choose Services → Download with Garia.
-                            The browser extension in Settings (⌘,) →
-                            Browser takes a clicked file, and the
-                            bookmarklet sends the page you are on.
+                            File → New Download (Ctrl+N), Open Torrent
+                            (Ctrl+O), or drop a torrent on the window. A
+                            magnet or <code>.torrent</code> the system opens
+                            is queued, not offered. The browser extension in
+                            Settings (Ctrl+,) → Browser takes a clicked
+                            file, and the bookmarklet sends the page you are
+                            on.
                         </dd>
                         <dt>The window is not the app</dt>
                         <dd id="help-window-copy">
-                            The red button and ⌘W hide the list. Downloads
-                            keep going. ⌘Q is the only quit.
+                            The close button and Ctrl+W hide the list.
+                            Downloads keep going. Ctrl+Q quits, and Tray →
+                            Quit stops downloads. Restore Garia from the
+                            tray, or reopen it from the application launcher
+                            if the tray is unavailable; the existing window
+                            returns.
                         </dd>
                         <dt>The list</dt>
                         <dd>
-                            Click selects. Arrows move the selection; ⌘A
-                            selects all. Double-click or Enter opens
+                            Click selects. Arrows move the selection;
+                            Ctrl+A selects all. Double-click or Enter opens
                             detail. Space pauses or resumes while the list
-                            has focus. ⌘C copies the URL. ⌘⌫ removes.
-                            ⌥↑ / ⌥↓ reorder a queued row — hold Shift for
-                            either end. Right-click also moves a selection
-                            to the top or the end, copies the file path, or
-                            removes the row and keeps the file. Download →
-                            Retry Failed and Clear Completed cover the whole
-                            list. ⌘F finds. ⌘? opens this sheet. Escape
-                            closes the topmost dialog, then the inspector.
+                            has focus. Ctrl+C copies the URL. Ctrl+Backspace
+                            removes. Alt+↑ / Alt+↓ reorder a queued row —
+                            hold Shift for either end. Right-click also
+                            moves a selection to the top or the end, copies
+                            the file path, or removes the row and keeps the
+                            file. Download → Retry Failed and Clear
+                            Completed cover the whole list. Ctrl+F finds.
+                            Ctrl+? opens this sheet. Escape closes the
+                            topmost dialog, then the inspector.
                         </dd>
                         <dt id="help-reveal-term">Show in folder</dt>
                         <dd id="help-reveal-copy">
-                            Show in Finder opens the download's containing
-                            folder and selects the file.
+                            Show in folder asks the desktop file manager to
+                            reveal the download. If selection is unavailable,
+                            the desktop portal opens its location; selection
+                            behavior depends on the file manager and desktop
+                            session.
                         </dd>
                         <dt>Keyboard-only path</dt>
                         <dd>
-                            ⌘N opens New Download; paste a URL and press
-                            Enter (⌘↩ submits several). Tab to the sidebar,
-                            use ↑ / ↓ to choose a filter, then Enter. Focus
-                            the list for Space / Enter / ⌘C / ⌘⌫ — those
-                            keys stay with the focused control when the
-                            list is not focused. In the list, ↑ / ↓ selects;
-                            Space pauses or resumes. ⌘I opens details; Tab
-                            to reveal the file. ⌘F finds. Close the window
-                            to hide downloads; reopen Garia from the tray
-                            or app launcher. ⌘Q quits.
+                            Ctrl+N opens New Download; paste a URL and press
+                            Enter (Ctrl+Enter submits several). Tab to the
+                            sidebar, use ↑ / ↓ to choose a filter, then
+                            Enter. Focus the list for Space / Enter / Ctrl+C
+                            / Ctrl+Backspace — those keys stay with the
+                            focused control when the list is not focused. In
+                            the list, ↑ / ↓ selects; Space pauses or
+                            resumes. Ctrl+I opens details; Tab to reveal the
+                            file. Ctrl+F finds. Close the window to hide
+                            downloads; reopen Garia from the tray or app
+                            launcher. Ctrl+Q quits.
                         </dd>
                         <dt>Video downloads</dt>
                         <dd>
@@ -1334,7 +1339,7 @@
                         </dd>
                         <dt>Leave with the browser</dt>
                         <dd>
-                            Hold ⌥ while clicking a file link to leave that
+                            Hold Alt while clicking a file link to leave that
                             download with the browser.
                             <a href="https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md" target="_blank" rel="noreferrer">Docs</a>
                         </dd>
@@ -1375,10 +1380,7 @@
                     </button>
                 </div>
                 <div class="modal-body setup-body">
-                    <p class="setup-lead setup-generic">
-                        Four things to check before the first download.
-                    </p>
-                    <p class="setup-lead setup-linux-only">
+                    <p class="setup-lead">
                         Linux / Omarchy: four quick checks before your first download.
                     </p>
                     <div class="setup-row">
@@ -1393,22 +1395,9 @@
                             </button>
                         </div>
                         <p id="setup-dir" class="setup-value is-path">—</p>
-                        <p class="field-hint setup-generic">New files are saved here.</p>
-                        <p class="field-hint setup-linux-only">
+                        <p class="field-hint">
                             New downloads go here. Confirm this location or choose another before adding a link.
                         </p>
-                    </div>
-                    <div class="setup-row setup-generic">
-                        <div class="modal-label">Categories</div>
-                        <label class="field-check" for="setup-categories">
-                            <input type="checkbox" id="setup-categories" />
-                            <span>Sort files into folders by type</span>
-                        </label>
-                        <p id="setup-categories-hint" class="field-hint"></p>
-                    </div>
-                    <div class="setup-row setup-generic">
-                        <div class="modal-label">Video pages</div>
-                        <p id="setup-video" class="setup-value">Checking…</p>
                     </div>
                     <div class="setup-row">
                         <div class="setup-row-head">
@@ -1421,12 +1410,7 @@
                                 Show extension folder
                             </button>
                         </div>
-                        <p class="field-hint setup-generic">
-                            Load the folder as an unpacked extension in Chrome,
-                            Edge, Brave, Arc, or Firefox. Or drag the bookmarklet
-                            to your bookmarks bar.
-                        </p>
-                        <p class="field-hint setup-linux-only">
+                        <p class="field-hint">
                             In Omarchy Chromium, open <code>chrome://extensions</code>,
                             enable Developer mode, choose Load unpacked, then select
                             the folder opened by this button.
@@ -1434,15 +1418,9 @@
                             ·
                             <a href="https://github.com/fabimc/garia#linux" target="_blank" rel="noreferrer">Omarchy install notes</a>
                         </p>
-                        <a
-                            id="setup-bookmarklet"
-                            class="bookmarklet setup-generic"
-                            href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
-                            >Send this page to Garia</a
-                        >
                         <p id="setup-extension-error" class="error hidden"></p>
                     </div>
-                    <div class="setup-row setup-linux-only">
+                    <div class="setup-row">
                         <div class="setup-row-head">
                             <div class="modal-label">Tray and login</div>
                             <button type="button" class="btn-secondary" id="setup-settings">
@@ -1456,7 +1434,7 @@
                             autostart are optional in Settings.
                         </p>
                     </div>
-                    <div class="setup-row setup-linux-only">
+                    <div class="setup-row">
                         <div class="setup-row-head">
                             <div class="modal-label">Keyboard shortcuts</div>
                             <button type="button" class="btn-secondary" id="setup-help">

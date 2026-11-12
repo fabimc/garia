@@ -562,7 +562,7 @@ export function initAddDialog(api) {
     }
   }
 
-  // A .torrent the system opened — Finder, Open With, File → Open Torrent.
+  // A .torrent the system opened — the file manager, Open With, File → Open Torrent.
   // The bytes come from Rust so the webview never has to read an arbitrary path.
   // The same path can arrive twice (the live event and the pending drain);
   // one add is enough.

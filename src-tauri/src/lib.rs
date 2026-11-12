@@ -12,14 +12,10 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 mod catch;
-#[cfg(target_os = "macos")]
-mod dock;
 mod file_priorities;
 mod ftp;
 mod logins;
 mod schedule;
-#[cfg(target_os = "macos")]
-mod service;
 
 /// The aria2c child process plus the RPC secret it was started with. The
 /// paths are here because they are launch-time inputs and nothing else: aria2
@@ -77,7 +73,7 @@ enum TrafficMode {
 }
 
 /// What to do when the last download that still has work finishes. Sleep
-/// and shut down are the Mac version of IDM's "disconnect when done".
+/// and shut down are the desktop version of IDM's "disconnect when done".
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 enum DoneAction {
@@ -177,7 +173,7 @@ struct Settings {
     catch_page_clipboard: bool,
     /// Ask for a name, a folder, and start-vs-queue when the browser
     /// extension sends a file. On by default — a click in the browser is
-    /// not the same as choosing Services, and the sheet is where those
+    /// not the same as choosing a menu item, and the sheet is where those
     /// three get decided. The bookmarklet and a video page skip it.
     #[serde(default = "default_true")]
     confirm_capture: bool,
@@ -233,7 +229,7 @@ struct Settings {
     queue_stopped: bool,
     /// After the last unfinished download lands. `none` is the default, and
     /// the action waits until this run has actually had work — a launch
-    /// onto an empty list must not put the Mac to sleep.
+    /// onto an empty list must not put the computer to sleep.
     #[serde(default)]
     done_action: DoneAction,
     /// Send HTTP, HTTPS, and FTP through this host. Off by default. aria2
@@ -1293,21 +1289,6 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
 }
 
-/// The UI asks once at startup so copy and chrome can follow the host OS
-/// instead of assuming macOS.
-#[tauri::command]
-fn platform() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "linux") {
-        "linux"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        "unknown"
-    }
-}
-
 #[tauri::command]
 fn get_settings(state: tauri::State<SettingsState>) -> Settings {
     state
@@ -1611,7 +1592,7 @@ fn ftp_list_blocking(
 }
 
 /// Deleting a row can take the downloaded file with it. Trash, not unlink: a
-/// mis-click then costs a trip to the Finder rather than the download itself.
+/// mis-click then costs a trip to the trash rather than the download itself.
 /// aria2's `.aria2` control file rides along — it is meaningless without the
 /// partial file it describes.
 fn trash_files_blocking(paths: Vec<String>) -> Result<(), String> {
@@ -1634,9 +1615,9 @@ fn trash_files_blocking(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// The dock icon carries the count of downloads that finished while the user
+/// The app icon carries the count of downloads that finished while the user
 /// was looking somewhere else. A notification is gone the moment it's
-/// dismissed; the badge is what's still there when they come back to the Mac.
+/// dismissed; the badge is what's still there when they come back.
 #[tauri::command]
 fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
@@ -1645,7 +1626,7 @@ fn set_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
     // None clears it — a zero badge would otherwise show as a literal "0".
     window
         .set_badge_count(if count == 0 { None } else { Some(count as i64) })
-        .map_err(|e| format!("could not set the dock badge: {e}"))
+        .map_err(|e| format!("could not set the badge: {e}"))
 }
 
 /// The number next to the menu-bar extra. Zero clears it, the same way a
@@ -1663,10 +1644,6 @@ fn set_status_item(app: tauri::AppHandle, active: u32) -> Result<(), String> {
     } else {
         active.to_string()
     };
-    #[cfg(target_os = "macos")]
-    tray.set_title(Some(&title))
-        .map_err(|e| format!("could not set the menu-bar title: {e}"))?;
-    #[cfg(not(target_os = "macos"))]
     let _ = title;
     let tip = if active == 0 {
         "Garia".to_string()
@@ -1679,7 +1656,7 @@ fn set_status_item(app: tauri::AppHandle, active: u32) -> Result<(), String> {
         .map_err(|e| format!("could not set the menu-bar tooltip: {e}"))
 }
 
-/// A finished file leaves the window the way it leaves Finder: the row is a
+/// A finished file leaves the window the way it leaves a file manager: the row is a
 /// handle, and the drop is a real file, not a URL the other app has to guess.
 #[tauri::command]
 fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(), String> {
@@ -1693,33 +1670,8 @@ fn start_file_drag(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<(
         return Err("nothing on disk to drag".into());
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        let _ = (window, files);
-        return Err("drag-out is only wired on macOS".into());
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let win = window.clone();
-        window
-            .run_on_main_thread(move || {
-                // The page takes drops itself, and a row dragged out crosses
-                // it on the way to the Finder. It is told when the drag is
-                // over so it can tell its own file from one coming in.
-                let ended = win.clone();
-                let _ = drag::start_drag(
-                    &win,
-                    drag::DragItem::Files(files),
-                    drag::Image::Raw(include_bytes!("../icons/32x32.png").to_vec()),
-                    move |_, _| {
-                        let _ = ended.emit("file-drag-ended", ());
-                    },
-                    drag::Options::default(),
-                );
-            })
-            .map_err(|e| format!("could not start the drag: {e}"))
-    }
+    let _ = (window, files);
+    Err("drag-out is not available on this platform".into())
 }
 
 #[derive(Serialize)]
@@ -1808,8 +1760,8 @@ fn take_pending_catch(state: tauri::State<CatchQueue>) -> Vec<catch::CatchEvent>
         .unwrap_or_default()
 }
 
-/// `.torrent` files the system opened before the list was listening — Finder
-/// double-click, Open With, File → Open. Same shape as the URL catch queue.
+/// `.torrent` files the system opened before the list was listening — a file
+/// manager double-click, Open With, File → Open. Same shape as the URL catch queue.
 struct TorrentQueue {
     pending: Mutex<Vec<String>>,
 }
@@ -1837,8 +1789,7 @@ fn read_torrent(path: String) -> Result<String, String> {
     Ok(encode_base64(&bytes))
 }
 
-/// Launch-at-login is owned by the OS (LaunchAgent on macOS, XDG autostart on
-/// Linux), so Settings reflects changes made outside Garia too.
+/// Launch-at-login is owned by the OS (XDG autostart), so Settings reflects changes made outside Garia too.
 #[tauri::command]
 fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -1893,7 +1844,7 @@ pub(crate) fn bring_to_front(app: &tauri::AppHandle) {
 /// Settings is its own window so a pairing QR can stay up while the list is
 /// visible, and so the form can stop being a modal that grew a field at a time.
 /// Hide-on-close matches the main window: the webview stays warm for the next
-/// ⌘,. Creating it here rather than in tauri.conf.json keeps launch as one
+/// Ctrl+,. Creating it here rather than in tauri.conf.json keeps launch as one
 /// window.
 fn show_settings(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("settings") {
@@ -1914,17 +1865,9 @@ fn show_settings(app: &tauri::AppHandle) -> Result<(), String> {
     .resizable(true)
     .accept_first_mouse(true);
 
-    #[cfg(target_os = "macos")]
-    let builder = builder
-        .transparent(true)
-        .hidden_title(true)
-        .title_bar_style(tauri::TitleBarStyle::Overlay);
-
-    let win = builder
+    builder
         .build()
         .map_err(|e| format!("Could not open Settings: {e}"))?;
-    #[cfg(target_os = "macos")]
-    let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
     Ok(())
 }
 
@@ -1934,9 +1877,8 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Folder Chrome / Firefox / Edge / Brave / Arc load as an unpacked
-/// extension, and what Safari's converter is pointed at. A release build
-/// ships it inside the bundle; `tauri dev` falls back to the copy next
-/// to the crate.
+/// extension. A release build ships it inside the bundle; `tauri dev`
+/// falls back to the copy next to the crate.
 #[tauri::command]
 fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
     let mut candidates = Vec::new();
@@ -1953,14 +1895,7 @@ fn browser_extension_dir(app: tauri::AppHandle) -> Result<String, String> {
             let shown = path.canonicalize().unwrap_or(path);
             // Reveal the folder itself — Load unpacked wants this
             // directory, not its parent with the folder selected.
-            #[cfg(target_os = "macos")]
-            {
-                let _ = std::process::Command::new("open").arg(&shown).status();
-            }
-            #[cfg(target_os = "linux")]
-            {
-                let _ = std::process::Command::new("xdg-open").arg(&shown).status();
-            }
+            let _ = std::process::Command::new("xdg-open").arg(&shown).status();
             return Ok(shown.display().to_string());
         }
     }
@@ -1978,16 +1913,6 @@ fn dispatch_torrent(app: &tauri::AppHandle, path: PathBuf) {
     }
     let _ = app.emit("open-torrent", &event);
     bring_to_front(app);
-}
-
-/// Files and magnets the system handed us — Finder, a browser, Open With.
-/// `garia://` stays with the deep-link plugin so it is not queued twice.
-fn ingest_opened(app: &tauri::AppHandle, raw: &str) {
-    if let Some(path) = catch::torrent_path(raw) {
-        dispatch_torrent(app, path);
-    } else if let Some(url) = catch::magnet_url(raw) {
-        dispatch_catch(app, url, "scheme");
-    }
 }
 
 pub(crate) fn dispatch_catch(app: &tauri::AppHandle, url: String, source: &str) {
@@ -2305,7 +2230,7 @@ fn schedule_tick(app: &tauri::AppHandle) {
 }
 
 /// Watches for the last unfinished download to land, then sleeps or shuts
-/// the Mac down. Armed only after this run has seen work, so a launch onto
+/// the computer down. Armed only after this run has seen work, so a launch onto
 /// an empty list does nothing.
 struct DrainWatch {
     seen_work: Mutex<bool>,
@@ -2361,11 +2286,7 @@ fn drain_tick(app: &tauri::AppHandle, working: bool, action: DoneAction) {
             old.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    let host = if cfg!(target_os = "macos") {
-        "This Mac"
-    } else {
-        "This computer"
-    };
+    let host = "This computer";
     let body = match action {
         DoneAction::Sleep => format!("{host} will sleep in 30 seconds."),
         DoneAction::Shutdown => format!("{host} will shut down in 30 seconds."),
@@ -2397,19 +2318,6 @@ fn drain_tick(app: &tauri::AppHandle, working: bool, action: DoneAction) {
 fn perform_done_action(action: DoneAction) {
     match action {
         DoneAction::None => {}
-        #[cfg(target_os = "macos")]
-        DoneAction::Sleep => {
-            let _ = Command::new("osascript")
-                .args(["-e", "tell application \"System Events\" to sleep"])
-                .status();
-        }
-        #[cfg(target_os = "macos")]
-        DoneAction::Shutdown => {
-            let _ = Command::new("osascript")
-                .args(["-e", "tell application \"System Events\" to shut down"])
-                .status();
-        }
-        #[cfg(target_os = "linux")]
         DoneAction::Sleep => {
             if Command::new("systemctl")
                 .args(["suspend"])
@@ -2421,7 +2329,6 @@ fn perform_done_action(action: DoneAction) {
             }
             let _ = Command::new("loginctl").args(["suspend"]).status();
         }
-        #[cfg(target_os = "linux")]
         DoneAction::Shutdown => {
             if Command::new("systemctl")
                 .args(["poweroff"])
@@ -2433,8 +2340,6 @@ fn perform_done_action(action: DoneAction) {
             }
             let _ = Command::new("loginctl").args(["poweroff"]).status();
         }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        DoneAction::Sleep | DoneAction::Shutdown => {}
     }
 }
 
@@ -2727,13 +2632,6 @@ fn ffmpeg_duration_us(line: &str) -> Option<u64> {
 fn system_ytdlp() -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["yt-dlp".to_string()];
 
-    #[cfg(target_os = "macos")]
-    candidates.extend([
-        "/opt/homebrew/bin/yt-dlp".to_string(),
-        "/usr/local/bin/yt-dlp".to_string(),
-    ]);
-
-    #[cfg(target_os = "linux")]
     candidates.extend([
         "/usr/bin/yt-dlp".to_string(),
         "/usr/local/bin/yt-dlp".to_string(),
@@ -2751,28 +2649,11 @@ fn system_ytdlp() -> Option<(Vec<String>, String)> {
 }
 
 /// The bundled copy is a zipapp, so it needs an interpreter — and not just any
-/// one: macOS ships `/usr/bin/python3` as 3.9, which yt-dlp dropped. The
+/// one: an older system python3 may be too old for yt-dlp. The
 /// version test is why this looks past the first python3 it finds.
 fn python_for(zipapp: &Path) -> Option<(Vec<String>, String)> {
     let mut candidates = vec!["python3".to_string()];
 
-    #[cfg(target_os = "macos")]
-    candidates.extend([
-        "/opt/homebrew/bin/python3".to_string(),
-        "/usr/local/bin/python3".to_string(),
-    ]);
-
-    // python.org installs land here, newest last in the sort, so walk it back.
-    #[cfg(target_os = "macos")]
-    if let Ok(entries) = fs::read_dir("/Library/Frameworks/Python.framework/Versions") {
-        let mut versions: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        versions.sort();
-        for v in versions.into_iter().rev() {
-            candidates.push(v.join("bin/python3").display().to_string());
-        }
-    }
-
-    #[cfg(target_os = "linux")]
     candidates.extend([
         "/usr/bin/python3".to_string(),
         "/usr/local/bin/python3".to_string(),
@@ -2868,13 +2749,6 @@ fn ffmpeg_candidates() -> Vec<(String, &'static str)> {
 
     candidates.push(("ffmpeg".to_string(), "system"));
 
-    #[cfg(target_os = "macos")]
-    candidates.extend([
-        ("/opt/homebrew/bin/ffmpeg".to_string(), "system"),
-        ("/usr/local/bin/ffmpeg".to_string(), "system"),
-    ]);
-
-    #[cfg(target_os = "linux")]
     candidates.extend([
         ("/usr/bin/ffmpeg".to_string(), "system"),
         ("/usr/local/bin/ffmpeg".to_string(), "system"),
@@ -2972,16 +2846,7 @@ fn aria2c_candidates_with_origin() -> Vec<(String, &'static str)> {
 
     c.push(("aria2c".to_string(), "system"));
 
-    // macOS GUI apps (launched via Finder) often don't inherit Homebrew PATH.
-    // Try common Homebrew install locations explicitly.
-    #[cfg(target_os = "macos")]
-    c.extend([
-        ("/opt/homebrew/bin/aria2c".to_string(), "system"),
-        ("/usr/local/bin/aria2c".to_string(), "system"),
-    ]);
-
-    // Common Linux locations.
-    #[cfg(target_os = "linux")]
+    // Common install locations.
     c.extend([
         ("/usr/bin/aria2c".to_string(), "system"),
         ("/bin/aria2c".to_string(), "system"),
@@ -3594,7 +3459,7 @@ fn preview_state_blocking(path: String, ready_bytes: u64) -> PreviewState {
 
 /// Hands the partial file to whatever the machine opens that kind with. The
 /// panel has already asked whether it is worth opening; this only refuses the
-/// case that would open a Finder window on nothing.
+/// case that would open a file manager window on nothing.
 #[tauri::command]
 fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if !Path::new(&path).is_file() {
@@ -4040,16 +3905,12 @@ fn session_path(dir: &Path) -> PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
-    #[cfg(target_os = "linux")]
     let autostart_args = Some(vec!["--garia-background"]);
-    #[cfg(not(target_os = "linux"))]
-    let autostart_args = None;
 
-    // Linux and Windows start a new process for every link or file the
+    // Linux starts a new process for every link or file the
     // desktop opens. This hands it to the running instance instead — links
     // through the deep-link plugin, `.torrent` paths here — and has to be
     // the first plugin, before the second process starts anything of its own.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
         for arg in argv.iter().skip(1) {
             if let Some(path) = catch::torrent_path(arg) {
@@ -4084,7 +3945,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
             aria2_endpoint,
-            platform,
             trash_files,
             get_settings,
             save_settings,
@@ -4125,9 +3985,7 @@ pub fn run() {
             // Linux windows start hidden so --garia-background can stay
             // tray-only; show interactive launches immediately so cold start
             // does not look like a failed launch while aria2 boots.
-            #[cfg(target_os = "linux")]
             let linux_background = std::env::args().any(|arg| arg == "--garia-background");
-            #[cfg(target_os = "linux")]
             if !linux_background {
                 match app.get_webview_window("main") {
                     Some(window) => {
@@ -4138,7 +3996,6 @@ pub fn run() {
                     None => eprintln!("[garia] Main window was unavailable during startup"),
                 }
             }
-            #[cfg(target_os = "linux")]
             {
                 // Rewrite an existing XDG autostart Exec so upgrades pick up
                 // --garia-background without requiring the user to toggle it.
@@ -4265,9 +4122,8 @@ pub fn run() {
             app.manage(OwnCopy::default());
 
             // `garia://add?url=…` from a bookmarklet, and `magnet:` from the
-            // browser or Finder. macOS delivers these to the running instance;
-            // a cold launch is `get_current` below. `.torrent` files arrive
-            // as `RunEvent::Opened` on macOS and as arguments elsewhere.
+            // browser or file manager. A cold launch is `get_current` below.
+            // `.torrent` files arrive as arguments.
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let handle = app.handle().clone();
@@ -4283,17 +4139,12 @@ pub fn run() {
                     }
                 }
             }
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             for arg in std::env::args().skip(1) {
                 if let Some(path) = catch::torrent_path(&arg) {
                     dispatch_torrent(app.handle(), path);
                 }
             }
 
-            #[cfg(target_os = "macos")]
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-            }
             match install_menu(app) {
                 Ok(items) => {
                     app.manage(ViewMenu {
@@ -4304,14 +4155,6 @@ pub fn run() {
             }
             if let Err(e) = install_status_item(app) {
                 eprintln!("[garia] Could not install the menu-bar extra: {e}");
-            }
-            #[cfg(target_os = "macos")]
-            if let Err(e) = service::install(app.handle().clone()) {
-                eprintln!("[garia] Could not install Services: {e}");
-            }
-            #[cfg(target_os = "macos")]
-            if let Err(e) = dock::install(app.handle().clone()) {
-                eprintln!("[garia] Could not install the dock menu: {e}");
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
@@ -4346,15 +4189,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Close hides the window. Downloads keep going; the tray (and on
-            // macOS the dock icon) is how you come back. Quit is the exit.
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            // Close hides the window. Downloads keep going; the tray is how
+            // you come back. Quit is the exit.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
                 api.prevent_close();
             }
-            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-            let _ = (window, event);
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -4379,14 +4219,6 @@ pub fn run() {
                             }
                         }
                         let _ = fs::remove_file(&state.pid_file);
-                    }
-                }
-                #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { .. } => bring_to_front(app),
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
-                tauri::RunEvent::Opened { urls } => {
-                    for url in urls {
-                        ingest_opened(app, url.as_str());
                     }
                 }
                 _ => {}
@@ -4424,9 +4256,9 @@ fn clipboard_text() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
 
-/// The menu a Mac app is expected to have: the app name, File, Edit, Window,
-/// and the shortcuts that belong on them. Replacing Tauri's default is what
-/// makes Settings land on ⌘, and New Download on ⌘N rather than nowhere.
+/// The menu bar: the app name, File, Edit, Window, and the shortcuts that
+/// belong on them. Replacing Tauri's default is what makes Settings land on
+/// Ctrl+, and New Download on Ctrl+N rather than nowhere.
 fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuItem<tauri::Wry>>> {
     use tauri::menu::{AboutMetadata, CheckMenuItem, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
@@ -4484,12 +4316,6 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
         .item(&check_updates)
         .separator()
         .item(&settings)
-        .separator()
-        .services()
-        .separator()
-        .hide()
-        .hide_others()
-        .show_all()
         .separator()
         .quit()
         .build()?;
@@ -4583,8 +4409,6 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
         .build()?;
 
     app.set_menu(menu)?;
-    #[cfg(target_os = "macos")]
-    help_menu.set_as_help_menu_for_nsapp()?;
     Ok(vec![
         show_sidebar,
         col_size,
@@ -4597,8 +4421,8 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
 }
 
 /// A face while the window is hidden: click the extra for New Download,
-/// Pause All, and Show Garia. The dock icon is still how you come back
-/// without thinking; this is for the moment you do not want the list.
+/// Pause All, and Show Garia. This is how you come back without
+/// thinking, for the moment you do not want the list.
 fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
     use tauri::tray::TrayIconBuilder;
@@ -4633,22 +4457,13 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .item(&quit)
         .build()?;
 
-    // macOS: template silhouette (black on clear). The dock icon is the
-    // helmet on a cream tile — as a template that tile would paint as a
-    // solid block, so tray-template.png is just the helmet.
-    // Linux/Windows: colour 32×32 (cream tile) — a black template is nearly
-    // invisible on dark panels.
-    #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/tray-template.png");
-    #[cfg(not(target_os = "macos"))]
+    // Colour 32×32 (cream tile) — a black silhouette is nearly invisible on
+    // dark panels.
     let icon = tauri::include_image!("icons/32x32.png");
-    let tray = TrayIconBuilder::with_id("status")
+    TrayIconBuilder::with_id("status")
         .menu(&menu)
         .tooltip("Garia")
-        .icon(icon);
-    #[cfg(target_os = "macos")]
-    let tray = tray.icon_as_template(true);
-    tray
+        .icon(icon)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-window" => bring_to_front(app),
             "quit" => app.exit(0),

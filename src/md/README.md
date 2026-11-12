@@ -1,6 +1,6 @@
 # Garia
 
-Garia is a download manager for macOS and Linux. It wraps [aria2](https://aria2.github.io/) in a [Tauri](https://tauri.app/) app and ships its own aria2, ffmpeg, and yt-dlp.
+Garia is a download manager for Linux. It wraps [aria2](https://aria2.github.io/) in a [Tauri](https://tauri.app/) app and ships its own aria2, ffmpeg, and yt-dlp.
 
 ## Stack
 
@@ -53,4 +53,4 @@ Garia is a download manager for macOS and Linux. It wraps [aria2](https://aria2.
 - [data/settings.md](data/settings.md): settings shape, migrations, secret files
 - [api/aria2-rpc.md](api/aria2-rpc.md): RPC secret, concurrency, restart, off-main commands
 - [infrastructure/sidecars.md](infrastructure/sidecars.md): bundled aria2, ffmpeg, yt-dlp choices
-- [infrastructure/app-lifecycle.md](infrastructure/app-lifecycle.md): close vs quit, dock, tray, schemes
+- [infrastructure/app-lifecycle.md](infrastructure/app-lifecycle.md): close vs quit, tray, schemes

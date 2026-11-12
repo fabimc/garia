@@ -11,8 +11,6 @@
                 var root = document.documentElement;
                 if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
                     root.classList.add("in-app");
-                } else {
-                    root.classList.add("platform-mac");
                 }
             })();
         </script>
@@ -134,7 +132,11 @@
                             <span>Notify me when a download finishes</span>
                         </label>
                         <p class="field-hint" id="settings-notify-hint">
-                            A desktop notification appears when a download finishes.
+                            Garia uses your desktop notification service. Allow
+                            notifications for Garia in system settings if no
+                            permission prompt appears. When Garia runs in the
+                            background, reopen it from the tray or the
+                            application launcher.
                         </p>
                     </div>
 
@@ -150,9 +152,10 @@
                         <details class="field-more">
                             <summary title="More info"><span class="info-dot" aria-label="More info">ⓘ</span></summary>
                             <p id="settings-autostart-hint">
-                                At login, Garia starts the download engine for
-                                unfinished or scheduled downloads. You can close
-                                or hide the window afterward.
+                                At login, Garia starts the download engine without
+                                opening a tiled window. Reopen it from the tray,
+                                or from the application launcher if the tray is
+                                unavailable.
                             </p>
                         </details>
                     </div>
@@ -377,7 +380,7 @@
                             </label>
                             <label class="field-check">
                                 <input type="radio" name="done-action" value="sleep" />
-                                <span>Put this Mac to sleep</span>
+                                <span>Sleep this computer</span>
                             </label>
                             <label class="field-check">
                                 <input
@@ -385,7 +388,7 @@
                                     name="done-action"
                                     value="shutdown"
                                 />
-                                <span>Shut down this Mac</span>
+                                <span>Shut down this computer</span>
                             </label>
                         </div>
                         <p class="field-hint">
@@ -467,18 +470,19 @@
                                 <code>about:debugging#/runtime/this-firefox</code>,
                                 Load Temporary Add-on, and pick
                                 <code>manifest.json</code> (it lasts until
-                                Firefox quits). Safari cannot stop its own
-                                downloads, so the same package catches file
-                                clicks, the context menu, and the on-page
-                                Download button; run
-                                <code>scripts/make-safari-extension.sh</code>
-                                once, then enable it under Safari → Settings →
-                                Extensions. Right-click a page to send every
+                                Firefox quits). Right-click a page to send every
                                 link, then uncheck the ones you don’t want.
-                                Hold Option (or Alt) while clicking a file to leave it
+                                Hold Alt while clicking a file to leave it
                                 with the browser. The player button sends the
                                 page, not the stream — × hides it until the
                                 next video.
+                            </p>
+                            <p class="field-hint" id="settings-extension-omarchy">
+                                Omarchy Chromium: Load unpacked from the folder that
+                                Show extension folder opens. Hold Alt while clicking
+                                a file to leave it with Chromium. The AppImage does
+                                not register garia://; use the packaged OPR install
+                                for system handoff.
                             </p>
                         </details>
                         <button
@@ -550,13 +554,6 @@
                             Drag this to your bookmarks bar, then click it on a
                             page to send that page here.
                         </p>
-                        <details class="field-more">
-                            <summary title="More info"><span class="info-dot" aria-label="More info">ⓘ</span></summary>
-                            <p>
-                                From another Mac app, select a URL and choose
-                                Services → Download with Garia.
-                            </p>
-                        </details>
                         <a
                             id="catch-bookmarklet"
                             class="bookmarklet"
@@ -588,7 +585,7 @@
                         <details class="field-more">
                             <summary title="More info"><span class="info-dot" aria-label="More info">ⓘ</span></summary>
                             <p>
-                                Passwords stay on this Mac and are never
+                                Passwords stay on this computer and are never
                                 attached to the download. Extra headers are sent
                                 with the request, so they are saved with it.
                             </p>

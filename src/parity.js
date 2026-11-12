@@ -334,7 +334,7 @@ export function formatEmptyQueueState({
   filter = "all",
   hasAnyDownloads = false,
   connError = false,
-  modNHint = "⌘N",
+  modNHint = "Ctrl+N",
   hasSearch = false,
   queueStopped = false,
 } = {}) {
@@ -1080,7 +1080,7 @@ export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 
 
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
-// failure — Retry covers that. Labels match Download menu / dock verbs when
+// failure — Retry covers that. Labels match Download menu verbs when
 // menuAligned is set, so the status bar and the menu say the same thing.
 export function housekeepingActions({
   failed = 0,
@@ -1434,50 +1434,6 @@ export function rememberedQualityRule(stored, fallback = "best") {
   if (value === "best" || value === "audio") return value;
   const cap = Number(value);
   return Number.isFinite(cap) && cap > 0 ? String(cap) : fallback;
-}
-
-// The welcome sheet introduces the same four folders Settings starts with.
-// An empty list is those four. A list the user already saved is named as
-// they left it, so "Set up Garia again" does not describe folders they renamed.
-const STARTER_CATEGORY_NAMES = ["Video", "Music", "Documents", "Archives"];
-
-function categoryNames(categories) {
-  return (Array.isArray(categories) ? categories : [])
-    .map((cat) => String(cat?.name ?? "").trim())
-    .filter(Boolean);
-}
-
-function sameNameList(a, b) {
-  return a.length === b.length && a.every((name, i) => name === b[i]);
-}
-
-function joinNames(names) {
-  if (names.length <= 1) return names[0] || "";
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-}
-
-export function formatSetupCategoryHint(categories) {
-  const custom = categoryNames(categories);
-  const names = custom.length ? custom : STARTER_CATEGORY_NAMES;
-  const listed = joinNames(names);
-  const intro = sameNameList(names, STARTER_CATEGORY_NAMES)
-    ? `${listed} to start — rename them, add a site, or make your own in Settings.`
-    : `${listed} — the folders you set up. Change them in Settings.`;
-  return `${intro} Everything else stays in the download folder.`;
-}
-
-// Off keeps whatever was saved. On with an empty list installs the starters
-// the caller already uses for Settings, copied so that list is not shared.
-export function setupCategoriesPatch({ enabled = false, categories, starters } = {}) {
-  const list = Array.isArray(categories) ? categories : [];
-  if (!enabled) return { smartFolders: false, categories: list };
-  if (list.length) return { smartFolders: true, categories: list };
-  const seed = (Array.isArray(starters) ? starters : []).map((cat) => ({
-    ...cat,
-    extensions: Array.isArray(cat?.extensions) ? [...cat.extensions] : [],
-  }));
-  return { smartFolders: true, categories: seed };
 }
 
 export function packageMenuExtras({

@@ -78,8 +78,6 @@ import {
   normalizeTemplate,
   templateSummary,
   rememberedQualityRule,
-  formatSetupCategoryHint,
-  setupCategoriesPatch,
   normalizeTag,
   parseTagList,
   tagSummary,
@@ -307,9 +305,9 @@ test("priority labels match the detail panel wording", () => {
 });
 
 test("empty queue copy follows filter and connection state", () => {
-  const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
+  const fresh = formatEmptyQueueState({ modNHint: "Ctrl+N" });
   assert.equal(fresh.title, "No downloads yet");
-  assert.match(fresh.sub, /⌘N/);
+  assert.match(fresh.sub, /Ctrl\+N/);
   assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
   assert.equal(
@@ -840,53 +838,8 @@ test("recovery hints name a next step for common errors", () => {
   assert.equal(recoveryNextStep({ status: "active" }), "");
 });
 
-test("the welcome sheet names the starter categories, or the ones already saved", () => {
-  const starter = formatSetupCategoryHint([]);
-  assert.match(starter, /Video, Music, Documents, and Archives to start/);
-  assert.match(starter, /Settings/);
-  assert.match(starter, /download folder/);
-  assert.match(formatSetupCategoryHint(null), /Video, Music, Documents, and Archives/);
-  assert.match(formatSetupCategoryHint([{ name: "Video" }, { name: "Music" }, { name: "Documents" }, { name: "Archives" }]), /to start/);
-  const custom = formatSetupCategoryHint([{ name: "ISOs" }, { name: "Work" }]);
-  assert.match(custom, /ISOs and Work/);
-  assert.equal(/to start/.test(custom), false);
-  assert.match(formatSetupCategoryHint([{ name: "Films" }]), /Films — the folders you set up/);
-});
-
-test("turning categories on seeds starters only when the list is empty", () => {
-  const starters = [{ id: "video", name: "Video", extensions: ["mp4"] }];
-  const keptOff = setupCategoriesPatch({
-    enabled: false,
-    categories: [{ id: "iso", name: "ISOs" }],
-    starters,
-  });
-  assert.equal(keptOff.smartFolders, false);
-  assert.equal(keptOff.categories[0].id, "iso");
-  const seeded = setupCategoriesPatch({ enabled: true, categories: [], starters });
-  assert.equal(seeded.smartFolders, true);
-  assert.equal(seeded.categories[0].name, "Video");
-  assert.deepEqual(seeded.categories[0].extensions, ["mp4"]);
-  assert.notEqual(seeded.categories[0].extensions, starters[0].extensions);
-  const kept = setupCategoriesPatch({
-    enabled: true,
-    categories: [{ id: "iso", name: "ISOs", extensions: ["iso"] }],
-    starters,
-  });
-  assert.equal(kept.smartFolders, true);
-  assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
-});
-
-test("the welcome sheet is where categories are introduced", () => {
+test("first-run links the Omarchy checklist", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /Four things to check before the first download/);
-  assert.match(html, /id="setup-categories"/);
-  assert.match(html, /Sort files into folders by type/);
-  assert.match(html, /id="setup-categories-hint"/);
-});
-
-test("Linux first-run links the Omarchy checklist without changing other platforms", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
   assert.match(html, /Linux \/ Omarchy: four quick checks/);
   assert.match(html, /New downloads go here/);
   assert.match(html, /closing the window hides Garia/i);
@@ -895,8 +848,6 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
-  assert.match(css, /html\.platform-linux \.setup-generic/);
-  assert.match(css, /html\.platform-linux \.setup-linux-only/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
@@ -1278,9 +1229,9 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "Ctrl+N" });
   assert.equal(failedEmpty.title, "No failed downloads");
   assert.equal(failedEmpty.action?.id, "new-download");
-  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
+  assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });

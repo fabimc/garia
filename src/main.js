@@ -61,8 +61,6 @@ import {
   templateSummary,
   rememberedQualityRule,
   newPackageId,
-  formatSetupCategoryHint,
-  setupCategoriesPatch,
   formatSpeedLimitScope,
   filterClipboardUrls,
   quietCaptureSkipsConfirm,
@@ -99,128 +97,6 @@ import {
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
 let rpcId = 1;
-
-// Host OS for copy and chrome. The browser mock defaults to macOS, with a
-// query override for platform-specific browser-dev checks.
-let platform = "macos";
-
-function isMac() {
-  return platform === "macos";
-}
-
-function modGlyph() {
-  return isMac() ? "⌘" : "Ctrl+";
-}
-
-function revealLabel() {
-  return isMac() ? "Show in Finder" : "Show in folder";
-}
-
-function computerLabel() {
-  return isMac() ? "This Mac" : "This computer";
-}
-
-function localizeShortcutText(text) {
-  if (isMac()) return text;
-  return text
-    .replaceAll("⌘", modGlyph())
-    // Chorded Option keys need Alt+; a bare ⌥ becomes Alt (no trailing plus).
-    .replaceAll(/⌥(?=[\w↑↓←→⌫↩])/g, "Alt+")
-    .replaceAll("⌥", "Alt")
-    .replaceAll("⌫", "Backspace")
-    .replaceAll("↩", "Enter");
-}
-
-function altArrowHint() {
-  return isMac() ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓";
-}
-
-function enterHint() {
-  return isMac() ? "↩" : "Enter";
-}
-
-function deleteShortcutHint() {
-  return isMac() ? `${modGlyph()}⌫` : `${modGlyph()}Backspace`;
-}
-
-function localizeShortcutHints() {
-  if (isMac()) return;
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) {
-    walker.currentNode.textContent = localizeShortcutText(walker.currentNode.textContent);
-  }
-  for (const element of document.body.querySelectorAll("[title], [placeholder], [aria-label]")) {
-    for (const attribute of ["title", "placeholder", "aria-label"]) {
-      if (element.hasAttribute(attribute)) {
-        element.setAttribute(attribute, localizeShortcutText(element.getAttribute(attribute)));
-      }
-    }
-  }
-}
-
-async function initPlatform() {
-  const invoke = window.__TAURI__?.core?.invoke;
-  if (typeof invoke === "function") {
-    try {
-      platform = await invoke("platform");
-    } catch {
-      platform = "macos";
-    }
-  } else {
-    const mockPlatform = new URLSearchParams(location.search).get("platform");
-    if (["macos", "linux", "windows"].includes(mockPlatform)) {
-      platform = mockPlatform;
-    }
-  }
-  const root = document.documentElement;
-  root.classList.remove("platform-mac", "platform-linux", "platform-windows");
-  root.classList.add(
-    platform === "macos"
-      ? "platform-mac"
-      : platform === "linux"
-        ? "platform-linux"
-        : "platform-windows",
-  );
-  ACTION_TITLES.reveal = revealLabel();
-  ACTION_VERBS.reveal = isMac() ? "show in Finder" : "show in folder";
-  const detailReveal = document.getElementById("detail-reveal");
-  if (detailReveal) detailReveal.textContent = ACTION_TITLES.reveal;
-  const kbd = document.querySelector(".kbd-hint kbd");
-  if (kbd) kbd.textContent = `${modGlyph()}F`;
-  localizeShortcutHints();
-  const addHelp = document.getElementById("help-add-copy");
-  if (addHelp && !isMac()) {
-    addHelp.textContent =
-      "File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or drop a torrent " +
-      "on the window. A magnet or .torrent the system opens is queued, not " +
-      "offered. The browser extension in Settings (Ctrl+,) → Browser takes a " +
-      "clicked file, and the bookmarklet sends the page you are on.";
-  }
-  const windowHelp = document.getElementById("help-window-copy");
-  if (windowHelp && platform === "linux") {
-    windowHelp.textContent =
-      "The close button and Ctrl+W hide the list. Downloads keep going. " +
-      "Ctrl+Q quits, and Tray → Quit stops downloads. Restore Garia from the " +
-      "tray, or reopen it from the application launcher if the tray is " +
-      "unavailable; the existing window returns.";
-  } else if (windowHelp && platform === "windows") {
-    windowHelp.textContent =
-      "Closing the window or Ctrl+W closes the list. Downloads stop when Garia " +
-      "quits. Ctrl+Q quits. Reopen Garia from the taskbar or Start menu.";
-  }
-  const revealHelp = document.getElementById("help-reveal-copy");
-  if (revealHelp && platform === "linux") {
-    revealHelp.textContent =
-      "Show in folder asks the desktop file manager to reveal the download. " +
-      "If selection is unavailable, the desktop portal opens its location; " +
-      "selection behavior depends on the file manager and desktop session.";
-  } else if (revealHelp && platform === "windows") {
-    revealHelp.textContent =
-      "Show in folder opens File Explorer and selects the download.";
-  }
-  const revealHelpTerm = document.getElementById("help-reveal-term");
-  if (revealHelpTerm) revealHelpTerm.textContent = revealLabel();
-}
 
 // aria2 usually gets port 6800, but the backend falls back to a free one when
 // something else already holds it — so the endpoint is asked for, not assumed.
@@ -871,7 +747,7 @@ function videoToolsSummary() {
     return {
       text:
         "No yt-dlp found, so video pages can't be read. Install with " +
-        "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.",
+        "`pacman -S yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.",
       missing: true,
     };
   }
@@ -1663,7 +1539,7 @@ const GRIP_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16
 const ACTION_TITLES = {
   stop: "Pause",
   resume: "Resume",
-  reveal: "Show in Finder",
+  reveal: "Show in folder",
   retry: "Retry download",
   reprobe: "Read the page again and pick a quality",
   unseed: "Stop uploading this torrent and file it as done — seeding it again means adding the torrent again",
@@ -1674,7 +1550,7 @@ const ACTION_TITLES = {
 const ACTION_VERBS = {
   stop: "pause",
   resume: "resume",
-  reveal: "show in Finder",
+  reveal: "show in folder",
   retry: "retry",
   unseed: "stop seeding",
 };
@@ -1909,8 +1785,8 @@ let columnsByView = loadColumnsByView();
 if (!columnsByView.all) columnsByView.all = loadColumns();
 let visibleCols = columnsByView[viewColumnKey("all")] || loadColumns();
 
-// When the list itself is narrow (a small window, or the inspector docked
-// beside it) the measurement columns go and Status carries the speed instead,
+// When the list itself is narrow (a small window, or the inspector beside
+// it) the measurement columns go and Status carries the speed instead,
 // so Name keeps enough room to be read. The user's column choice is left
 // alone; only what is painted changes.
 const COMPACT_LIST_PX = 720;
@@ -2203,7 +2079,7 @@ function createItemEl(dl) {
   li.innerHTML = `
     <div class="dl-lead">
       <span class="dl-icon" aria-hidden="true"></span>
-      <span class="dl-grip" title="Drag to reorder the queue — or ${altArrowHint()}">${GRIP_ICON}</span>
+      <span class="dl-grip" title="Drag to reorder the queue — or Alt+↑ / Alt+↓">${GRIP_ICON}</span>
     </div>
     <div class="dl-name-cell">
       <button type="button" class="dl-name"></button>
@@ -2789,7 +2665,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
       filter: activeFilter,
       hasAnyDownloads: items.length > 0,
       connError: connState === "error",
-      modNHint: `${modGlyph()}N`,
+      modNHint: "Ctrl+N",
       hasSearch: Boolean(nameFilter),
       queueStopped: schedule.queueStopped === true || settings.queueStopped === true,
     });
@@ -4108,7 +3984,7 @@ function updateStartBlock(sec, data) {
           : `The window is shut until ${clockLabel(schedule.start)}, so the row waits for whichever of the two comes second.`,
       );
     }
-    said.push("Garia has to be running then — nothing here wakes the Mac.");
+    said.push("Garia has to be running then — nothing here wakes the computer.");
   } else if (schedule.queueStopped) {
     said.push("Already held: the queue is stopped. A time here holds it past Start Queue.");
   } else if (schedule.enabled && !schedule.open) {
@@ -4832,7 +4708,7 @@ async function copyText(text) {
 // ── Completion notifications ─────────────────────────────────────────────
 // A download that finishes while the window is buried behind a browser used to
 // go entirely unannounced. Two signals, because they answer different
-// questions: the notification says "this one just landed", the dock badge says
+// questions: the notification says "this one just landed", the badge says
 // "this many landed while you were away".
 let notifyReady = null;   // a promise, resolved once, or null when unavailable
 
@@ -4840,9 +4716,8 @@ function notifications() {
   const api = window.__TAURI__?.notification;
   if (!api) return null;
   if (!notifyReady) {
-    // macOS only ever asks once, and only when something actually wants to
-    // notify — so the request is deferred to the first completed download
-    // rather than fired at launch.
+    // The request is deferred to the first completed download rather than
+    // fired at launch.
     notifyReady = api
       .isPermissionGranted()
       .then((granted) => (granted ? true : api.requestPermission().then((p) => p === "granted")))
@@ -5331,7 +5206,6 @@ async function pollAndSync() {
 window.addEventListener("DOMContentLoaded", async () => {
   if (window.__TAURI__) document.documentElement.classList.add("in-app");
   setConn("waiting");
-  await initPlatform();
 
   window.__TAURI__?.core
     ?.invoke("aria2_endpoint")
@@ -6250,11 +6124,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     items.push({ action: "resume", label: "Resume", shortcut: "Space", disabled: !canResume });
     items.push({ action: "unseed", label: "Stop Seeding", disabled: !canUnseed });
     items.push({ action: "retry", label: "Retry", disabled: !canRetry });
-    items.push({ action: "reveal", label: revealLabel(), disabled: !canReveal });
+    items.push({ action: "reveal", label: "Show in folder", disabled: !canReveal });
     items.push({
       action: "copy-url",
       label: dls.length > 1 ? "Copy URLs" : "Copy URL",
-      shortcut: `${modGlyph()}C`,
+      shortcut: "Ctrl+C",
       disabled: !canCopyUrl,
     });
     items.push({
@@ -6264,7 +6138,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
     items.push({ action: "move-top", label: "Move to Top", disabled: !canMoveTop });
     items.push({ action: "move-end", label: "Move to End", disabled: !canMoveEnd });
-    items.push({ action: "details", label: "Details", shortcut: enterHint(), disabled: dls.length < 1 });
+    items.push({ action: "details", label: "Details", shortcut: "Enter", disabled: dls.length < 1 });
     // A contextual menu hides what doesn't apply (the menu bar dims instead),
     // so a finished row isn't followed by a column of greyed-out verbs.
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -6332,7 +6206,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     items.push({ separator: true });
     items.push({ action: "remove-keep", label: "Remove, Keep Files" });
-    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: deleteShortcutHint() });
+    items.push({ action: "remove", label: "Delete…", danger: true, shortcut: "Ctrl+Backspace" });
     return items;
   }
 
@@ -7134,7 +7008,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   // The same move without a pointer, for the keyboard and for a queue too long
-  // to drag across: ⌥↑ / ⌥↓ by one, with shift to either end.
+  // to drag across: Alt+↑ / Alt+↓ by one, with shift to either end.
   listEl.addEventListener("keydown", (e) => {
     // Some layouts hand back a mangled key when alt is down, so the physical
     // key is the fallback — the arrows are the arrows either way.
@@ -7183,7 +7057,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     focused?.focus({ preventScroll: true });
   }
 
-  // A finished file leaves the list the way it leaves Finder — the row is the
+  // A finished file leaves the list the way it leaves a file manager — the row is the
   // handle, and the drop is the file itself. Queued rows keep the reorder
   // gesture; this one only arms on complete and seeding rows that wrote a path.
   listEl.addEventListener("pointerdown", (e) => {
@@ -7274,7 +7148,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("sidebar-show").addEventListener("click", () => setSidebar(false));
 
   // ── Columns ────────────────────────────────────────────────────────────
-  // View → Columns is the Mac place. The header button is the same list, so
+  // View → Columns is the menu place. The header button is the same list, so
   // the browser preview — and anyone who never opens the menu — can still
   // find it. Right-click the labels too.
   const columnsBtn = document.getElementById("columns-btn");
@@ -7364,7 +7238,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.addEventListener("focus", clearBadge);
 
   // Native menu owns these in the app. The browser mock has no menu, so the
-  // same shortcuts live here too — and ⌘F is in both, because Find is a
+  // same shortcuts live here too — and Ctrl+F is in both, because Find is a
   // custom item rather than the system's.
   function fieldHasFocus() {
     return Boolean(document.activeElement?.closest("input, textarea, select, [contenteditable]"));
@@ -7591,18 +7465,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const setupOverlay = document.getElementById("setup-overlay");
   const setupDir = document.getElementById("setup-dir");
-  const setupVideo = document.getElementById("setup-video");
-  const setupCategories = document.getElementById("setup-categories");
-  const setupCategoriesHint = document.getElementById("setup-categories-hint");
   const setupExtError = document.getElementById("setup-extension-error");
 
   function paintSetup() {
     setupDir.textContent = settings.downloadDir || "—";
-    const { text, missing } = videoToolsSummary();
-    setupVideo.textContent = text;
-    setupVideo.classList.toggle("is-missing", missing);
-    setupCategories.checked = settings.smartFolders === true;
-    setupCategoriesHint.textContent = formatSetupCategoryHint(settings.categories);
   }
 
   function openSetup() {
@@ -7610,11 +7476,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     setupExtError.textContent = "";
     paintSetup();
     openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
-    if (platform !== "linux" && !videoToolsLoaded) {
-      loadVideoTools().then(() => {
-        if (!setupOverlay.classList.contains("hidden")) paintSetup();
-      });
-    }
   }
 
   async function dismissSetup() {
@@ -7631,25 +7492,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("setup-done").addEventListener("click", () => dismissSetup());
   setupOverlay.addEventListener("click", (e) => {
     if (e.target === setupOverlay) dismissSetup();
-  });
-  setupCategories.addEventListener("change", async () => {
-    const enabled = setupCategories.checked;
-    const patch = setupCategoriesPatch({
-      enabled,
-      categories: settings.categories,
-      starters: DEFAULT_CATEGORIES,
-    });
-    try {
-      await saveSettingsPatch(patch);
-      paintSetup();
-      // Settings reaches the sidebar through settings-changed. This save
-      // is in the same window, so the list is told here as well.
-      renderCategoryNav();
-      applyFilter(listEl);
-    } catch (err) {
-      console.error(err);
-      setupCategories.checked = settings.smartFolders === true;
-    }
   });
   document.getElementById("setup-browse").addEventListener("click", async () => {
     const pick = window.__TAURI__?.dialog?.open;
@@ -7685,13 +7527,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       setupExtError.classList.remove("hidden");
     }
   });
-  document.getElementById("setup-bookmarklet").addEventListener("click", (e) => {
-    e.preventDefault();
-  });
   setupOverlay.addEventListener("click", async (e) => {
     const link = e.target.closest("a[href]");
     if (!link || !window.__TAURI__?.opener?.openUrl) return;
-    if (link.classList.contains("bookmarklet")) return;
     const href = link.getAttribute("href") || "";
     if (!/^https?:/i.test(href)) return;
     e.preventDefault();
@@ -7790,7 +7628,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   const dropOverlay = document.getElementById("drop-overlay");
   let dragCounter = 0;
 
-  // A finished row dragged out to the Finder crosses this window on its way,
+  // A finished row dragged out to a file manager crosses this window on its way,
   // and is not a drop. Rust says when that drag is over.
   let draggingOut = false;
   window.__TAURI__?.event?.listen?.("file-drag-ended", () => { draggingOut = false; });
@@ -8230,7 +8068,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const action = event.action === "shutdown" ? "shut down" : "sleep";
     const paint = () => {
       drainText.textContent =
-        `${computerLabel()} will ${action} in ${left} second${left === 1 ? "" : "s"}.`;
+        `This computer will ${action} in ${left} second${left === 1 ? "" : "s"}.`;
     };
     paint();
     drainBanner.classList.remove("hidden");
@@ -8284,7 +8122,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     renderPackageNav?.();
     if (!settings.setupSeen) openSetup();
   });
-  // Every second while the list can be seen. A window closed to the dock
+  // Every second while the list can be seen. A window closed to the tray
   // is still the one noticing downloads finish, so it keeps polling — at a
   // pace that makes a notification a few seconds late rather than keeping
   // WebKit redrawing a list nobody is looking at.

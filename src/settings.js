@@ -97,83 +97,6 @@ function parseLinkListText(text) {
   return urls;
 }
 
-// Same host-OS class the main window sets, so the prefs sidebar clears the
-// traffic lights only on macOS.
-let platform = "macos";
-
-async function initPlatform() {
-  const invoke = window.__TAURI__?.core?.invoke;
-  if (typeof invoke === "function") {
-    try {
-      platform = await invoke("platform");
-    } catch {
-      platform = "macos";
-    }
-  } else {
-    const mockPlatform = new URLSearchParams(location.search).get("platform");
-    if (["macos", "linux", "windows"].includes(mockPlatform)) {
-      platform = mockPlatform;
-    }
-  }
-  const root = document.documentElement;
-  root.classList.remove("platform-mac", "platform-linux", "platform-windows");
-  root.classList.add(
-    platform === "macos"
-      ? "platform-mac"
-      : platform === "linux"
-        ? "platform-linux"
-        : "platform-windows",
-  );
-  const notifyHint = document.getElementById("settings-notify-hint");
-  if (notifyHint && platform === "linux") {
-    notifyHint.textContent =
-      "Garia uses your desktop notification service. Allow notifications for " +
-      "Garia in system settings if no permission prompt appears. When Garia " +
-      "runs in the background, reopen it from the tray or the application launcher.";
-  } else if (notifyHint && platform === "windows") {
-    notifyHint.textContent =
-      "A desktop notification appears when a download finishes. Keep Garia " +
-      "running to restore it from the tray or taskbar.";
-  } else if (notifyHint && platform === "macos") {
-    notifyHint.textContent =
-      "A desktop notification appears when a download finishes. While Garia is " +
-      "in the background, the Dock badge also counts unseen completions.";
-  }
-  const autostartHint = document.getElementById("settings-autostart-hint");
-  if (autostartHint && platform === "linux") {
-    autostartHint.textContent =
-      "At login, Garia starts the download engine without opening a tiled window. " +
-      "Reopen it from the tray, or from the application launcher if the tray is unavailable.";
-  }
-  const extensionInstructions = document.getElementById("settings-extension-instructions");
-  if (extensionInstructions && platform === "linux") {
-    // Keep the multi-browser HTML help; append an Omarchy Chromium note.
-    let omarchyNote = document.getElementById("settings-extension-omarchy");
-    if (!omarchyNote) {
-      omarchyNote = document.createElement("p");
-      omarchyNote.id = "settings-extension-omarchy";
-      omarchyNote.className = "field-hint";
-      extensionInstructions.insertAdjacentElement("afterend", omarchyNote);
-    }
-    omarchyNote.textContent =
-      "Omarchy Chromium: Load unpacked from the folder that Show extension folder " +
-      "opens. Hold Alt while clicking a file to leave it with Chromium. The " +
-      "AppImage does not register garia://; use the packaged OPR install for " +
-      "system handoff.";
-  }
-  const machine = computerLabel().replace(/^This /, "this ");
-  const sleep = document.querySelector('input[name="done-action"][value="sleep"]');
-  const shutdown = document.querySelector('input[name="done-action"][value="shutdown"]');
-  const sleepLabel = sleep?.closest("label")?.querySelector("span");
-  const shutdownLabel = shutdown?.closest("label")?.querySelector("span");
-  if (sleepLabel) sleepLabel.textContent = `Sleep ${machine}`;
-  if (shutdownLabel) shutdownLabel.textContent = `Shut down ${machine}`;
-}
-
-function computerLabel() {
-  return platform === "macos" ? "This Mac" : "This computer";
-}
-
 let settings = {
   downloadDir: "",
   maxConcurrentDownloads: 5,
@@ -551,7 +474,7 @@ function renderVideoTools() {
   if (!ytdlp?.installed) {
     el.textContent =
       "No yt-dlp found, so video pages can't be read. Install with " +
-      "`brew install yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.";
+      "`pacman -S yt-dlp`, or Python 3.10+ so Garia can use the copy it ships.";
     return;
   }
   const where = ytdlp.source === "bundled" ? "built-in" : "yours";
@@ -904,7 +827,7 @@ async function loadRemote() {
   } else if (!wanted && open) {
     said.push("Closing the port. Turning this off unpairs every device.");
   } else if (open && !info.host) {
-    said.push(`${computerLabel()} isn’t on a network Garia can find, so nothing can connect.`);
+    said.push(`This computer isn’t on a network Garia can find, so nothing can connect.`);
   } else if (paired && !info.defaultPort) {
     said.push(`The usual port was busy, so Garia is using ${info.port}. Pairing still works.`);
   }
@@ -950,7 +873,7 @@ function renderPassHint(login) {
   if (login?.hasPassword) {
     loginPassHint.textContent = "Leave blank to keep the saved password.";
   } else {
-    loginPassHint.textContent = "Stored only on this Mac.";
+    loginPassHint.textContent = "Stored only on this computer.";
   }
 }
 
@@ -1692,7 +1615,6 @@ if (typeof listen === "function") {
 }
 
 (async function boot() {
-  await initPlatform();
   let pane = "general";
   try { pane = localStorage.getItem(PANE_KEY) || "general"; } catch { /* ignore */ }
   showPane(pane);
