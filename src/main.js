@@ -92,6 +92,7 @@ import {
   followedByGids,
   announcesCompletion,
   collapseMagnetDownloads,
+  revealPath,
   diskConflictLabel,
   explicitMagnetUri,
 } from "./parity.js";
@@ -4569,7 +4570,7 @@ function updateJobBlock(sec, data) {
 // Reveal has to name a file that is actually there: a merged row's output does
 // not exist until ffmpeg has run, and a download that never wrote a byte has
 // nothing to show.
-function revealPath(data) {
+function availableDownloadPath(data) {
   if (data.job) return data.job.state === "done" ? data.job.outPath || "" : "";
   const st = data.parts[0]?.status;
   return Number(st?.completedLength) > 0 ? st?.files?.[0]?.path || "" : "";
@@ -4689,7 +4690,7 @@ async function renderDetail() {
   if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
   if (sections[i]?.classList.contains("detail-seed")) updateSeedBlock(sections[i++]);
 
-  const path = revealPath(data);
+  const path = availableDownloadPath(data);
   const reveal = document.getElementById("detail-reveal");
   reveal.classList.toggle("hidden", !path);
   reveal.dataset.path = path;
@@ -4874,14 +4875,18 @@ let onCatchNotificationClick = null;
 function listenNotificationClicks() {
   const n = notifications();
   if (!n || typeof n.api.onAction !== "function") return;
-  n.api.onAction((payload) => {
+  n.api.onAction(async (payload) => {
     const path = payload?.extra?.path;
-    if (path && window.__TAURI__?.opener?.revealItemInDir) {
-      window.__TAURI__.opener.revealItemInDir(path).catch(() => {});
+    const catchUrl = payload?.extra?.catchUrl;
+    if (catchUrl && !path) {
+      onCatchNotificationClick?.(catchUrl);
       return;
     }
-    const catchUrl = payload?.extra?.catchUrl;
-    if (catchUrl) onCatchNotificationClick?.(catchUrl);
+    await revealPath(
+      path,
+      window.__TAURI__?.opener?.revealItemInDir,
+      (err) => failed("Couldn't reveal the file", err),
+    );
   }).catch((err) => console.error(err));
 }
 
@@ -5755,15 +5760,16 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (action === "unseed") await Promise.all(gids.map((g) => rpc("aria2.remove", [g])));
       if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") {
-        const path = extra.path || rowPath(snapshot.get(gid));
-        const reveal = window.__TAURI__?.opener?.revealItemInDir;
-        if (!path) {
-          failed("Couldn't reveal the file", new Error("No file path is available yet."));
-        } else if (typeof reveal !== "function") {
-          failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
-        } else {
-          await reveal(path);
-        }
+        const dl = snapshot.get(gid);
+        const path = extra.path || rowPath(dl);
+        await revealPath(
+          path,
+          window.__TAURI__?.opener?.revealItemInDir,
+          (err) => failed(
+            `Couldn't ${ACTION_VERBS[action] || action} “${dl ? fileName(dl) : "the download"}”`,
+            err,
+          ),
+        );
       }
       if (action !== "reveal" && extra.poll !== false) await pollAndSync();
     } catch (err) {
@@ -6922,20 +6928,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("detail-close").addEventListener("click", closeDetail);
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
-    const reveal = window.__TAURI__?.opener?.revealItemInDir;
-    if (!path) {
-      failed("Couldn't reveal the file", new Error("No file path is available yet."));
-      return;
-    }
-    if (typeof reveal !== "function") {
-      failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
-      return;
-    }
-    try {
-      await reveal(path);
-    } catch (err) {
-      failed("Couldn't reveal the file", err);
-    }
+    await revealPath(
+      path,
+      window.__TAURI__?.opener?.revealItemInDir,
+      (err) => failed("Couldn't reveal the file", err),
+    );
   });
   inspectorToggle?.addEventListener("click", () => {
     if (detailPane?.classList.contains("hidden")) {
