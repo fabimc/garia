@@ -91,6 +91,7 @@ import {
   followedByGids,
   announcesCompletion,
   collapseMagnetDownloads,
+  revealNotificationPath,
   diskConflictLabel,
   explicitMagnetUri,
 } from "./parity.js";
@@ -4871,14 +4872,18 @@ let onCatchNotificationClick = null;
 function listenNotificationClicks() {
   const n = notifications();
   if (!n || typeof n.api.onAction !== "function") return;
-  n.api.onAction((payload) => {
+  n.api.onAction(async (payload) => {
     const path = payload?.extra?.path;
-    if (path && window.__TAURI__?.opener?.revealItemInDir) {
-      window.__TAURI__.opener.revealItemInDir(path).catch(() => {});
+    const catchUrl = payload?.extra?.catchUrl;
+    if (path || !catchUrl) {
+      await revealNotificationPath(
+        path,
+        window.__TAURI__?.opener?.revealItemInDir,
+        (err) => failed("Couldn't reveal the file", err),
+      );
       return;
     }
-    const catchUrl = payload?.extra?.catchUrl;
-    if (catchUrl) onCatchNotificationClick?.(catchUrl);
+    onCatchNotificationClick?.(catchUrl);
   }).catch((err) => console.error(err));
 }
 
