@@ -1284,3 +1284,53 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.match(failedEmpty.sub, /⌘N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
+
+test("download state text meets contrast on selected rows in both color schemes", () => {
+  const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  const light = styles.match(/:root\s*\{([^}]*)\}/)?.[1];
+  const dark = styles.match(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}/)?.[1];
+  assert.ok(light);
+  assert.ok(dark);
+
+  const color = (block, name) => {
+    const value = block.match(new RegExp(`--${name}:\\s*(#[\\da-f]{6})\\s*;`, "i"))?.[1];
+    assert.ok(value, `missing --${name}`);
+    return value;
+  };
+  const rgb = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  const luminance = (hex) => {
+    const channels = rgb(hex).map((value) => {
+      const channel = value / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const contrast = (foreground, background) => {
+    const [high, low] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const mix = (foreground, background, percentage) => {
+    const foregroundRgb = rgb(foreground);
+    const backgroundRgb = rgb(background);
+    return `#${backgroundRgb.map((channel, index) =>
+      Math.round(channel * (1 - percentage) + foregroundRgb[index] * percentage)
+        .toString(16).padStart(2, "0"),
+    ).join("")}`;
+  };
+
+  for (const [mode, block] of [["light", light], ["dark", dark]]) {
+    const background = color(block, "bg");
+    const selected = [0, 0.14, 0.18].map((percentage) =>
+      percentage === 0 ? background : mix(color(block, "state-active"), background, percentage),
+    );
+    for (const name of ["state-active-text", "state-queued", "state-done", "state-failed"]) {
+      const foreground = color(block, name);
+      for (const rowBackground of selected) {
+        assert.ok(
+          contrast(foreground, rowBackground) >= 4.5,
+          `${mode} --${name} must reach 4.5:1 on ${rowBackground}`,
+        );
+      }
+    }
+  }
+});

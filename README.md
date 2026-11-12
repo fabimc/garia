@@ -45,7 +45,7 @@ The AppImage is a temporary portable option: it is not managed by pacman and doe
 
 For Hyprland dwindle, tile Garia at 660px wide or more. The sidebar collapses to an icon rail and optional list columns compact as the pane narrows; below the minimum width, use a floating window.
 
-Garia advertises light and dark `color-scheme` support and keeps its own palette under the system preference; pixel-perfect matching of every Omarchy theme is a non-goal. Live WebKitGTK toggle-without-relaunch behavior still needs host confirmation.
+On Omarchy, Garia's light and dark tokens follow system appearance changes live in WebKitGTK without a restart, confirmed on a real Omarchy session. Garia keeps its own palette; pixel-perfect matching of every Omarchy theme is a non-goal.
 
 For Chromium capture on Omarchy, see the [browser extension setup](docs/Browser-Capture.md#omarchy-chromium).
 
