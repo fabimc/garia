@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 mod catch;
+mod download_history;
 #[cfg(target_os = "macos")]
 mod dock;
 mod file_priorities;
@@ -587,6 +588,11 @@ struct LoginsState {
 struct FilePrioritiesState {
     file: PathBuf,
     current: Mutex<file_priorities::PriorityMap>,
+}
+
+struct DownloadHistoryState {
+    file: PathBuf,
+    current: Mutex<Vec<serde_json::Value>>,
 }
 
 fn default_download_dir() -> PathBuf {
@@ -1463,6 +1469,49 @@ fn get_file_priorities(state: tauri::State<FilePrioritiesState>) -> file_priorit
         .lock()
         .map(|current| current.clone())
         .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_download_history(state: tauri::State<DownloadHistoryState>) -> Vec<serde_json::Value> {
+    state
+        .current
+        .lock()
+        .map(|current| current.clone())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_download_history(
+    state: tauri::State<DownloadHistoryState>,
+    entries: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "download history store is in an unknown state".to_string())?;
+    let mut updated = current.clone();
+    if download_history::record(&mut updated, &entries) {
+        download_history::write(&state.file, &updated)?;
+        *current = updated;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn forget_download_history(
+    state: tauri::State<DownloadHistoryState>,
+    gids: Vec<String>,
+) -> Result<(), String> {
+    let mut current = state
+        .current
+        .lock()
+        .map_err(|_| "download history store is in an unknown state".to_string())?;
+    let mut updated = current.clone();
+    if download_history::forget(&mut updated, &gids) {
+        download_history::write(&state.file, &updated)?;
+        *current = updated;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -4093,6 +4142,9 @@ pub fn run() {
             delete_login,
             get_file_priorities,
             save_file_priorities,
+            get_download_history,
+            save_download_history,
+            forget_download_history,
             set_badge,
             take_pending_catch,
             take_pending_torrents,
@@ -4172,8 +4224,10 @@ pub fn run() {
             let logins_file = dir.join("logins.json");
             let netrc_file = dir.join("netrc");
             let file_priorities_file = dir.join("file-priorities.json");
+            let download_history_file = dir.join("download-history.json");
             let saved_logins = logins::read(&logins_file);
             let saved_file_priorities = file_priorities::read(&file_priorities_file);
+            let saved_download_history = download_history::read(&download_history_file);
             // The netrc is derived, so it is rebuilt at every launch rather
             // than trusted: a store edited by hand, or one written by a build
             // that stored passwords differently, still ends up with an aria2
@@ -4231,6 +4285,10 @@ pub fn run() {
             app.manage(FilePrioritiesState {
                 file: file_priorities_file,
                 current: Mutex::new(saved_file_priorities),
+            });
+            app.manage(DownloadHistoryState {
+                file: download_history_file,
+                current: Mutex::new(saved_download_history),
             });
 
             // The bundled zipapp. Missing it is not fatal — it is the second

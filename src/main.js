@@ -2577,6 +2577,64 @@ const VIEW_TITLES = {
 // its file paths — more than fits in a data- attribute, and all of it stale by
 // the time the click lands unless it comes from the most recent poll.
 const snapshot = new Map();
+let downloadHistory = [];
+let downloadHistoryLoaded = false;
+
+async function loadDownloadHistory() {
+  if (downloadHistoryLoaded) return downloadHistory;
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke === "function") {
+    try {
+      const saved = await invoke("get_download_history");
+      downloadHistory = Array.isArray(saved) ? saved : [];
+    } catch (err) {
+      console.error("Could not load download history", err);
+    }
+  }
+  downloadHistoryLoaded = true;
+  return downloadHistory;
+}
+
+function downloadHistorySignature(dl) {
+  const {
+    downloadSpeed, uploadSpeed, uploadLength, connections, numSeeders, numPeers,
+    seeder, historyOnly, ...stable
+  } = dl;
+  return JSON.stringify(stable);
+}
+
+async function saveDownloadHistory(entries) {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function" || !entries.length) return;
+  const known = new Map(downloadHistory.map((dl) => [dl.gid, dl]));
+  const changed = entries.filter((entry) => {
+    const saved = known.get(entry.gid);
+    if (!saved) return true;
+    return downloadHistorySignature(saved) !== downloadHistorySignature(entry);
+  });
+  if (!changed.length) return;
+  const savedEntries = changed.map(({ historyOnly, ...entry }) => entry);
+  try {
+    await invoke("save_download_history", { entries: savedEntries });
+    const updated = new Map(downloadHistory.map((dl) => [dl.gid, dl]));
+    for (const entry of savedEntries) updated.set(entry.gid, entry);
+    downloadHistory = [...updated.values()];
+  } catch (err) {
+    console.error("Could not save download history", err);
+  }
+}
+
+async function forgetDownloadHistory(gids) {
+  const forgotten = new Set(gids);
+  downloadHistory = downloadHistory.filter((dl) => !forgotten.has(dl.gid));
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function" || !gids.length) return;
+  try {
+    await invoke("forget_download_history", { gids });
+  } catch (err) {
+    console.error("Could not clear download history", err);
+  }
+}
 
 // The magnet URI, kept after aria2 has dropped the metadata gid. Keyed by gid
 // and by info hash so the follow-up row can still be retried and matched.
@@ -5099,6 +5157,7 @@ function yieldToPaint() {
 async function poll(listEl) {
   let releasePollDom = null;
   try {
+    await loadDownloadHistory();
     const [{ active, waiting, stopped }] = await Promise.all([
       fetchLists(),
       // Asked alongside rather than after: which rows are held changes on the
@@ -5144,12 +5203,20 @@ async function poll(listEl) {
     if (folded.forget.length) {
       void rpcBatch(folded.forget.map((gid) => ["aria2.removeDownloadResult", [gid]])).catch(() => {});
     }
-    const all = folded.rows
+    const currentRows = folded.rows
       .map((dl) => {
         const magnetUri = rememberedMagnet(dl);
         return magnetUri && !dl.magnetUri ? { ...dl, magnetUri } : dl;
       })
       .filter((dl) => !removing.has(dl.gid));
+    await saveDownloadHistory(
+      currentRows.filter((dl) => dl.status === "complete" || dl.status === "seeding"),
+    );
+    const currentGids = new Set(currentRows.map((dl) => dl.gid));
+    const restored = downloadHistory
+      .filter((dl) => !currentGids.has(dl.gid) && !removing.has(dl.gid))
+      .map((dl) => ({ ...dl, historyOnly: true }));
+    const all = [...currentRows, ...restored];
     runPendingMerges(all);
     const tally = { all: all.length, torrents: 0, active: 0, seeding: 0, waiting: 0, paused: 0, complete: 0, error: 0, speed: 0, upspeed: 0 };
     for (const cat of activeCategories()) tally[cat.id] = 0;
@@ -6403,6 +6470,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await rpc("aria2.removeDownloadResult", [gid]);
+        await forgetDownloadHistory([gid]);
         return;
       } catch (err) {
         if (attempt === 2) { console.error(err); return; }
@@ -6507,7 +6575,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // The second half of a merged video is not on the list, so it is asked
     // either way; an already-stopped download just says no.
     const STOPPED = ["complete", "error", "removed"];
-    const halves = rows.flatMap((dl) => gidsFor(dl.gid).map((g) => ({
+    const halves = rows.filter((dl) => !dl.historyOnly).flatMap((dl) => gidsFor(dl.gid).map((g) => ({
       gid: g,
       running: g !== dl.gid || !STOPPED.includes(dl.status),
     })));
@@ -6516,14 +6584,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     // The metadata gid is already stopped once the torrent exists. Forgetting
     // it is what keeps a removed magnet from leaving a [METADATA] result behind.
     const metas = rows
+      .filter((dl) => !dl.historyOnly)
       .map((dl) => dl.metadataGid)
       .filter((gid) => gid && !halves.some((half) => half.gid === gid));
     if (metas.length) await purgeResults(metas);
     const stuck = new Set(left);
-    const kept = rows.filter((dl) => gidsFor(dl.gid).some((g) => stuck.has(g)));
+    const kept = rows.filter((dl) => !dl.historyOnly && gidsFor(dl.gid).some((g) => stuck.has(g)));
     if (kept.length) {
       failed(`Couldn't delete ${kept.length} of ${rows.length} downloads`, reason);
     }
+    const forgotten = rows
+      .filter((dl) => !kept.includes(dl))
+      .flatMap((dl) => [...gidsFor(dl.gid), dl.metadataGid].filter(Boolean));
+    await forgetDownloadHistory([...new Set(forgotten)]);
 
     const invoker = window.__TAURI__?.core?.invoke;
     // Only what aria2 has let go of: a record it kept still points at its file.
