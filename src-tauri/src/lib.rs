@@ -3606,6 +3606,23 @@ fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| format!("could not open {path}: {e}"))
 }
 
+fn ensure_folder(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        Ok(())
+    } else {
+        Err(format!("{} is not an existing folder", path.display()))
+    }
+}
+
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    ensure_folder(Path::new(&path))?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path.clone(), None::<&str>)
+        .map_err(|e| format!("could not open {path}: {e}"))
+}
+
 /// Where to look for aria2c, best first. The sidecar sits next to the app
 /// binary and is what a fresh install runs — no `brew install aria2` first.
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
@@ -4106,6 +4123,7 @@ pub fn run() {
             mux_video,
             preview_state,
             preview_file,
+            open_folder,
             remote_info,
             schedule_state,
             set_download_start,
@@ -4315,6 +4333,8 @@ pub fn run() {
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
+                    "show-window" => bring_to_front(app),
+                    "quit" => app.exit(0),
                     "settings" => {
                         if let Err(e) = show_settings(app) {
                             eprintln!("[garia] Could not open Settings: {e}");
@@ -4648,24 +4668,21 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .icon(icon);
     #[cfg(target_os = "macos")]
     let tray = tray.icon_as_template(true);
-    tray
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "show-window" => bring_to_front(app),
-            "quit" => app.exit(0),
-            id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
-                | "retry-failed" | "clear-completed" | "open-folder") => {
-                bring_to_front(app);
-                let _ = app.emit("menu", id);
-            }
-            _ => {}
-        })
-        .build(app)?;
+    tray.build(app)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_opening_requires_an_existing_directory() {
+        let file = std::env::current_exe().unwrap();
+        assert!(ensure_folder(&std::env::temp_dir()).is_ok());
+        assert!(ensure_folder(&file).is_err());
+        assert!(ensure_folder(&file.join("missing")).is_err());
+    }
 
     #[test]
     fn rpc_args_put_the_token_first() {

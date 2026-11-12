@@ -1284,3 +1284,42 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.match(failedEmpty.sub, /⌘N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
+
+test("tray and application menu actions share one event dispatcher", () => {
+  const source = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const handler = source.split("app.on_menu_event(|app, event| {")[1].split("spawn_clipboard_watch")[0];
+  const tray = source.split("fn install_status_item(")[1].split("#[cfg(test)]")[0];
+  for (const id of ["new-download", "pause-all", "resume-all", "stop-queue", "start-queue",
+    "retry-failed", "clear-completed", "open-folder"]) {
+    assert.match(tray, new RegExp(`with_id\\("${id}"`));
+    assert.match(handler, new RegExp(`"${id}"`));
+  }
+  assert.match(handler, /"show-window"\s*=>\s*bring_to_front\(app\)/);
+  assert.match(handler, /"quit"\s*=>\s*app\.exit\(0\)/);
+  assert.doesNotMatch(tray, /\.on_menu_event\s*\(/);
+});
+
+test("open download folder invokes the directory-only native command", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const body = source.split("  function openDownloadFolder() {")[1].split("\n  const listenMenu")[0];
+  const calls = [];
+  const errors = [];
+  const settings = { downloadDir: "/tmp/downloads" };
+  const context = {
+    settings,
+    window: { __TAURI__: { core: { invoke: async (...args) => { calls.push(args); } } } },
+    failed: (...args) => errors.push(args),
+  };
+  vm.runInNewContext(`function openDownloadFolder() {${body}\nopenDownloadFolder()`, context);
+  assert.equal(calls[0][0], "open_folder");
+  assert.equal(calls[0][1].path, "/tmp/downloads");
+  settings.downloadDir = "";
+  context.openDownloadFolder();
+  assert.equal(calls.length, 1);
+  assert.equal(errors[0][0], "Couldn't open the download folder");
+  settings.downloadDir = "/tmp/downloads";
+  context.window.__TAURI__.core.invoke = async () => { throw new Error("unavailable"); };
+  context.openDownloadFolder();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(errors[1][1].message, /unavailable/);
+});

@@ -18,7 +18,9 @@ Want to learn more?
 ## 2. FAQ
 
 * **Why do downloads keep going after I close the window?**
-  Closing the window hides the list. aria2 keeps running; use the tray (or the Dock on Mac) to bring it back. Quit is the only exit.
+  Closing the window hides the list. aria2 keeps running; use the tray (or the Dock on Mac) to bring it back. On Linux, if the tray is unavailable, launch Garia again from the application launcher or run `garia` to restore the existing window. Quit stops downloads and exits.
+
+  On Omarchy, the tray may be in the bar's collapsed tray drawer. A real-host check on Hyprland 0.56.2 with Quickshell confirmed StatusNotifier registration, restoration via the tray's D-Bus menu and by relaunching, and that tray Quit stopped aria2. The drawer icon and mouse interaction were not visually verified; tray actions and Open Download Folder require a fresh real-host check after the fixes.
 
 * **Where do files land?**
   Settings names the download folder. Optional categories sort new files into folders you name, by file type or by site.
