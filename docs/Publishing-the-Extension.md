@@ -50,7 +50,7 @@ Catch file downloads and video pages and send them to the Garia desktop app for 
 ```
 Garia is a companion for the Garia download manager on the Mac. The extension does not download files itself. It sends the URL to the desktop app — the same way Internet Download Manager and Free Download Manager do.
 
-You need the Garia app installed. Without it, a click opens a short “Opening Garia…” tab and stops there.
+You need the Garia app installed. A click opens an “Opening Garia…” tab; allow the browser's prompt if asked, then close the tab when finished.
 
 What it does
 • Click a file link and Garia takes it. Hold Option (Alt) to leave that one with the browser.

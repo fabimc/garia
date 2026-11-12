@@ -584,6 +584,79 @@ test("the extension collector matches the shared page-capture helper", () => {
   );
 });
 
+test("extension handoffs stay open for download, message, and batch captures", async () => {
+  const opened = [];
+  const cancelled = [];
+  const timers = [];
+  const listeners = {};
+  const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
+  const sandbox = {
+    URLSearchParams,
+    setTimeout: (...args) => timers.push(args),
+    gariaIsHttpUrl: (url) => /^https?:/.test(url),
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasename: (name) => name.split("/").pop(),
+    gariaBasenameFromUrl: (url) => url.split("/").pop(),
+    chrome: {
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => `extension://${path}` },
+      contextMenus: { removeAll: () => Promise.resolve(), create: () => {}, onClicked: event("menu") },
+      action: { onClicked: event("action") },
+      downloads: { onCreated: event("download"), cancel: async (id) => cancelled.push(id) },
+      tabs: { create: (tab) => { opened.push(tab); return Promise.resolve({ id: opened.length }); } },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8"), sandbox);
+
+  listeners.download({ id: 7, url: "https://example.test/file.zip", filename: "/tmp/file.zip" });
+  await new Promise(setImmediate);
+  assert.deepEqual(cancelled, [7]);
+  assert.equal(opened[0].active, true);
+  let url = new URL(opened[0].url);
+  assert.equal(url.searchParams.get("url"), "https://example.test/file.zip");
+  assert.equal(url.searchParams.get("name"), "file.zip");
+  assert.equal(url.searchParams.get("confirm"), "1");
+
+  listeners.message({ type: "capture", url: "https://example.test/other.zip" });
+  listeners.menu({ menuItemId: "garia-selection", selectionText: "https://example.test/a.zip https://example.test/b.zip" }, {});
+  const longUrls = Array.from({ length: 200 }, (_, i) => `https://example.test/${i}-${"x".repeat(30)}.zip`);
+  listeners.menu({ menuItemId: "garia-selection", selectionText: longUrls.join(" ") }, {});
+  assert.equal(opened.length, 4);
+  assert.ok(opened.every((tab) => tab.active));
+  assert.equal(new URL(opened[2].url).searchParams.get("urls"), "https://example.test/a.zip\nhttps://example.test/b.zip");
+  url = new URL(opened[3].url);
+  assert.equal(url.searchParams.get("batch"), "1");
+  assert.equal(decodeURIComponent(url.hash.slice(1)), longUrls.join("\n"));
+  assert.deepEqual(timers, []);
+});
+
+test("extension handoff can retry a dismissed prompt, including long batches", async () => {
+  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
+  for (const packed of ["", "https://example.test/a.zip\nhttps://example.test/b.zip"]) {
+    const clipboard = [];
+    const retry = { hidden: true, addEventListener: (_event, fn) => { retry.click = fn; } };
+    const location = {
+      search: packed ? "?batch=1&from=extension" : "?url=https%3A%2F%2Fexample.test%2Fa.zip&confirm=1",
+      hash: packed ? `#${encodeURIComponent(packed)}` : "",
+      href: "",
+    };
+    const sandbox = {
+      URLSearchParams, location,
+      document: { getElementById: () => retry },
+      navigator: { clipboard: { writeText: async (value) => clipboard.push(value) } },
+    };
+    vm.runInNewContext(source, sandbox);
+    await new Promise(setImmediate);
+    assert.equal(retry.hidden, false);
+    const first = location.href;
+    assert.ok(first.startsWith("garia://add?"));
+    location.href = "";
+    await retry.click();
+    assert.equal(location.href, first);
+    assert.deepEqual(clipboard, packed ? [packed, packed] : []);
+  }
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",

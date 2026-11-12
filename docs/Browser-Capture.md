@@ -6,6 +6,8 @@ A copied file URL — an `.iso`, a `.zip`, a magnet — is offered as a banner r
 
 The extension lives in `extensions/garia`. Settings → Browser → Show extension folder opens it. Chrome, Edge, Brave, and Arc load that folder unpacked. Firefox loads the same `manifest.json` from `about:debugging` (Load Temporary Add-on) until addons.mozilla.org signs it. Safari cannot cancel its own downloads, so the same package captures file-link clicks, the context menu, and the on-page Download button; `scripts/make-safari-extension.sh` runs Apple's converter. Right-click the page to send every link, reviewed in the add dialog. `npm run ext:pack` writes the two store zips; [Publishing the browser extension](Publishing-the-Extension.md) is the Chrome Web Store and AMO checklist.
 
+The extension opens a handoff tab for each capture. Allow the browser's prompt to open Garia if asked. The tab stays open until you close it; use its retry button if you dismissed the prompt. If Garia is not installed, a browser download cancelled by takeover remains in the browser's download history to retry.
+
 ## Omarchy: Chromium
 
 The package-bundled unpacked extension is the supported Omarchy install path; Chromium's Web Store is not required.

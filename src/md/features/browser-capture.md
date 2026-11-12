@@ -20,6 +20,8 @@ Quiet mode skips the banner and confirm sheet. Magnets always pass the clipboard
 - `confirm` from the extension: ask name/folder/start-vs-queue. Video pages still use the quality picker as confirm.
 - Referrer from the page goes to aria2 as `Referer` (hotlink protection).
 - Suggested filename becomes aria2 `out` when the URL has no useful path.
+- The extension keeps handoff tabs open until the user closes them. A browser
+  protocol prompt may need an answer, and the extension cannot confirm delivery.
 
 ## Schemes and document types
 
