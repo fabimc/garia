@@ -128,7 +128,8 @@ async function initPlatform() {
   if (notifyHint && platform === "linux") {
     notifyHint.textContent =
       "Garia uses your desktop notification service. Allow notifications for " +
-      "Garia in system settings if no permission prompt appears.";
+      "Garia in system settings if no permission prompt appears. When Garia " +
+      "runs in the background, reopen it from the tray or the application launcher.";
   } else if (notifyHint && platform === "windows") {
     notifyHint.textContent =
       "A desktop notification appears when a download finishes. Keep Garia " +
