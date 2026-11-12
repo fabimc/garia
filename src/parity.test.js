@@ -1298,3 +1298,28 @@ test("tray and application menu actions share one event dispatcher", () => {
   assert.match(handler, /"quit"\s*=>\s*app\.exit\(0\)/);
   assert.doesNotMatch(tray, /\.on_menu_event\s*\(/);
 });
+
+test("open download folder invokes the directory-only native command", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const body = source.split("  function openDownloadFolder() {")[1].split("\n  const listenMenu")[0];
+  const calls = [];
+  const errors = [];
+  const settings = { downloadDir: "/tmp/downloads" };
+  const context = {
+    settings,
+    window: { __TAURI__: { core: { invoke: async (...args) => { calls.push(args); } } } },
+    failed: (...args) => errors.push(args),
+  };
+  vm.runInNewContext(`function openDownloadFolder() {${body}\nopenDownloadFolder()`, context);
+  assert.equal(calls[0][0], "open_folder");
+  assert.equal(calls[0][1].path, "/tmp/downloads");
+  settings.downloadDir = "";
+  context.openDownloadFolder();
+  assert.equal(calls.length, 1);
+  assert.equal(errors[0][0], "Couldn't open the download folder");
+  settings.downloadDir = "/tmp/downloads";
+  context.window.__TAURI__.core.invoke = async () => { throw new Error("unavailable"); };
+  context.openDownloadFolder();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(errors[1][1].message, /unavailable/);
+});

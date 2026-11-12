@@ -2797,7 +2797,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     document.getElementById("empty-sub").textContent = sub;
     if (emptyAction) {
       const runnable = action?.id !== "open-folder"
-        || (Boolean(settings.downloadDir) && typeof window.__TAURI__?.opener?.openPath === "function");
+        || (Boolean(settings.downloadDir) && typeof window.__TAURI__?.core?.invoke === "function");
       if (action?.id && action?.label && runnable) {
         emptyAction.classList.remove("hidden");
         emptyAction.dataset.action = action.id;
@@ -5507,7 +5507,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (toolbarButtons.retryAll) toolbarButtons.retryAll.disabled = tally.error < 1;
     if (toolbarButtons.clearFailed) toolbarButtons.clearFailed.disabled = tally.error < 1;
     if (toolbarButtons.clearCompleted) toolbarButtons.clearCompleted.disabled = tally.complete < 1;
-    if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.opener?.openPath;
+    if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.core?.invoke;
     if (toolbarButtons.stopSeeding) toolbarButtons.stopSeeding.disabled = tally.seeding < 1;
   };
 
@@ -5808,8 +5808,8 @@ window.addEventListener("DOMContentLoaded", async () => {
         dir: destDirOf(dl) || dl.dir,
         path: rowPath(dl),
       })).filter(Boolean))];
-      const openPath = window.__TAURI__?.opener?.openPath;
-      if (typeof openPath !== "function") {
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (typeof invoke !== "function") {
         failed("Couldn't open the containing folder", new Error("The system file manager is unavailable."));
         return;
       }
@@ -5819,7 +5819,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
       for (const folder of folders) {
         try {
-          await openPath(folder);
+          await invoke("open_folder", { path: folder });
         } catch (err) {
           failed("Couldn't open the folder", err);
         }
@@ -7522,12 +7522,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       failed("Couldn't open the download folder", new Error("No download folder is configured."));
       return;
     }
-    const openPath = window.__TAURI__?.opener?.openPath;
-    if (typeof openPath !== "function") {
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (typeof invoke !== "function") {
       failed("Couldn't open the download folder", new Error("The system file manager is unavailable."));
       return;
     }
-    openPath(settings.downloadDir).catch((err) => failed("Couldn't open the download folder", err));
+    invoke("open_folder", { path: settings.downloadDir }).catch((err) => failed("Couldn't open the download folder", err));
   }
 
   const listenMenu = window.__TAURI__?.event?.listen;
