@@ -6,8 +6,8 @@ const FILE_EXTS = new Set([
   "mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac",
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
   "rtf", "txt", "csv", "epub", "mobi", "djvu",
-  "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
-  "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent", "xip",
+  "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso",
+  "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent",
   "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat",
 ]);
 

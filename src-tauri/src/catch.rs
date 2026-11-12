@@ -44,8 +44,8 @@ const FILE_EXTS: &[&str] = &[
     "mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac",
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
     "rtf", "txt", "csv", "epub", "mobi", "djvu",
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
-    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent", "xip",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso",
+    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent",
     "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat",
 ];
 
@@ -280,8 +280,8 @@ fn is_download_url(s: &str) -> bool {
         || s.starts_with("magnet:")
 }
 
-/// A URL the user pointed at on purpose — Services, a selected line.
-/// Unlike the clipboard, a page counts: they chose the menu item.
+/// A URL the user pointed at on purpose — a selected line.
+/// Unlike the clipboard, a page counts: they chose the menu action.
 pub fn url_from_selection(text: &str) -> Option<String> {
     for raw in text.split_whitespace() {
         let token = tidy_token(raw);
@@ -296,15 +296,15 @@ pub fn url_from_selection(text: &str) -> Option<String> {
 }
 
 /// A magnet handed to the app as its own URL, not wrapped in `garia://`.
-/// Safari and other clients open `magnet:?xt=…` directly once we claim the
-/// scheme; the bookmarklet still goes through `url_from_garia_link`.
+/// Clients open `magnet:?xt=…` directly once we claim the scheme; the
+/// bookmarklet still goes through `url_from_garia_link`.
 pub fn magnet_url(link: &str) -> Option<String> {
     let link = link.trim();
     link.starts_with("magnet:").then(|| link.to_string())
 }
 
-/// A `.torrent` the system asked us to open — Finder, Open With, or a
-/// `file://` from `RunEvent::Opened`. The path is what the frontend reads;
+/// A `.torrent` the system asked us to open — double-click or Open With. The
+/// path is what the frontend reads;
 /// we only decide whether it is one.
 pub fn torrent_path(link: &str) -> Option<PathBuf> {
     let link = link.trim();
@@ -368,8 +368,8 @@ mod tests {
     #[test]
     fn query_strings_dont_hide_the_extension() {
         assert_eq!(
-            file_url_in("https://files.example.com/app.dmg?dl=1"),
-            Some("https://files.example.com/app.dmg?dl=1".into())
+            file_url_in("https://files.example.com/archive.zip?dl=1"),
+            Some("https://files.example.com/archive.zip?dl=1".into())
         );
     }
 
@@ -379,7 +379,7 @@ mod tests {
             page_url_in("https://www.youtube.com/watch?v=aqz-KE-bpKQ"),
             Some("https://www.youtube.com/watch?v=aqz-KE-bpKQ".into())
         );
-        assert_eq!(page_url_in("https://files.example.com/app.dmg?dl=1"), None);
+        assert_eq!(page_url_in("https://files.example.com/archive.zip?dl=1"), None);
     }
 
     #[test]

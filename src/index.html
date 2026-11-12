@@ -11,9 +11,6 @@
                 var root = document.documentElement;
                 if ("__TAURI__" in window || "__TAURI_INTERNALS__" in window) {
                     root.classList.add("in-app");
-                } else {
-                    // Browser mock: mac chrome and copy keep the layout honest.
-                    root.classList.add("platform-mac");
                 }
             })();
         </script>
@@ -419,7 +416,7 @@
                             </svg>
                             Columns
                         </button>
-                        <button class="pill" id="inspector-toggle" title="Show inspector (⌘I)" aria-pressed="false">
+                        <button class="pill" id="inspector-toggle" title="Show inspector (Ctrl+I)" aria-pressed="false">
                             Inspector
                         </button>
                         <div class="search-field" data-tauri-drag-region="false">
@@ -506,7 +503,7 @@
                             </p>
                             <p class="empty-sub" id="empty-sub">
                                 Drag a URL or .torrent file anywhere, copy a file
-                                link, or hit ⌘N
+                                link, or hit Ctrl+N
                             </p>
                             <button type="button" class="btn-primary hidden" id="empty-action"></button>
                         </div>
@@ -533,7 +530,7 @@
                         <div class="modal-body detail-body" id="detail-body"></div>
                         <div class="detail-pane-footer">
                             <button class="btn-secondary hidden" id="detail-reveal">
-                                Show in Finder
+                                Show in folder
                             </button>
                         </div>
                     </aside>
@@ -666,7 +663,7 @@
                         <textarea
                             id="modal-url-input"
                             rows="2"
-                            placeholder="A link, magnet, or FTP address&#10;Several? One per line, then ⌘↩"
+                            placeholder="A link, magnet, or FTP address&#10;Several? One per line, then Ctrl+Enter"
                             autocomplete="off"
                             spellcheck="false"
                         ></textarea>
@@ -1248,51 +1245,49 @@
                     <dl class="help-list">
                         <dt>Add a download</dt>
                         <dd id="help-add-copy">
-                            File → New Download (⌘N), Open Torrent (⌘O), or
+                            File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or
                             drop a torrent on the window. A magnet or
                             <code>.torrent</code> the system opens is
-                            queued, not offered. In another app, select a
-                            URL and choose Services → Download with Garia.
-                            The browser extension in Settings (⌘,) →
+                            queued, not offered. The browser extension in Settings (Ctrl+,) →
                             Browser takes a clicked file, and the
                             bookmarklet sends the page you are on.
                         </dd>
                         <dt>The window is not the app</dt>
                         <dd id="help-window-copy">
-                            The red button and ⌘W hide the list. Downloads
-                            keep going. ⌘Q is the only quit.
+                            The close button and Ctrl+W hide the list. Downloads
+                            keep going. Ctrl+Q quits, and Tray → Quit stops downloads.
                         </dd>
                         <dt>The list</dt>
                         <dd>
-                            Click selects. Arrows move the selection; ⌘A
+                            Click selects. Arrows move the selection; Ctrl+A
                             selects all. Double-click or Enter opens
                             detail. Space pauses or resumes while the list
-                            has focus. ⌘C copies the URL. ⌘⌫ removes.
-                            ⌥↑ / ⌥↓ reorder a queued row — hold Shift for
+                            has focus. Ctrl+C copies the URL. Ctrl+Backspace removes.
+                            Alt+↑ / Alt+↓ reorder a queued row — hold Shift for
                             either end. Right-click also moves a selection
                             to the top or the end, copies the file path, or
                             removes the row and keeps the file. Download →
                             Retry Failed and Clear Completed cover the whole
-                            list. ⌘F finds. ⌘? opens this sheet. Escape
+                            list. Ctrl+F finds. Ctrl+? opens this sheet. Escape
                             closes the topmost dialog, then the inspector.
                         </dd>
                         <dt id="help-reveal-term">Show in folder</dt>
                         <dd id="help-reveal-copy">
-                            Show in Finder opens the download's containing
+                            Show in folder opens the download's containing
                             folder and selects the file.
                         </dd>
                         <dt>Keyboard-only path</dt>
                         <dd>
-                            ⌘N opens New Download; paste a URL and press
-                            Enter (⌘↩ submits several). Tab to the sidebar,
+                            Ctrl+N opens New Download; paste a URL and press
+                            Enter (Ctrl+Enter submits several). Tab to the sidebar,
                             use ↑ / ↓ to choose a filter, then Enter. Focus
-                            the list for Space / Enter / ⌘C / ⌘⌫ — those
+                            the list for Space / Enter / Ctrl+C / Ctrl+Backspace — those
                             keys stay with the focused control when the
                             list is not focused. In the list, ↑ / ↓ selects;
-                            Space pauses or resumes. ⌘I opens details; Tab
-                            to reveal the file. ⌘F finds. Close the window
+                            Space pauses or resumes. Ctrl+I opens details; Tab
+                            to reveal the file. Ctrl+F finds. Close the window
                             to hide downloads; reopen Garia from the tray
-                            or app launcher. ⌘Q quits.
+                            or app launcher. Ctrl+Q quits.
                         </dd>
                         <dt>Video downloads</dt>
                         <dd>
@@ -1334,7 +1329,7 @@
                         </dd>
                         <dt>Leave with the browser</dt>
                         <dd>
-                            Hold ⌥ while clicking a file link to leave that
+                            Hold Alt while clicking a file link to leave that
                             download with the browser.
                             <a href="https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md" target="_blank" rel="noreferrer">Docs</a>
                         </dd>

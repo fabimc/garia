@@ -334,7 +334,7 @@ export function formatEmptyQueueState({
   filter = "all",
   hasAnyDownloads = false,
   connError = false,
-  modNHint = "⌘N",
+  modNHint = "Ctrl+N",
   hasSearch = false,
   queueStopped = false,
 } = {}) {
@@ -599,9 +599,9 @@ const CONTENT_EXTS = {
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
     "rtf", "txt", "csv", "epub", "mobi", "djvu",
   ]),
-  disk: new Set(["iso", "dmg", "img", "xip"]),
+  disk: new Set(["iso", "img"]),
   archive: new Set([
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "pkg",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst",
     "exe", "msi", "deb", "rpm", "apk", "jar", "bin",
   ]),
 };
@@ -611,8 +611,8 @@ const MIME_BY_EXT = {
   mov: "video/quicktime", mp3: "audio/mpeg", flac: "audio/flac", wav: "audio/wav",
   m4a: "audio/mp4", ogg: "audio/ogg", pdf: "application/pdf", zip: "application/zip",
   rar: "application/vnd.rar", "7z": "application/x-7z-compressed", tar: "application/x-tar",
-  gz: "application/gzip", iso: "application/x-iso9660-image", dmg: "application/x-apple-diskimage",
-  img: "application/octet-stream", xip: "application/x-xip",
+  gz: "application/gzip", iso: "application/x-iso9660-image",
+  img: "application/octet-stream",
   exe: "application/vnd.microsoft.portable-executable", torrent: "application/x-bittorrent",
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
   txt: "text/plain", csv: "text/csv", json: "application/json", xml: "application/xml",
@@ -1080,7 +1080,7 @@ export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 
 
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
-// failure — Retry covers that. Labels match Download menu / dock verbs when
+// failure — Retry covers that. Labels match Download menu / tray verbs when
 // menuAligned is set, so the status bar and the menu say the same thing.
 export function housekeepingActions({
   failed = 0,
