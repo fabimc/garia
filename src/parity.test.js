@@ -1284,3 +1284,21 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.match(failedEmpty.sub, /⌘N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
+
+test("tray actions use the single global menu dispatcher", () => {
+  const source = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const tray = source.split("fn install_status_item(")[1].split("#[cfg(test)]")[0];
+  const dispatcher = source.split("app.on_menu_event(")[1].split("spawn_clipboard_watch")[0];
+  const shared = ["new-download", "pause-all", "resume-all", "stop-queue", "start-queue",
+    "retry-failed", "clear-completed", "open-folder"];
+  const forwarded = dispatcher.split('"new-download"')[1].split("=> {")[0];
+
+  assert.equal((source.match(/\bon_menu_event\s*\(/g) || []).length, 1);
+  for (const id of [...shared, "show-window", "quit"]) {
+    assert.ok(tray.includes(`with_id("${id}"`), `missing tray item ${id}`);
+  }
+  for (const id of shared.slice(1)) assert.ok(forwarded.includes(`"${id}"`), `missing action ${id}`);
+  assert.match(dispatcher, /bring_to_front\(app\);\s*let _ = app\.emit\("menu", event\.id\(\)\.as_ref\(\)\);/);
+  assert.match(dispatcher, /"show-window"\s*=>\s*bring_to_front\(app\)/);
+  assert.match(dispatcher, /"quit"\s*=>\s*app\.exit\(0\)/);
+});
