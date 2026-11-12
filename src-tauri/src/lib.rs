@@ -1823,7 +1823,7 @@ fn show_settings(app: &tauri::AppHandle) -> Result<(), String> {
     .resizable(true)
     .accept_first_mouse(true);
 
-    let win = builder
+    builder
         .build()
         .map_err(|e| format!("Could not open Settings: {e}"))?;
     Ok(())

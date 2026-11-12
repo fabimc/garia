@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Zip the browser capture package for the Chrome Web Store and
 # addons.mozilla.org. Same files in both — Chrome uses the service
 # worker, Firefox the event page. Load the folder unpacked for day-to-day.

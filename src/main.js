@@ -8105,7 +8105,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     renderPackageNav?.();
     if (!settings.setupSeen) openSetup();
   });
-  // Every second while the list can be seen. A window closed to the dock
+  // Every second while the list can be seen. A window closed to the tray
   // is still the one noticing downloads finish, so it keeps polling — at a
   // pace that makes a notification a few seconds late rather than keeping
   // WebKit redrawing a list nobody is looking at.

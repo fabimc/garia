@@ -87,7 +87,7 @@ fi
 if command -v nproc >/dev/null 2>&1; then
   JOBS="$(nproc)"
 else
-  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 fi
 make -j"${JOBS}" > "${WORK}/make.log" 2>&1 ||
   { tail -30 "${WORK}/make.log"; exit 1; }
