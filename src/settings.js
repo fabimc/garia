@@ -796,6 +796,7 @@ async function checkNotificationPermission() {
 
 async function persistNotificationPreference() {
   if (!settingsNotify.checked) {
+    hideError();
     await persistSettings();
     return;
   }

@@ -919,6 +919,7 @@ test("Linux Settings checks the notification service and reports failures", asyn
   const errors = [];
   let saved = 0;
   let calls = 0;
+  let cleared = 0;
   let available = false;
   const context = {
     settingsNotify: { checked: true },
@@ -934,7 +935,7 @@ test("Linux Settings checks the notification service and reports failures", asyn
     },
     permissionMessageHelper: notificationPermissionMessage,
     showError: (message) => errors.push(message),
-    hideError: () => {},
+    hideError: () => { cleared++; },
     persistSettings: async () => { saved++; },
     console: { error: () => {} },
   };
@@ -948,10 +949,15 @@ test("Linux Settings checks the notification service and reports failures", asyn
   assert.equal(context.settingsNotify.checked, false);
   assert.equal(saved, 0);
 
+  const previousClears = cleared;
+  await context.persistNotificationPreference();
+  assert.equal(cleared, previousClears + 1);
+  assert.equal(saved, 1);
+
   available = true;
   context.settingsNotify.checked = true;
   await context.persistNotificationPreference();
-  assert.equal(saved, 1);
+  assert.equal(saved, 2);
   assert.equal(calls, 3);
 
   context.platform = "macos";
