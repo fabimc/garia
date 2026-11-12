@@ -6185,10 +6185,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   const rowMenu = document.getElementById("row-menu");
+  let rowMenuAnchor = null;
 
   function closeRowMenu() {
+    const restoreFocus = rowMenu.contains(document.activeElement);
     rowMenu.classList.add("hidden");
     rowMenu.innerHTML = "";
+    if (restoreFocus && rowMenuAnchor?.isConnected) rowMenuAnchor.focus({ preventScroll: true });
+    rowMenuAnchor = null;
   }
 
   const trafficBtn = document.getElementById("traffic-btn");
@@ -6378,7 +6382,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!row) return;
     e.preventDefault();
     if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
+    rowMenuAnchor = null;
     openRowMenu(e.clientX, e.clientY);
+  });
+
+  listEl.addEventListener("keydown", (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    const row = e.target.closest(".dl-item");
+    if (!row) return;
+    e.preventDefault();
+    if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
+    const rect = row.getBoundingClientRect();
+    rowMenuAnchor = row;
+    openRowMenu(rect.left, rect.bottom);
+    rowMenu.querySelector("button")?.focus({ preventScroll: true });
   });
 
   rowMenu.addEventListener("click", async (e) => {
