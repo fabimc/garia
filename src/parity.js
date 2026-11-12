@@ -1627,7 +1627,7 @@ export function containingFolderOf({ dir = "", path = "" } = {}) {
   return String(dir || "").replace(/\/+$/, "");
 }
 
-export async function revealNotificationPath(path, reveal, onFailure) {
+export async function revealPath(path, reveal, onFailure) {
   if (!path) {
     onFailure(new Error("No file path is available yet."));
     return;

@@ -91,7 +91,7 @@ import {
   followedByGids,
   announcesCompletion,
   collapseMagnetDownloads,
-  revealNotificationPath,
+  revealPath,
   diskConflictLabel,
   explicitMagnetUri,
 } from "./parity.js";
@@ -4567,7 +4567,7 @@ function updateJobBlock(sec, data) {
 // Reveal has to name a file that is actually there: a merged row's output does
 // not exist until ffmpeg has run, and a download that never wrote a byte has
 // nothing to show.
-function revealPath(data) {
+function availableDownloadPath(data) {
   if (data.job) return data.job.state === "done" ? data.job.outPath || "" : "";
   const st = data.parts[0]?.status;
   return Number(st?.completedLength) > 0 ? st?.files?.[0]?.path || "" : "";
@@ -4687,7 +4687,7 @@ async function renderDetail() {
   if (sections[i]?.classList.contains("detail-start")) updateStartBlock(sections[i++], data);
   if (sections[i]?.classList.contains("detail-seed")) updateSeedBlock(sections[i++]);
 
-  const path = revealPath(data);
+  const path = availableDownloadPath(data);
   const reveal = document.getElementById("detail-reveal");
   reveal.classList.toggle("hidden", !path);
   reveal.dataset.path = path;
@@ -4875,15 +4875,15 @@ function listenNotificationClicks() {
   n.api.onAction(async (payload) => {
     const path = payload?.extra?.path;
     const catchUrl = payload?.extra?.catchUrl;
-    if (path || !catchUrl) {
-      await revealNotificationPath(
-        path,
-        window.__TAURI__?.opener?.revealItemInDir,
-        (err) => failed("Couldn't reveal the file", err),
-      );
+    if (catchUrl && !path) {
+      onCatchNotificationClick?.(catchUrl);
       return;
     }
-    onCatchNotificationClick?.(catchUrl);
+    await revealPath(
+      path,
+      window.__TAURI__?.opener?.revealItemInDir,
+      (err) => failed("Couldn't reveal the file", err),
+    );
   }).catch((err) => console.error(err));
 }
 
@@ -5744,15 +5744,16 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (action === "unseed") await Promise.all(gids.map((g) => rpc("aria2.remove", [g])));
       if (action === "retry")  await retryDownload(gid);
       if (action === "reveal") {
-        const path = extra.path || rowPath(snapshot.get(gid));
-        const reveal = window.__TAURI__?.opener?.revealItemInDir;
-        if (!path) {
-          failed("Couldn't reveal the file", new Error("No file path is available yet."));
-        } else if (typeof reveal !== "function") {
-          failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
-        } else {
-          await reveal(path);
-        }
+        const dl = snapshot.get(gid);
+        const path = extra.path || rowPath(dl);
+        await revealPath(
+          path,
+          window.__TAURI__?.opener?.revealItemInDir,
+          (err) => failed(
+            `Couldn't ${ACTION_VERBS[action] || action} “${dl ? fileName(dl) : "the download"}”`,
+            err,
+          ),
+        );
       }
       if (action !== "reveal" && extra.poll !== false) await pollAndSync();
     } catch (err) {
@@ -6911,20 +6912,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("detail-close").addEventListener("click", closeDetail);
   document.getElementById("detail-reveal").addEventListener("click", async (e) => {
     const path = e.currentTarget.dataset.path;
-    const reveal = window.__TAURI__?.opener?.revealItemInDir;
-    if (!path) {
-      failed("Couldn't reveal the file", new Error("No file path is available yet."));
-      return;
-    }
-    if (typeof reveal !== "function") {
-      failed("Couldn't reveal the file", new Error("The system file manager is unavailable."));
-      return;
-    }
-    try {
-      await reveal(path);
-    } catch (err) {
-      failed("Couldn't reveal the file", err);
-    }
+    await revealPath(
+      path,
+      window.__TAURI__?.opener?.revealItemInDir,
+      (err) => failed("Couldn't reveal the file", err),
+    );
   });
   inspectorToggle?.addEventListener("click", () => {
     if (detailPane?.classList.contains("hidden")) {

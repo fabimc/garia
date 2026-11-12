@@ -119,7 +119,7 @@ import {
   magnetDisplayName,
   announcesCompletion,
   collapseMagnetDownloads,
-  revealNotificationPath,
+  revealPath,
 } from "./parity.js";
 
 test("disk-image extensions are labelled as such and archive hints stay readable", () => {
@@ -930,23 +930,23 @@ test("saved destinations resolve under the download folder or as absolute paths"
   assert.equal(containingFolderOf({}), "");
 });
 
-test("notification reveal reports missing paths and unavailable file managers", async () => {
+test("path reveal reports missing paths and unavailable file managers", async () => {
   const errors = [];
-  await revealNotificationPath("", async () => {}, (err) => errors.push(err.message));
-  await revealNotificationPath("/tmp/file.zip", null, (err) => errors.push(err.message));
+  await revealPath("", async () => {}, (err) => errors.push(err.message));
+  await revealPath("/tmp/file.zip", null, (err) => errors.push(err.message));
   assert.deepEqual(errors, [
     "No file path is available yet.",
     "The system file manager is unavailable.",
   ]);
 });
 
-test("notification reveal reports opener failures and reveals valid paths", async () => {
+test("path reveal reports opener failures and reveals valid paths", async () => {
   const errors = [];
   const paths = [];
-  await revealNotificationPath("/tmp/missing.zip", async () => {
+  await revealPath("/tmp/missing.zip", async () => {
     throw new Error("file manager rejected the path");
   }, (err) => errors.push(err.message));
-  await revealNotificationPath("/tmp/file.zip", async (path) => paths.push(path), () => {
+  await revealPath("/tmp/file.zip", async (path) => paths.push(path), () => {
     assert.fail("successful reveal should not report an error");
   });
   assert.deepEqual(errors, ["file manager rejected the path"]);
