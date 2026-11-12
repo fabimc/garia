@@ -6372,8 +6372,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     rowMenu.classList.remove("hidden");
     const pad = 8;
     const { width, height } = rowMenu.getBoundingClientRect();
-    rowMenu.style.left = `${Math.min(x, window.innerWidth - width - pad)}px`;
-    rowMenu.style.top = `${Math.min(y, window.innerHeight - height - pad)}px`;
+    rowMenu.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - width - pad))}px`;
+    rowMenu.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - height - pad))}px`;
   }
 
   listEl.addEventListener("contextmenu", (e) => {
@@ -6387,7 +6387,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   rowMenu.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn || btn.disabled) return;
+    const anchor = rowMenuAnchor;
     closeRowMenu();
+    if (anchor?.isConnected) anchor.focus({ preventScroll: true });
     await runOnSelected(btn.dataset.action);
   });
 
@@ -6401,7 +6403,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       : e.key === "End" ? items.length - 1
       : e.key === "ArrowDown" ? (index + 1) % items.length
       : (index - 1 + items.length) % items.length;
-    items[next].focus({ preventScroll: true });
+    const item = items[next];
+    item.focus({ preventScroll: true });
+    const menuRect = rowMenu.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < menuRect.top + 1) rowMenu.scrollTop -= menuRect.top + 1 - itemRect.top;
+    if (itemRect.bottom > menuRect.bottom - 1) rowMenu.scrollTop += itemRect.bottom - menuRect.bottom + 1;
   });
 
   document.addEventListener("mousedown", (e) => {
@@ -6409,7 +6416,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       closeRowMenu();
     }
   });
-  document.addEventListener("scroll", closeRowMenu, true);
+  document.addEventListener("scroll", (e) => {
+    if (e.target !== rowMenu) closeRowMenu();
+  }, true);
 
   // ── Retry and delete ─────────────────────────────────────────────────────
   // A stopped download sticks around in aria2's lists until its result is
