@@ -93,6 +93,7 @@ import {
   announcesCompletion,
   collapseMagnetDownloads,
   revealPath,
+  openConfiguredFolder,
   diskConflictLabel,
   explicitMagnetUri,
 } from "./parity.js";
@@ -2797,7 +2798,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     document.getElementById("empty-sub").textContent = sub;
     if (emptyAction) {
       const runnable = action?.id !== "open-folder"
-        || (Boolean(settings.downloadDir) && typeof window.__TAURI__?.opener?.openPath === "function");
+        || (Boolean(settings.downloadDir) && typeof window.__TAURI__?.core?.invoke === "function");
       if (action?.id && action?.label && runnable) {
         emptyAction.classList.remove("hidden");
         emptyAction.dataset.action = action.id;
@@ -5507,7 +5508,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (toolbarButtons.retryAll) toolbarButtons.retryAll.disabled = tally.error < 1;
     if (toolbarButtons.clearFailed) toolbarButtons.clearFailed.disabled = tally.error < 1;
     if (toolbarButtons.clearCompleted) toolbarButtons.clearCompleted.disabled = tally.complete < 1;
-    if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.opener?.openPath;
+    if (toolbarButtons.openFolder) toolbarButtons.openFolder.disabled = !settings.downloadDir || !window.__TAURI__?.core?.invoke;
     if (toolbarButtons.stopSeeding) toolbarButtons.stopSeeding.disabled = tally.seeding < 1;
   };
 
@@ -6185,10 +6186,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   const rowMenu = document.getElementById("row-menu");
+  let rowMenuAnchor = null;
 
   function closeRowMenu() {
     rowMenu.classList.add("hidden");
     rowMenu.innerHTML = "";
+    rowMenuAnchor = null;
   }
 
   const trafficBtn = document.getElementById("traffic-btn");
@@ -6369,8 +6372,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     rowMenu.classList.remove("hidden");
     const pad = 8;
     const { width, height } = rowMenu.getBoundingClientRect();
-    rowMenu.style.left = `${Math.min(x, window.innerWidth - width - pad)}px`;
-    rowMenu.style.top = `${Math.min(y, window.innerHeight - height - pad)}px`;
+    rowMenu.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - width - pad))}px`;
+    rowMenu.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - height - pad))}px`;
   }
 
   listEl.addEventListener("contextmenu", (e) => {
@@ -6384,8 +6387,28 @@ window.addEventListener("DOMContentLoaded", async () => {
   rowMenu.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn || btn.disabled) return;
+    const anchor = rowMenuAnchor;
     closeRowMenu();
+    if (anchor?.isConnected) anchor.focus({ preventScroll: true });
     await runOnSelected(btn.dataset.action);
+  });
+
+  rowMenu.addEventListener("keydown", (e) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const items = [...rowMenu.querySelectorAll("button:not(:disabled)")];
+    if (!items.length) return;
+    e.preventDefault();
+    const index = items.indexOf(document.activeElement);
+    const next = e.key === "Home" ? 0
+      : e.key === "End" ? items.length - 1
+      : e.key === "ArrowDown" ? (index + 1) % items.length
+      : (index - 1 + items.length) % items.length;
+    const item = items[next];
+    item.focus({ preventScroll: true });
+    const menuRect = rowMenu.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < menuRect.top + 1) rowMenu.scrollTop -= menuRect.top + 1 - itemRect.top;
+    if (itemRect.bottom > menuRect.bottom - 1) rowMenu.scrollTop += itemRect.bottom - menuRect.bottom + 1;
   });
 
   document.addEventListener("mousedown", (e) => {
@@ -6393,7 +6416,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       closeRowMenu();
     }
   });
-  document.addEventListener("scroll", closeRowMenu, true);
+  document.addEventListener("scroll", (e) => {
+    if (e.target !== rowMenu) closeRowMenu();
+  }, true);
 
   // ── Retry and delete ─────────────────────────────────────────────────────
   // A stopped download sticks around in aria2's lists until its result is
@@ -7335,7 +7360,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     // on document in the capture phase, so stopPropagation there does not
     // keep this one from also closing the inspector underneath.
     if (overlayOpen()) return;
+    const menuAnchor = rowMenuAnchor;
     if (closePopups()) {
+      menuAnchor?.focus({ preventScroll: true });
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -7416,6 +7443,17 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     if (!listEl.contains(document.activeElement)) return;
 
+    const row = e.target.closest?.(".dl-item");
+    if (row && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) {
+      e.preventDefault();
+      if (!selected.has(row.dataset.gid)) selectRow(row, { shiftKey: false });
+      const rect = row.getBoundingClientRect();
+      rowMenuAnchor = e.target;
+      openRowMenu(rect.left, rect.bottom);
+      rowMenu.querySelector("button:not(:disabled)")?.focus({ preventScroll: true });
+      return;
+    }
+
     if ((e.metaKey || e.ctrlKey) && key === "c") {
       e.preventDefault();
       runOnSelected("copy-url");
@@ -7426,6 +7464,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       runOnSelected("remove");
       return;
     }
+    if (e.target.closest?.("button, a, input, select, textarea, [contenteditable]")) return;
     if (e.key === "Enter") {
       e.preventDefault();
       runOnSelected("details");
@@ -7518,16 +7557,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function openDownloadFolder() {
-    if (!settings.downloadDir) {
-      failed("Couldn't open the download folder", new Error("No download folder is configured."));
-      return;
-    }
-    const openPath = window.__TAURI__?.opener?.openPath;
-    if (typeof openPath !== "function") {
-      failed("Couldn't open the download folder", new Error("The system file manager is unavailable."));
-      return;
-    }
-    openPath(settings.downloadDir).catch((err) => failed("Couldn't open the download folder", err));
+    openConfiguredFolder(window.__TAURI__?.core?.invoke,
+      (err) => failed("Couldn't open the download folder", err));
   }
 
   const listenMenu = window.__TAURI__?.event?.listen;

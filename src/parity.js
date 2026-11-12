@@ -1653,6 +1653,18 @@ export async function revealPath(path, reveal, onFailure) {
   }
 }
 
+export async function openConfiguredFolder(invoke, onFailure) {
+  if (typeof invoke !== "function") {
+    onFailure(new Error("The system file manager is unavailable."));
+    return;
+  }
+  try {
+    await invoke("open_download_folder");
+  } catch (err) {
+    onFailure(err);
+  }
+}
+
 // Menu verbs for Folx-style organize. Categories and destinations are gated
 // by whether the caller has any to offer; tags are always available once a
 // row is selected so a first tag can be typed without a Settings trip.
