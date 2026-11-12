@@ -6549,6 +6549,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   const confirmOverlay = document.getElementById("confirm-overlay");
   const confirmTitle   = document.getElementById("confirm-title");
   const confirmName    = document.getElementById("confirm-name");
+  const confirmKeepFiles = document.getElementById("confirm-keep-files");
   const confirmFileRow = document.getElementById("confirm-file-row");
   const confirmTrash   = document.getElementById("confirm-trash");
   const confirmCancel  = document.getElementById("confirm-cancel");
@@ -6566,6 +6567,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     confirmName.textContent = options.name || (many
       ? `${list.length} downloads`
       : fileName(snapshot.get(list[0])));
+    confirmKeepFiles.textContent = many ? "The files stay on disk." : "The file stays on disk.";
+    confirmKeepFiles.classList.toggle("hidden", !confirmKeepOnly);
     const onDisk = !confirmKeepOnly && list.some((g) => rowWroteBytes(snapshot.get(g)));
     confirmFileRow.classList.toggle("hidden", !onDisk);
     document.getElementById("confirm-delete").textContent = confirmKeepOnly ? "Remove" : "Delete";
@@ -7489,9 +7492,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     openConfirm(gids, {
       keepFiles: true,
       title: "Clear failed",
-      name: gids.length === 1
-        ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
-        : `${gids.length} failed downloads leave the list. The files stay on disk.`,
     });
   }
 
@@ -7501,9 +7501,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     openConfirm(gids, {
       keepFiles: true,
       title: "Clear completed",
-      name: gids.length === 1
-        ? `${fileName(snapshot.get(gids[0]))} leaves the list. The file stays on disk.`
-        : `${gids.length} finished downloads leave the list. The files stay on disk.`,
     });
   }
 
