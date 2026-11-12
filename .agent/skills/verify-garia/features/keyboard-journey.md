@@ -8,6 +8,7 @@ The keyboard path covers adding a URL, filtering the library, pausing and resumi
 - `keyboard-filter` moves among sidebar filters with arrow keys and applies one with Enter.
 - `keyboard-pause-resume` pauses and resumes the focused row with Space while preserving focus.
 - `keyboard-inspector` opens details with the platform shortcut.
+- `keyboard-row-menu` opens the focused row's context menu with Shift+F10 or the Menu key.
 - `keyboard-escape` closes a dialog before the inspector.
 - `keyboard-help` opens Help with the platform shortcut and shows platform-aware keyboard and file-location guidance.
 
@@ -29,6 +30,7 @@ Preconditions:
 - **Add by keyboard.** Run `./helpers/control-garia browser press --key Control+n`. `#modal-overlay` is visible and `#modal-url-input` has focus. Fill `#modal-url-input` with a unique URL and press `Control+Enter`; the dialog closes and one matching row appears.
 - **Filter by keyboard.** Focus `#filter-bar .nav-item[data-filter=all]`, press `ArrowDown`, then `Enter`. The Torrents filter is active and the focus ring remains visible.
 - **Pause and resume.** Focus an active `#download-list [role=option]`, press `ArrowDown` to select it, then press `Space`. The row becomes paused and retains focus. Press `Space` again; it becomes active and retains focus.
+- **Row menu.** In Completed, focus an unselected row (Ctrl+F, Tab, Tab reaches the first row). Press `Shift+F10`: `#row-menu` opens next to the row, the row becomes selected, and the first menu item has focus. Press `Escape` and check focus returns to the row; repeat with `ContextMenu`. With multiple rows selected, focus one of them and open the menu again: the selection stays intact. Plain `F10` must not open it. Right-click an unselected row and check the menu still opens at the pointer and selects that row.
 - **Inspector and Escape.** With a row selected, press `Control+i` to open the inspector. Press `Control+n`, then `Escape`: the Add dialog closes and the inspector stays open. Press `Escape` again; the inspector closes.
 - **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note.
 - **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, and Help snapshots and screenshots, including `show-in-folder-help.aria.txt`, `.rows.json`, and `.png`.
