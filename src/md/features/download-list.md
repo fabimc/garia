@@ -7,6 +7,7 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 - Show progress without making the user watch the engine.
 - Keep unfinished work across relaunch via aria2's session file.
 - Route new files into category folders at add time — never move files already on disk.
+- While the first poll is pending, the startup notice covers both engine startup and loading the download list. A busy default RPC port must not delay the first window for a retry loop.
 
 ## Statuses Garia invents
 

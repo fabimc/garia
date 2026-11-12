@@ -4157,7 +4157,7 @@ async function holdAdded(gid, at) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (typeof invoke !== "function") return;
   try {
-    schedule = await invoke("set_download_start", { gid, at });
+    schedule = await invoke("set_download_start", { gid, at, addedPaused: true });
     heldGids = new Set(schedule.held || []);
   } catch (err) {
     // It went in paused, and nothing is now counting down to start it.
@@ -4950,7 +4950,7 @@ function setConn(state) {
         engineStartupTimer = 0;
         if (connState !== "waiting" || !engineStatus) return;
         if (engineStatus.classList.contains("hidden")) {
-          engineStatus.textContent = "Starting downloads engine…";
+          engineStatus.textContent = "Starting downloads engine or loading downloads…";
           engineStatus.classList.remove("hidden");
         }
       }, 1000);

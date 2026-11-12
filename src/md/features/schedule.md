@@ -16,6 +16,7 @@ aria2 resumes unfinished downloads from the session file before the webview pain
 
 - Add sheet or detail panel can name a start time for one download.
 - Meaning: start at that time, **or** the next moment Garia is open after it. Not an alarm clock that wakes the Mac.
+- A new scheduled download is added paused; record that scheduler-owned hold with its start time, so it survives a restart. A pre-existing user pause is not a scheduler hold.
 
 ## Stop Queue / Start Queue
 

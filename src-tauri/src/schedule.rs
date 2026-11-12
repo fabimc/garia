@@ -120,10 +120,13 @@ impl Schedule {
         });
     }
 
-    pub fn set_start(&self, gid: &str, at: Option<i64>) -> Saved {
+    pub fn set_start(&self, gid: &str, at: Option<i64>, added_paused: bool) -> Saved {
         self.edit(|s| match at {
             Some(at) => {
                 s.starts.insert(gid.to_string(), at);
+                if added_paused {
+                    s.held.insert(gid.to_string());
+                }
             }
             None => {
                 s.starts.remove(gid);
@@ -430,7 +433,7 @@ mod tests {
         let file = scratch("relaunch");
         let first = Schedule::new(file.clone());
         first.hold("aaaa");
-        first.set_start("bbbb", Some(4_000));
+        first.set_start("bbbb", Some(4_000), false);
 
         let second = Schedule::new(file.clone());
         assert!(second.snapshot().held.contains("aaaa"));
@@ -444,7 +447,7 @@ mod tests {
         let sched = Schedule::new(file.clone());
         sched.hold("gone");
         sched.hold("here");
-        sched.set_start("gone", Some(9_000));
+        sched.set_start("gone", Some(9_000), false);
 
         let known: BTreeSet<String> = ["here".to_string()].into_iter().collect();
         sched.reconcile(&[], &[], &[], &known);
@@ -460,7 +463,7 @@ mod tests {
     fn a_spent_hour_is_dropped_but_the_hold_is_not_invented() {
         let file = scratch("spent");
         let sched = Schedule::new(file.clone());
-        sched.set_start("aaaa", Some(1_000));
+        sched.set_start("aaaa", Some(1_000), false);
         let known: BTreeSet<String> = ["aaaa".to_string()].into_iter().collect();
 
         sched.reconcile(&["aaaa".to_string()], &[], &[], &known);
@@ -471,6 +474,25 @@ mod tests {
         let saved = sched.snapshot();
         assert!(saved.held.is_empty());
         assert!(saved.starts.is_empty());
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn scheduled_add_hold_survives_restart_and_releases_when_due() {
+        let file = scratch("scheduled-add");
+        let first = Schedule::new(file.clone());
+        first.set_start("added", Some(1_000), true);
+        first.set_start("user-paused", Some(1_000), false);
+
+        for saved in [first.snapshot(), Schedule::new(file.clone()).snapshot()] {
+            let added = Row { gid: "added".into(), status: "paused".into() };
+            let user = Row { gid: "user-paused".into(), status: "paused".into() };
+            assert!(!allowed(&added.gid, true, &saved.starts, 999));
+            assert_eq!(decide(&added, false, saved.held.contains(&added.gid), false), Act::Leave);
+            assert_eq!(decide(&added, true, saved.held.contains(&added.gid), false), Act::Release);
+            assert_eq!(decide(&user, true, saved.held.contains(&user.gid), false), Act::Leave);
+            assert!(!allowed(&added.gid, false, &saved.starts, 1_000));
+        }
         let _ = std::fs::remove_file(&file);
     }
 
