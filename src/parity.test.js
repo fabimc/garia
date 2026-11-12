@@ -907,6 +907,58 @@ test("notification permission message is shown only when permission is denied", 
   assert.equal(notificationPermissionMessage(true), null);
 });
 
+test("Linux Settings checks the notification service and reports failures", async () => {
+  const source = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function checkNotificationPermission()");
+  const end = source.indexOf("\nfunction showPane(", start);
+  assert.ok(start >= 0 && end > start);
+  const functions = source.slice(start, end).replace(
+    'await import("./parity.js")',
+    "await Promise.resolve({ notificationPermissionMessage: permissionMessageHelper })",
+  );
+  const errors = [];
+  let saved = 0;
+  let calls = 0;
+  let available = false;
+  const context = {
+    settingsNotify: { checked: true },
+    settings: { notifyOnComplete: false },
+    platform: "linux",
+    window: { __TAURI__: { notification: {
+      isPermissionGranted: async () => true,
+    } } },
+    invoker: () => async (command) => {
+      assert.equal(command, "check_notification_service");
+      calls++;
+      if (!available) throw "notification daemon unavailable";
+    },
+    permissionMessageHelper: notificationPermissionMessage,
+    showError: (message) => errors.push(message),
+    hideError: () => {},
+    persistSettings: async () => { saved++; },
+    console: { error: () => {} },
+  };
+  vm.createContext(context);
+  vm.runInContext(functions, context);
+
+  await context.checkNotificationPermission();
+  assert.match(errors.pop(), /notification daemon unavailable/);
+  await context.persistNotificationPreference();
+  assert.match(errors.pop(), /notification daemon unavailable/);
+  assert.equal(context.settingsNotify.checked, false);
+  assert.equal(saved, 0);
+
+  available = true;
+  context.settingsNotify.checked = true;
+  await context.persistNotificationPreference();
+  assert.equal(saved, 1);
+  assert.equal(calls, 3);
+
+  context.platform = "macos";
+  await context.checkNotificationPermission();
+  assert.equal(calls, 3);
+});
+
 // Folx parity §5–§6: tags, destinations, organize menu, queue groups, schedule review.
 
 test("tags normalize, parse, and summarize for the row", () => {
