@@ -24,11 +24,11 @@ Agents read this cold. Follow Launch → Doctor → Drive (one feature file) →
 From the repo root:
 
 ```bash
-cd .cursor/skills/verify-garia
+cd .agent/skills/verify-garia
 ./helpers/control-garia launch
 ```
 
-What it starts (and records under `.cursor/skills/verify-garia/.run/state.json`):
+What it starts (and records under `.agent/skills/verify-garia/.run/state.json`):
 
 1. `node mock-rpc.js` — mock aria2 JSON-RPC at `http://127.0.0.1:6800/jsonrpc` (same server as `npm run mock`, started directly so cleanup owns the real PID). The helper **refuses** to launch if `:6800` is already taken by a foreign process.
 2. `python3 -m http.server <port> --directory src --bind 127.0.0.1` — static frontend (preferred port `8765`, or next free; override with `GARIA_UI_PORT`).
@@ -69,7 +69,7 @@ Read-only. Exit `0` only when the instance **we** launched owns live mock + UI P
 
 ## Drive
 
-Helper: `.cursor/skills/verify-garia/helpers/control-garia` (executable). Installs Playwright into `helpers/node_modules` on first use.
+Helper: `.agent/skills/verify-garia/helpers/control-garia` (executable). Installs Playwright into `helpers/node_modules` on first use.
 
 Prefer feature recipes under `features/`. Stable handles from this repo:
 
@@ -107,7 +107,7 @@ Generic locators: `--css`, `--role` + `--name`, `--text`.
 
 Proof directory (survives cleanup):
 
-`.cursor/skills/verify-garia/evidence/`
+`.agent/skills/verify-garia/evidence/`
 
 Standards:
 
@@ -155,7 +155,7 @@ All helpers are executable / runnable as shown above. Logs for a live run: `.run
 Optional UX review captures (issue #82). **Requires** a working `control-garia` launcher — land **#83 / PR #88** first. Output is written under `evidence/ux-baselines/` (gitignored) or `--out tmp/ux-baselines`; **not** checked into git and **not** run in CI.
 
 ```bash
-cd .cursor/skills/verify-garia
+cd .agent/skills/verify-garia
 ./helpers/control-garia launch
 ./helpers/ux-visual-baselines                 # or: --out /path/to/tmp/ux-baselines
 ./helpers/control-garia cleanup
