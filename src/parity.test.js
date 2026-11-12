@@ -890,6 +890,29 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(css, /html\.platform-linux \.setup-linux-only/);
 });
 
+test("settings reports enabled notifications when OS permission is not granted", async () => {
+  const source = readFileSync(new URL("./settings.js", import.meta.url), "utf8");
+  const check = source.match(/async function checkNotificationPermission\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(check, "notification permission check should exist");
+
+  const errors = [];
+  const context = {
+    window: {
+      __TAURI__: {
+        notification: { isPermissionGranted: async () => false },
+      },
+    },
+    settingsNotify: { checked: true },
+    invoker: () => () => {},
+    showError: (message) => errors.push(message),
+  };
+  await vm.runInNewContext(`(${check})()`, context);
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /not currently permitted/i);
+  assert.match(errors[0], /system settings/i);
+});
+
 // Folx parity §5–§6: tags, destinations, organize menu, queue groups, schedule review.
 
 test("tags normalize, parse, and summarize for the row", () => {

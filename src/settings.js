@@ -780,11 +780,14 @@ async function checkNotificationPermission() {
     }
     return;
   }
-  // Unprompted "not granted" is Prompt/default, not Denied — only surface
-  // API failures here. persistNotificationPreference requests permission
-  // when the user turns notifications on.
+  // Avoid prompting at launch, but report a missing grant so enabled
+  // notifications are not a silent no-op.
   try {
-    await api.isPermissionGranted();
+    if (!(await api.isPermissionGranted())) {
+      showError(
+        "Desktop notifications are not currently permitted. Turn notifications off and on to request access, or allow notifications for Garia in system settings.",
+      );
+    }
   } catch (err) {
     console.error(err);
     showError(`Could not check notification permissions: ${err?.message || err}`);
