@@ -1,0 +1,26 @@
+[
+  {
+    "gid": "bbbb2222",
+    "name": "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb3333",
+    "name": "node-v24.4.0-darwin-arm64.tar.gz",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb4444",
+    "name": "Sintel (2010) 4K.mkv",
+    "status": "waiting",
+    "selected": "false"
+  },
+  {
+    "gid": "bbbb5555",
+    "name": "postgresql-18.1-macos.dmg",
+    "status": "waiting",
+    "selected": "false"
+  }
+]

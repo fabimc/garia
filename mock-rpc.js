@@ -565,7 +565,7 @@ function answer(method, params = []) {
     method === "aria2.removeDownloadResult"
       ? (s.stopped.some((d) => d.gid === params[0])
         ? (purged.add(params[0]), "OK")
-        : { error: `Could not remove download result of GID#${params[0]}` }) :
+        : { error: `GID#${params[0]} is not found` }) :
     method === "aria2.addUri"       ? addUri(params[0], params[1] || {}) :
     method === "aria2.getGlobalStat" ? {
       numActive: String(s.active.length),
