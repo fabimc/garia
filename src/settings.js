@@ -781,11 +781,12 @@ async function checkNotificationPermission() {
     }
     return;
   }
-  // Unprompted "not granted" is Prompt/default, not Denied — only surface
-  // API failures here. persistNotificationPreference requests permission
-  // when the user turns notifications on.
+  // On desktop this is only false when the webview has denied notifications;
+  // an unprompted state does not trigger it.
   try {
-    await api.isPermissionGranted();
+    const { notificationPermissionMessage } = await import("./parity.js");
+    const message = notificationPermissionMessage(await api.isPermissionGranted());
+    if (message) showError(message);
   } catch (err) {
     console.error(err);
     showError(`Could not check notification permissions: ${err?.message || err}`);

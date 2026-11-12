@@ -114,6 +114,7 @@ import {
   parseMirrorUrls,
   quietCaptureSkipsConfirm,
   quietCaptureDir,
+  notificationPermissionMessage,
   findCategoryById,
   formatSpeedLimitScope,
   diskConflictLabel,
@@ -895,6 +896,14 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /id="setup-help"/);
   assert.match(css, /html\.platform-linux \.setup-generic/);
   assert.match(css, /html\.platform-linux \.setup-linux-only/);
+});
+
+test("notification permission message is shown only when permission is denied", () => {
+  assert.equal(
+    notificationPermissionMessage(false),
+    "Desktop notifications are blocked. Allow notifications for Garia in system settings.",
+  );
+  assert.equal(notificationPermissionMessage(true), null);
 });
 
 // Folx parity §5–§6: tags, destinations, organize menu, queue groups, schedule review.
