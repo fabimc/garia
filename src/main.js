@@ -7575,7 +7575,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   const helpOverlay = document.getElementById("help-overlay");
-  function openHelp() { openOverlay(helpOverlay, { close: closeHelp }); }
+  function openHelp() { openOverlay(helpOverlay, { focus: helpOverlay.querySelector(".help-body"), close: closeHelp }); }
   function closeHelp() { closeOverlay(helpOverlay); }
   document.getElementById("help-close").addEventListener("click", closeHelp);
   document.getElementById("help-done").addEventListener("click", closeHelp);
