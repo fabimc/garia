@@ -11,6 +11,7 @@ import {
   isSlowDownload,
   isStalled,
   isTorrentDownload,
+  rowDownloadSpeed,
   leechersOf,
   parseChecksum,
   parseKilobytes,
@@ -143,6 +144,15 @@ test("a torrent is recognised by its metainfo or its info hash", () => {
   assert.equal(isTorrentDownload({ infoHash: "abc" }), true);
   assert.equal(isTorrentDownload({ gid: "1" }), false);
   assert.equal(isTorrentDownload(null), false);
+});
+
+test("row download speed is shown only while active", () => {
+  const dl = { status: "active", downloadSpeed: "1677721" };
+  assert.equal(rowDownloadSpeed(dl), "1677721");
+  for (const status of ["paused", "waiting", "complete", "error", "removed", "merging", "seeding"]) {
+    assert.equal(rowDownloadSpeed({ ...dl, status }), 0, status);
+  }
+  assert.equal(rowDownloadSpeed(null), 0);
 });
 
 test("high files are requested before normal and low", () => {

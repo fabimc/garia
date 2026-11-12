@@ -36,6 +36,10 @@ export function isTorrentDownload(dl) {
   return Boolean(dl.bittorrent || dl.infoHash);
 }
 
+export function rowDownloadSpeed(dl) {
+  return dl?.status === "active" ? dl.downloadSpeed : 0;
+}
+
 export function fileDone(file) {
   const length = Number(file?.length) || 0;
   const got = Number(file?.completedLength) || 0;
