@@ -95,6 +95,7 @@ import {
   revealPath,
   diskConflictLabel,
   explicitMagnetUri,
+  purgeFailures,
 } from "./parity.js";
 
 const RPC_URL = "http://127.0.0.1:6800/jsonrpc";
@@ -6462,14 +6463,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   // The purge can lose a race with aria2 filing a just-stopped download's
   // result, so what it refuses is asked again, twice. Answers the gids it
   // could not forget, and the last reason why.
-  async function purgeResults(gids) {
+  async function purgeResults(gids, removed = new Set()) {
     let left = gids;
     let reason = "";
     for (let attempt = 0; attempt < 3 && left.length; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, 120));
       const answers = await rpcBatch(left.map((g) => ["aria2.removeDownloadResult", [g]]));
-      reason = answers.find((a) => a.error)?.error || "";
-      left = left.filter((_, i) => answers[i].error);
+      ({ left, reason } = purgeFailures(left, answers, removed, attempt === 2));
     }
     return { left, reason };
   }
@@ -6511,8 +6511,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       gid: g,
       running: g !== dl.gid || !STOPPED.includes(dl.status),
     })));
-    await rpcBatch(halves.filter((h) => h.running).map((h) => ["aria2.remove", [h.gid]]));
-    const { left, reason } = await purgeResults(halves.map((h) => h.gid));
+    const running = halves.filter((h) => h.running);
+    const removedAnswers = await rpcBatch(running.map((h) => ["aria2.remove", [h.gid]]));
+    const removed = new Set(running.filter((_, i) => !removedAnswers[i].error).map((h) => h.gid));
+    const { left, reason } = await purgeResults(halves.map((h) => h.gid), removed);
     // The metadata gid is already stopped once the torrent exists. Forgetting
     // it is what keeps a removed magnet from leaving a [METADATA] result behind.
     const metas = rows

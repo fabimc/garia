@@ -2310,3 +2310,16 @@ export function quietCaptureDir({
   if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
   return base ? `${base}/${folder}` : folder;
 }
+
+export function purgeFailures(gids, answers, removed, finalAttempt) {
+  const left = [];
+  let reason = "";
+  gids.forEach((gid, i) => {
+    const error = answers[i]?.error;
+    if (!error) return;
+    if (finalAttempt && removed.has(gid) && error === `GID ${gid} is not found`) return;
+    left.push(gid);
+    if (!reason) reason = error;
+  });
+  return { left, reason };
+}

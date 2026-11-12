@@ -7,6 +7,9 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 - Show progress without making the user watch the engine.
 - Keep unfinished work across relaunch via aria2's session file.
 - Route new files into category folders at add time — never move files already on disk.
+- A successful removal can leave no result for a never-started download. Retry
+  the result purge for aria2's filing race; a final missing-GID error for that
+  removed gid is success, but other purge failures remain errors.
 
 ## Statuses Garia invents
 

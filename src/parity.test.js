@@ -122,7 +122,37 @@ import {
   announcesCompletion,
   collapseMagnetDownloads,
   revealPath,
+  purgeFailures,
 } from "./parity.js";
+
+test("purge accepts a missing result only after successful removal and retries", () => {
+  const missing = { error: "GID queued is not found" };
+  const removed = new Set(["queued"]);
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, false), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, true), {
+    left: [], reason: "",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], new Set(), true), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "GID other is not found" }], removed, true), {
+    left: ["queued"], reason: "GID other is not found",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "Permission denied" }], removed, true), {
+    left: ["queued"], reason: "Permission denied",
+  });
+});
+
+test("purge reports only genuine remaining errors in mixed batches", () => {
+  assert.deepEqual(purgeFailures(
+    ["queued", "stuck", "done"],
+    [{ error: "GID queued is not found" }, { error: "Still active" }, { result: "OK" }],
+    new Set(["queued", "stuck"]),
+    true,
+  ), { left: ["stuck"], reason: "Still active" });
+});
 
 test("disk-image extensions are labelled as such and archive hints stay readable", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
