@@ -1923,10 +1923,13 @@ html.platform-linux .setup-row.setup-linux-only {
     font-size: 0.84rem;
 }
 html.in-app #setup-overlay .modal-header,
-html.in-app #setup-overlay .modal-footer {
+html.in-app #setup-overlay .modal-footer,
+html.in-app #help-overlay .modal-header,
+html.in-app #help-overlay .modal-footer {
     flex-shrink: 0;
 }
-html.in-app #setup-overlay .setup-body {
+html.in-app #setup-overlay .setup-body,
+html.in-app #help-overlay .help-body {
     overflow: auto;
     min-height: 0;
 }

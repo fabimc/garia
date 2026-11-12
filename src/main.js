@@ -7575,7 +7575,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   const helpOverlay = document.getElementById("help-overlay");
-  function openHelp() { openOverlay(helpOverlay, { close: closeHelp }); }
+  function openHelp() {
+    const focus = document.documentElement.classList.contains("in-app")
+      ? helpOverlay.querySelector(".help-body")
+      : undefined;
+    openOverlay(helpOverlay, { focus, close: closeHelp });
+  }
   function closeHelp() { closeOverlay(helpOverlay); }
   document.getElementById("help-close").addEventListener("click", closeHelp);
   document.getElementById("help-done").addEventListener("click", closeHelp);
