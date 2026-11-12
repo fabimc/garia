@@ -3606,6 +3606,37 @@ fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| format!("could not open {path}: {e}"))
 }
 
+fn download_folder_path(path: &str) -> Result<&Path, String> {
+    if path.trim().is_empty() {
+        return Err("No download folder is configured.".into());
+    }
+    let path = Path::new(path);
+    let metadata = fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !metadata.is_dir() {
+        return Err(format!("{} is not a folder", path.display()));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+async fn open_download_folder(app: tauri::AppHandle) -> Result<(), String> {
+    off_main(move || {
+        let path = app
+            .state::<SettingsState>()
+            .current
+            .lock()
+            .map_err(|_| "Could not read the download folder settings.".to_string())?
+            .download_dir
+            .clone();
+        download_folder_path(&path)?;
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_path(path, None::<&str>)
+            .map_err(|e| e.to_string())
+    })
+    .await
+}
+
 /// Where to look for aria2c, best first. The sidecar sits next to the app
 /// binary and is what a fresh install runs — no `brew install aria2` first.
 /// The system copies stay as a fallback: they keep `tauri dev` working, and
@@ -4106,6 +4137,7 @@ pub fn run() {
             mux_video,
             preview_state,
             preview_file,
+            open_download_folder,
             remote_info,
             schedule_state,
             set_download_start,
@@ -4666,6 +4698,23 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_folder_must_exist_and_be_a_directory() {
+        let dir = std::env::temp_dir();
+        let path = dir.to_str().unwrap();
+        assert_eq!(download_folder_path(path).unwrap(), dir);
+        assert!(download_folder_path("").is_err());
+        assert!(download_folder_path(
+            &dir.join(format!("garia-missing-{}", std::process::id()))
+                .display()
+                .to_string()
+        )
+        .is_err());
+        assert!(
+            download_folder_path(&std::env::current_exe().unwrap().display().to_string()).is_err()
+        );
+    }
 
     #[test]
     fn rpc_args_put_the_token_first() {

@@ -122,6 +122,7 @@ import {
   announcesCompletion,
   collapseMagnetDownloads,
   revealPath,
+  openConfiguredFolder,
 } from "./parity.js";
 
 test("disk-image extensions are labelled as such and archive hints stay readable", () => {
@@ -967,6 +968,21 @@ test("path reveal reports opener failures and reveals valid paths", async () => 
   });
   assert.deepEqual(errors, ["file manager rejected the path"]);
   assert.deepEqual(paths, ["/tmp/file.zip"]);
+});
+
+test("configured folder opening uses the backend and reports failures", async () => {
+  const errors = [];
+  const commands = [];
+  await openConfiguredFolder(null, (err) => errors.push(err.message));
+  await openConfiguredFolder(async (command) => {
+    commands.push(command);
+    throw new Error("folder is missing");
+  }, (err) => errors.push(err.message));
+  await openConfiguredFolder(async (command) => commands.push(command), () => {
+    assert.fail("successful folder opening should not report an error");
+  });
+  assert.deepEqual(commands, ["open_download_folder", "open_download_folder"]);
+  assert.deepEqual(errors, ["The system file manager is unavailable.", "folder is missing"]);
 });
 
 test("organize menu offers category, destination, tag, and containing-folder verbs", () => {
