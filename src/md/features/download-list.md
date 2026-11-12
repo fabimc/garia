@@ -54,6 +54,7 @@ column width (CSS ellipsis on the head; tail never shrinks).
 - The header toolbar changes with the sidebar filter: All/Active → Pause all, Resume all, Stop Queue; Queued → Stop/Start Queue, Move to top/end; Paused → Resume all; Failed → Retry all, Clear failed; Completed → Clear completed, Open download folder; Seeding/Torrents → Stop seeding.
 - The row context menu acts on the selection only. It hides verbs that do not apply (macOS contextual menus hide; the menu bar dims). Global verbs (Retry Failed, Clear Completed) live in the toolbar, the Download menu, the dock, and the tray.
 - An empty view offers one primary action, and only one it can run here.
+- Enter and Space activate a focused row control, not the selected row's keyboard shortcut. When the list or row has focus, those keys still open details and toggle pause.
 
 ## Columns and detail
 

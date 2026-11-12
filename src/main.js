@@ -7426,6 +7426,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       runOnSelected("remove");
       return;
     }
+    if ((e.key === "Enter" || e.key === " " || e.code === "Space") &&
+        e.target.closest?.("button, a[href], input, select, textarea, summary, [contenteditable], [role='button'], [role='link']")) return;
     if (e.key === "Enter") {
       e.preventDefault();
       runOnSelected("details");
