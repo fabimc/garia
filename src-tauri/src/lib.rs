@@ -1040,9 +1040,11 @@ async fn set_download_start(
     app: tauri::AppHandle,
     gid: String,
     at: Option<i64>,
+    added_paused: Option<bool>,
 ) -> Result<schedule::ScheduleState, String> {
-    off_main(move || set_download_start_blocking(app.state(), app.state(), app.state(), gid, at))
-        .await
+    off_main(move || set_download_start_blocking(
+        app.state(), app.state(), app.state(), gid, at, added_paused.unwrap_or(false),
+    )).await
 }
 
 #[tauri::command]
@@ -1216,10 +1218,11 @@ fn set_download_start_blocking(
     schedule: tauri::State<schedule::Schedule>,
     gid: String,
     at: Option<i64>,
+    added_paused: bool,
 ) -> Result<schedule::ScheduleState, String> {
     let now = schedule::epoch_now();
     let pending = at.filter(|at| *at > now);
-    schedule.set_start(&gid, pending);
+    schedule.set_start(&gid, pending, added_paused);
 
     let secret = aria2.secret();
     match pending {
@@ -4011,18 +4014,18 @@ fn reap_orphan(pid_file: &Path) {
 /// or an aria2 the user runs themselves. Losing that race used to mean aria2
 /// exited on startup and the app sat there reporting "unreachable".
 fn pick_port() -> u16 {
-    for _ in 0..20 {
-        if TcpListener::bind(("127.0.0.1", DEFAULT_RPC_PORT)).is_ok() {
-            return DEFAULT_RPC_PORT;
-        }
-        // A just-reaped aria2c can hold the port a moment longer.
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    pick_available_port(DEFAULT_RPC_PORT)
+}
+
+fn pick_available_port(preferred: u16) -> u16 {
+    if TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
+        return preferred;
     }
 
     TcpListener::bind(("127.0.0.1", 0))
         .and_then(|l| l.local_addr())
         .map(|a| a.port())
-        .unwrap_or(DEFAULT_RPC_PORT)
+        .unwrap_or(preferred)
 }
 
 /// `--input-file` is an error when the path doesn't exist, so the first launch
@@ -4666,6 +4669,15 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_preferred_port_uses_an_available_alternative() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let preferred = listener.local_addr().unwrap().port();
+        let selected = pick_available_port(preferred);
+        assert_ne!(selected, preferred);
+        assert!(TcpListener::bind(("127.0.0.1", selected)).is_ok());
+    }
 
     #[test]
     fn rpc_args_put_the_token_first() {
