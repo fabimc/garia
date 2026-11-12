@@ -17,6 +17,7 @@ Quiet mode skips the banner and confirm sheet. Magnets always pass the clipboard
 - Ignore the first clipboard contents at launch (leftover copy must not greet the user).
 - Extension sends the **page** for video, not the stream URL — playlists still work; no need to play first.
 - Hold Option/Alt on a file link to leave that download with the browser.
+- An Alt-click bypass also suppresses download takeover for the resulting browser download, including redirects.
 - `confirm` from the extension: ask name/folder/start-vs-queue. Video pages still use the quality picker as confirm.
 - Referrer from the page goes to aria2 as `Referer` (hotlink protection).
 - Suggested filename becomes aria2 `out` when the URL has no useful path.

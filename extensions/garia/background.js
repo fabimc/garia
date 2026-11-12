@@ -8,6 +8,7 @@ if (typeof importScripts === "function") {
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 const recent = new Map();
+const bypassDownloads = new Map();
 let downloadTakeover = true;
 
 function refreshPrefs() {
@@ -115,6 +116,14 @@ api.action.onClicked.addListener((tab) => {
 
 api.runtime.onMessage.addListener((message) => {
   if (!message || !message.url) return;
+  if (message.type === "bypass-download") {
+    const now = Date.now();
+    for (const [url, at] of bypassDownloads) {
+      if (now - at > 10000) bypassDownloads.delete(url);
+    }
+    bypassDownloads.set(message.url, now);
+    return;
+  }
   if (message.type === "send-page") {
     if (gariaIsHttpUrl(message.url)) sendToGaria(message.url, { from: "extension" });
     return;
@@ -186,6 +195,15 @@ function urlsFromSelection(text) {
 }
 
 function shouldTakeDownload(item) {
+  const now = Date.now();
+  for (const [url, at] of bypassDownloads) {
+    if (now - at > 10000) {
+      bypassDownloads.delete(url);
+    } else if (url === item.url || url === item.finalUrl) {
+      bypassDownloads.delete(url);
+      return false;
+    }
+  }
   const url = item.finalUrl || item.url || "";
   if (item.byExtensionId) return false;
   if (!gariaIsHttpUrl(url)) return false;

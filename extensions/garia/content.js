@@ -32,6 +32,16 @@ function sendFileCapture(href, name) {
 }
 
 document.addEventListener("click", (event) => {
+  if (!event.defaultPrevented && event.button === 0 && event.altKey) {
+    const a = event.target.closest?.("a[href]");
+    if (a) {
+      try {
+        const url = new URL(a.href, document.baseURI).href;
+        if (/^https?:/i.test(url)) api.runtime.sendMessage({ type: "bypass-download", url });
+      } catch { /* leave the click to the browser */ }
+    }
+    return;
+  }
   if (!clickCapture) return;
   if (event.defaultPrevented || event.button !== 0) return;
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
