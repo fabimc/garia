@@ -15,7 +15,6 @@
 set -euo pipefail
 
 VERSION="9.0.1"
-# Cross-checked against the sha256 Homebrew records for the same tarball.
 SHA256="cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635"
 TARBALL="ffmpeg-${VERSION}.tar.xz"
 URL="https://ffmpeg.org/releases/${TARBALL}"
@@ -39,7 +38,7 @@ tar xf "${SOURCE}" -C "${WORK}"
 cd "${WORK}/ffmpeg-${VERSION}"
 
 case "${TRIPLE}" in
-  *-apple-darwin | *-unknown-linux-gnu | *-unknown-linux-musl) ;;
+  *-unknown-linux-gnu | *-unknown-linux-musl) ;;
   *)
     echo "unsupported sidecar target: ${TRIPLE}" >&2
     exit 1
@@ -57,44 +56,24 @@ CONFIGURE_ARGS=(
   --disable-encoders --disable-decoders --disable-hwaccels
   --disable-filters --disable-devices
   # Nothing needs hand-written assembly once the codecs are gone, and saying so
-  # means the x86_64 cross-build doesn't need a nasm on an Apple Silicon Mac.
+  # means the build doesn't need a nasm.
   --disable-x86asm
   # One program, not three.
   --disable-ffplay --disable-ffprobe
   --enable-small
 )
 
-# Rust and clang disagree on what to call this chip: aarch64 vs arm64.
-case "${TRIPLE%%-*}" in
-  aarch64) TARGET_ARCH="arm64" ;;
-  *)       TARGET_ARCH="${TRIPLE%%-*}" ;;
-esac
-
 HOST_ARCH="$(uname -m)"
-case "${HOST_ARCH}" in
-  arm64) HOST_ARCH="aarch64" ;;
-esac
 
-# Building for the other Mac architecture: the SDK is universal, so this is
-# just a matter of telling configure what it is aiming at and not to run what
-# it compiles.
-if [[ "${TRIPLE}" == *-apple-darwin ]] && [ "${TRIPLE%%-*}" != "${HOST_ARCH}" ]; then
-  CONFIGURE_ARGS+=(
-    --enable-cross-compile
-    --arch="${TARGET_ARCH}"
-    --target-os=darwin
-    --extra-cflags="-arch ${TARGET_ARCH}"
-    --extra-ldflags="-arch ${TARGET_ARCH}"
-  )
-elif [[ "${TRIPLE}" == *-linux-* ]] && [ "${TRIPLE%%-*}" != "${HOST_ARCH}" ]; then
+if [ "${TRIPLE%%-*}" != "${HOST_ARCH}" ]; then
   echo "cross-building ffmpeg for ${TRIPLE} is not supported yet" >&2
   exit 1
-elif [[ "${TRIPLE}" == *-linux-* ]]; then
-  CONFIGURE_ARGS+=(
-    --arch="${TRIPLE%%-*}"
-    --target-os=linux
-  )
 fi
+
+CONFIGURE_ARGS+=(
+  --arch="${TRIPLE%%-*}"
+  --target-os=linux
+)
 
 ./configure "${CONFIGURE_ARGS[@]}" > "${WORK}/configure.log" 2>&1 ||
   { tail -30 "${WORK}/configure.log"; exit 1; }
@@ -106,44 +85,27 @@ if ! grep -q '^License: LGPL' "${WORK}/configure.log"; then
   exit 1
 fi
 
-if command -v nproc >/dev/null 2>&1; then
-  JOBS="$(nproc)"
-else
-  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-fi
-make -j"${JOBS}" > "${WORK}/make.log" 2>&1 ||
+make -j"$(nproc)" > "${WORK}/make.log" 2>&1 ||
   { tail -30 "${WORK}/make.log"; exit 1; }
 
-if [[ "${TRIPLE}" == *-apple-darwin ]]; then
-  strip -x ffmpeg
-else
-  strip ffmpeg
-fi
+strip ffmpeg
 
 # A sidecar that pulls in anything outside the OS would fail on someone else's
 # machine, and it would fail at runtime, quietly. Refuse to ship one.
-if [[ "${TRIPLE}" == *-apple-darwin ]]; then
-  if otool -L ffmpeg | tail -n +2 | grep -qvE '^\s+(/usr/lib/|/System/Library/)'; then
-    echo "ffmpeg linked something outside the OS:"
-    otool -L ffmpeg | tail -n +2
-    exit 1
-  fi
-else
-  bad="$(ldd ffmpeg | awk '
-    /not found/ { print; next }
-    {
-      lib = $1
-      if (lib ~ /^linux-vdso/ || lib ~ /^\/lib/ || lib ~ /^\/usr\/lib/) next
-      if (lib ~ /^lib(c|m|dl|pthread|rt|resolv|util|gcc_s|stdc\+\+|z)\.so/) next
-      print
-    }
-  ')"
-  if [ -n "${bad}" ]; then
-    echo "ffmpeg linked something unexpected:"
-    echo "${bad}"
-    ldd ffmpeg
-    exit 1
-  fi
+bad="$(ldd ffmpeg | awk '
+  /not found/ { print; next }
+  {
+    lib = $1
+    if (lib ~ /^linux-vdso/ || lib ~ /^\/lib/ || lib ~ /^\/usr\/lib/) next
+    if (lib ~ /^lib(c|m|dl|pthread|rt|resolv|util|gcc_s|stdc\+\+|z)\.so/) next
+    print
+  }
+')"
+if [ -n "${bad}" ]; then
+  echo "ffmpeg linked something unexpected:"
+  echo "${bad}"
+  ldd ffmpeg
+  exit 1
 fi
 
 mkdir -p "${ROOT}/src-tauri/binaries"

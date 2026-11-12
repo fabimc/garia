@@ -9,90 +9,6 @@ permissions:
   contents: write
 
 jobs:
-  publish-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - run: npm ci
-
-      # Usually a cache hit: sidecars.yml builds these on master. The key must
-      # match the one there exactly. On a miss, build and save right away, so
-      # re-running a release that failed later on skips the 8-minute build.
-      - id: sidecar-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: |
-            src-tauri/binaries
-            src-tauri/resources/yt-dlp
-          key: sidecars-macos-universal-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
-
-      - name: Build universal sidecars
-        run: npm run sidecar -- universal-apple-darwin
-
-      - if: steps.sidecar-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            src-tauri/binaries
-            src-tauri/resources/yt-dlp
-          key: ${{ steps.sidecar-cache.outputs.cache-primary-key }}
-
-      # Empty Apple secrets are still "set", and Tauri then tries to import a
-      # blank certificate. Publish each one only when it has a value. Without
-      # an updater key, skip update signatures so the DMG still builds.
-      - name: Configure signing when secrets exist
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          publish() {
-            if [ -n "$2" ]; then
-              {
-                echo "$1<<EOF"
-                echo "$2"
-                echo "EOF"
-              } >> "$GITHUB_ENV"
-            fi
-          }
-          publish TAURI_SIGNING_PRIVATE_KEY "$TAURI_SIGNING_PRIVATE_KEY"
-          publish TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-          publish APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
-          publish APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
-          publish APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
-          publish APPLE_ID "$APPLE_ID"
-          publish APPLE_PASSWORD "$APPLE_PASSWORD"
-          publish APPLE_TEAM_ID "$APPLE_TEAM_ID"
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            python3 -c 'import json; from pathlib import Path; p = Path("src-tauri/tauri.conf.json"); data = json.loads(p.read_text()); data["bundle"]["createUpdaterArtifacts"] = False; p.write_text(json.dumps(data, indent=2) + "\n")'
-            echo "No updater signing key; building the DMG without update signatures."
-          fi
-
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --target universal-apple-darwin
-          tagName: v__VERSION__
-          releaseName: "Garia v__VERSION__"
-          releaseDraft: true
-          prerelease: false
-
   publish-linux:
     runs-on: ubuntu-22.04
     steps:
@@ -123,7 +39,8 @@ jobs:
 
       - run: npm ci
 
-      # Same arrangement as the Mac job; key must match sidecars.yml.
+      # Usually a cache hit: sidecars.yml builds these on master. The key must
+      # match the one there exactly.
       - id: sidecar-cache
         uses: actions/cache/restore@v5
         with:
