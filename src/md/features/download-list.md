@@ -61,6 +61,7 @@ column width (CSS ellipsis on the head; tail never shrinks).
 - Defaults never include a column that is always empty for that view: no ETA on Queued/Paused (ETA is only computed for active rows), no Finished at on Completed until Garia stores its own completion time.
 - The per-row Show button reveals the file in the platform's file manager; it does not open it (`opener:default` grants reveal, not `openPath` on arbitrary files).
 - Turning a column on removes that number from the one-line summary. Speed is in the Status line only while the Speed column is off.
+- The Speed column shows download speed only for active rows; paused and other non-active rows must not show stale aria2 speeds. Seeding rows show upload speed instead.
 - When the list is narrower than 720px (small window, or the inspector beside it), speed/ETA/source-style columns are not painted and Status carries the speed. The user's column choice is kept. This is done in `syncColLayout`, which writes the grid inline — CSS cannot override it.
 - Details live in a docked inspector (`#detail-pane`) that follows the selection. Below 900px it is a sheet over the list. Escape closes a dialog first, then the inspector — never both at once.
 - With several rows selected, the inspector's speed cap and Start at apply only to rows that can still run (active, queued, paused). Clearing a start time applies to all, which also drops a stale one left on a finished row.

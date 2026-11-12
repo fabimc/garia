@@ -10,6 +10,7 @@ import {
   isSlowDownload,
   isStalled,
   isTorrentDownload,
+  rowDownloadSpeed,
   leechersOf,
   parseChecksum,
   parseKilobytes,
@@ -1964,7 +1965,7 @@ function columnValue(id, dl) {
       const up = formatSpeed(dl.uploadSpeed);
       return up ? `↑ ${up}` : "";
     }
-    return formatSpeed(dl.downloadSpeed);
+    return formatSpeed(rowDownloadSpeed(dl));
   }
   if (id === "upspeed") {
     const up = formatSpeed(dl.uploadSpeed);
