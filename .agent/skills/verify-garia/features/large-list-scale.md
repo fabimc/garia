@@ -23,7 +23,7 @@ Preconditions:
 - `./helpers/control-garia doctor` reports `ok: true`.
 - Browser-dev mock RPC is serving its seeded catalog.
 
-- **Seed a large library.** From `.cursor/skills/verify-garia/`, add 500 unique rows to the mock:
+- **Seed a large library.** From `.agent/skills/verify-garia/`, add 500 unique rows to the mock:
 
   ```bash
   for i in $(seq 1 500); do

@@ -4,7 +4,7 @@ This directory is the maintained source for verifying Garia's user-facing behavi
 
 ## Baseline preconditions
 
-- Launch with `./helpers/control-garia launch` from `.cursor/skills/verify-garia/` (browser-dev: mock RPC + static `src/`).
+- Launch with `./helpers/control-garia launch` from `.agent/skills/verify-garia/` (browser-dev: mock RPC + static `src/`).
 - Run `./helpers/control-garia doctor` and require `ok: true`, `ownedByUs: true`, `#conn-text` containing `aria2 ·`, and a non-zero download row count.
 - Never drive an instance that was not started by this verification run.
 - Prefer browser-dev on agent/cloud hosts. Native Tauri paths are called out per feature as unverified here when they need `invoke`.

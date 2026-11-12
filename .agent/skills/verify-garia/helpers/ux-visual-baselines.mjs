@@ -13,7 +13,7 @@
  * Baselines are written to an output directory for human/PR review. They are
  * not golden files checked into git, and this script is not wired into CI.
  *
- * Usage (from `.cursor/skills/verify-garia`):
+ * Usage (from `.agent/skills/verify-garia`):
  *   ./helpers/control-garia launch
  *   ./helpers/ux-visual-baselines [--out <dir>]
  *   ./helpers/control-garia cleanup
@@ -191,7 +191,7 @@ async function main() {
     console.log(`ux-visual-baselines — CDP screenshots for UX review
 
 Requires a live control-garia instance (PR #88 / issue #83 must land first):
-  cd .cursor/skills/verify-garia
+  cd .agent/skills/verify-garia
   ./helpers/control-garia launch
   ./helpers/ux-visual-baselines [--out DIR]
   ./helpers/control-garia cleanup

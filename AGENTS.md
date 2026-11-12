@@ -1,6 +1,6 @@
 # Agent notes (Garia)
 
-Verification skills live under `.cursor/skills/` once merged (`verify-garia`, `formal-verify-garia-schedule`).
+Verification skills live under `.agent/skills/` once merged (`verify-garia`, `formal-verify-garia-schedule`).
 
 ## Maintain triggers
 
