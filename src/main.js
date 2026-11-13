@@ -5918,15 +5918,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if (changed) {
       await pollAndSync();
-      const focused = focusedGid ? rowEl(focusedGid) : null;
-      if (focused && !focused.classList.contains("hidden")) {
-        focused.focus({ preventScroll: true });
-      } else {
-        const fallback = [...listEl.querySelectorAll(".dl-item:not(.hidden)")]
-          .find((row) => selected.has(row.dataset.gid));
-        (fallback || listEl).focus?.({ preventScroll: true });
-      }
+      refocusRow(focusedGid);
     }
+  }
+
+  // A sync can move or rebuild the row that had focus, which drops it on the
+  // body; put it back on that row, or on the selection if the row is gone.
+  function refocusRow(gid) {
+    const focused = gid ? rowEl(gid) : null;
+    if (focused && !focused.classList.contains("hidden")) {
+      focused.focus({ preventScroll: true });
+      return;
+    }
+    const fallback = [...listEl.querySelectorAll(".dl-item:not(.hidden)")]
+      .find((row) => selected.has(row.dataset.gid));
+    (fallback || listEl).focus?.({ preventScroll: true });
   }
 
   function sharedPackageOfSelection() {
@@ -6289,11 +6295,35 @@ window.addEventListener("DOMContentLoaded", async () => {
     rowMenu.querySelector("button")?.focus({ preventScroll: true });
   });
 
+  rowMenu.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      closeRowMenu();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const items = [...rowMenu.querySelectorAll("button[data-action]")].filter((item) => !item.disabled);
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement);
+    const nextIndex = e.key === "Home"
+      ? 0
+      : e.key === "End"
+        ? items.length - 1
+        : Math.max(0, Math.min(items.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+    e.preventDefault();
+    e.stopPropagation();
+    items[nextIndex].focus();
+  });
+
   rowMenu.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn || btn.disabled) return;
+    const keyboardGid = rowMenu.contains(document.activeElement) ? rowMenuAnchor?.dataset.gid : null;
     closeRowMenu();
     await runOnSelected(btn.dataset.action);
+    if (keyboardGid && (!document.activeElement || document.activeElement === document.body)) {
+      refocusRow(keyboardGid);
+    }
   });
 
   document.addEventListener("mousedown", (e) => {

@@ -69,7 +69,8 @@ aria2 keeps stopped downloads in memory only. Its session file holds unfinished 
 
 - The header toolbar changes with the sidebar filter: All/Active → Pause all, Resume all, Stop Queue; Queued → Stop/Start Queue, Move to top/end; Paused → Resume all; Failed → Retry all, Clear failed; Completed → Clear completed, Open download folder; Seeding/Torrents → Stop seeding.
 - The row context menu acts on the selection only. It hides verbs that do not apply. Global verbs (Retry Failed, Clear Completed) live in the toolbar, the Download menu, and the tray.
-- Right-click, Shift+F10, and the Menu key open the row menu. The keyboard route anchors it to the focused row and follows the same selection rules as right-click.- An empty view offers one primary action, and only one it can run here.
+- Right-click, Shift+F10, and the Menu key open the row menu. The keyboard route anchors it to the focused row and follows the same selection rules as right-click. Arrow keys, Home, and End move through the items; Escape, Tab, or running an item returns focus to the row.
+- An empty view offers one primary action, and only one it can run here.
 - Enter and Space activate a focused row control, not the selected row's keyboard shortcut. When the list or row has focus, those keys still open details and toggle pause.
 
 ## Columns and detail
