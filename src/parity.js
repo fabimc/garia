@@ -334,7 +334,7 @@ export function formatEmptyQueueState({
   filter = "all",
   hasAnyDownloads = false,
   connError = false,
-  modNHint = "⌘N",
+  modNHint = "Ctrl+N",
   hasSearch = false,
   queueStopped = false,
 } = {}) {
@@ -1080,7 +1080,7 @@ export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 
 
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
-// failure — Retry covers that. Labels match Download menu / dock verbs when
+// failure — Retry covers that. Labels match Download menu / tray verbs when
 // menuAligned is set, so the status bar and the menu say the same thing.
 export function housekeepingActions({
   failed = 0,

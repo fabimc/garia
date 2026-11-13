@@ -132,7 +132,7 @@ html.in-app body {
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: system-ui, sans-serif;
     color: var(--text);
     font-size: 14px;
     line-height: 1.5;
@@ -203,11 +203,6 @@ html.in-app .statusbar {
     gap: 0.55rem;
 }
 
-/* Clearance for the macOS traffic lights floating over the sidebar. */
-html.platform-mac .sidebar-header {
-    padding-top: 46px;
-}
-
 .logo-mark {
     display: block;
     flex-shrink: 0;
@@ -261,11 +256,6 @@ html.platform-mac .sidebar-header {
 .app-shell.sidebar-collapsed .content-panel-toggle {
     display: flex;
 }
-/* …and the traffic lights land on the header once the sidebar is gone */
-html.platform-mac .app-shell.sidebar-collapsed .content-header {
-    padding-left: 80px;
-}
-
 .add-btn {
     width: 100%;
     display: inline-flex;
@@ -690,14 +680,6 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     transition: background 0.12s;
     cursor: pointer;
 }
-@supports (content-visibility: auto) {
-    /* Skip on Linux WebKitGTK: variable-height rows + focus/scroll quirks. */
-    html:not(.platform-linux) .dl-item {
-        /* Reserve a typical row height while skipping offscreen row layout. */
-        content-visibility: auto;
-        contain-intrinsic-size: auto 3.25rem;
-    }
-}
 .dl-item:hover {
     background: var(--tint);
 }
@@ -706,9 +688,6 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
 }
 .dl-item.is-selected:hover {
     background: color-mix(in srgb, var(--state-active) 18%, var(--bg));
-}
-.dl-item.is-file-draggable {
-    cursor: grab;
 }
 .dl-item:focus {
     outline: none;
@@ -1584,19 +1563,18 @@ html.platform-mac .app-shell.sidebar-collapsed .content-header {
     width: min(390px, 90vw);
 }
 
-/* In the app, dialogs hang from the titlebar the way a Mac sheet does.
+/* In the app, dialogs hang from the titlebar as a sheet.
    The browser mock stays a centered overlay — it has no titlebar to attach to.
-   38px clears the traffic lights; the sheet is centered, so it never
-   reaches them on the min window. */
+   Native decorations sit above the webview, so only a small gutter is needed. */
 html.in-app .modal-overlay {
     align-items: flex-start;
-    padding: 38px 20px 20px;
+    padding: 12px 20px 20px;
 }
 
 html.in-app .modal {
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     border-top-color: transparent;
-    max-height: calc(100vh - 58px);
+    max-height: calc(100vh - 32px);
     animation: sheet-down 0.18s ease-out;
 }
 
@@ -1882,18 +1860,6 @@ html.in-app .modal {
     gap: 0.3rem;
     padding-top: 0.85rem;
     border-top: 1px solid var(--border);
-}
-.setup-linux-only {
-    display: none;
-}
-html.platform-linux .setup-generic {
-    display: none;
-}
-html.platform-linux .setup-linux-only {
-    display: block;
-}
-html.platform-linux .setup-row.setup-linux-only {
-    display: flex;
 }
 .setup-row:first-of-type {
     padding-top: 0;
@@ -2656,10 +2622,6 @@ html.prefs.in-app body {
 
 html.in-app .prefs-nav {
     background: transparent;
-}
-
-html.platform-mac.in-app .prefs-nav {
-    padding-top: 46px;
 }
 
 .prefs-nav button {
@@ -3603,7 +3565,7 @@ html.prefs.in-app .modal {
     flex-shrink: 0;
 }
 
-/* Docked beside the list while there is room for both (the list goes
+/* Beside the list while there is room for both (the list goes
    compact on its own — see COMPACT_LIST_PX in main.js). Below that a bottom
    dock left ~4 rows and ~100px of inspector, so the inspector becomes a sheet
    over the list instead: full height, list still visible at the left edge. */

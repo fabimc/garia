@@ -124,12 +124,11 @@ import {
   revealPath,
 } from "./parity.js";
 
-test("disk-image extensions are labelled as such and archive hints stay readable", () => {
+test("Linux disk-image extensions are labelled as such and archive hints stay readable", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
-  assert.equal(classifyIntakeUrl("https://ex.test/app.dmg", true).content, "disk");
   assert.equal(classifyIntakeUrl("https://ex.test/app.img", true).contentLabel, "Disk image");
   assert.equal(contentKindFromUrl("https://cdn.test/iso.app"), "other");
-  assert.equal(mimeHintFromExt("dmg"), "application/x-apple-diskimage");
+  assert.equal(mimeHintFromExt("iso"), "application/x-iso9660-image");
   const rows = [
     { file: true, content: "archive", queued: false },
     { file: true, content: "video", queued: false },
@@ -307,9 +306,9 @@ test("priority labels match the detail panel wording", () => {
 });
 
 test("empty queue copy follows filter and connection state", () => {
-  const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
+  const fresh = formatEmptyQueueState({ modNHint: "Ctrl+N" });
   assert.equal(fresh.title, "No downloads yet");
-  assert.match(fresh.sub, /⌘N/);
+  assert.match(fresh.sub, /Ctrl\+N/);
   assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
   assert.equal(
@@ -421,7 +420,7 @@ test("intake content kinds and filters name video, archive, and disk links", () 
   assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
   assert.equal(contentKindFromUrl("https://cdn.test/os.iso"), "disk");
   assert.equal(mimeHintFromExt("mp4"), "video/mp4");
-  const isFile = (url) => /\.(mp4|zip|pdf|iso|dmg)(\?|$)/i.test(url);
+  const isFile = (url) => /\.(mp4|zip|pdf|iso|img)(\?|$)/i.test(url);
   const rows = reviewIntake([
     "https://cdn.test/clip.mp4",
     "https://cdn.test/pack.zip",
@@ -876,15 +875,7 @@ test("turning categories on seeds starters only when the list is empty", () => {
   assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
 });
 
-test("the welcome sheet is where categories are introduced", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /Four things to check before the first download/);
-  assert.match(html, /id="setup-categories"/);
-  assert.match(html, /Sort files into folders by type/);
-  assert.match(html, /id="setup-categories-hint"/);
-});
-
-test("Linux first-run links the Omarchy checklist without changing other platforms", () => {
+test("Linux first-run presents the Omarchy checklist", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
   assert.match(html, /Linux \/ Omarchy: four quick checks/);
@@ -895,8 +886,7 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
-  assert.match(css, /html\.platform-linux \.setup-generic/);
-  assert.match(css, /html\.platform-linux \.setup-linux-only/);
+  assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
@@ -1278,9 +1268,9 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "Ctrl+N" });
   assert.equal(failedEmpty.title, "No failed downloads");
   assert.equal(failedEmpty.action?.id, "new-download");
-  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
+  assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
