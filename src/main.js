@@ -7427,10 +7427,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const helpOverlay = document.getElementById("help-overlay");
   function openHelp() {
-    const focus = document.documentElement.classList.contains("in-app")
-      ? helpOverlay.querySelector(".help-body")
-      : undefined;
-    openOverlay(helpOverlay, { focus, close: closeHelp });
+    openOverlay(helpOverlay, { focus: helpOverlay.querySelector(".help-body"), close: closeHelp });
   }
   function closeHelp() { closeOverlay(helpOverlay); }
   document.getElementById("help-close").addEventListener("click", closeHelp);
