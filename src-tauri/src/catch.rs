@@ -155,14 +155,9 @@ fn extension_of(url: &str) -> Option<String> {
     Some(name[dot + 1..].to_ascii_lowercase())
 }
 
-/// Pull the download URL out of `garia://add?url=…`. The URL itself has to be
+/// Pull the download out of `garia://add?url=…`. The URL itself has to be
 /// percent-encoded when it contains `?` (magnets, query strings); a plain
-/// `https://…` with no extra `?` still works unencoded.
-pub fn url_from_garia_link(link: &str) -> Option<String> {
-    catch_from_garia_link(link).map(|event| event.url)
-}
-
-/// The same link, with the extras an extension can send. `from=extension`
+/// `https://…` with no extra `?` still works unencoded. `from=extension`
 /// or `confirm=1` is how a click in the browser is told apart from the
 /// bookmarklet, which stays a fast `scheme` add.
 pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
@@ -282,7 +277,7 @@ fn is_download_url(s: &str) -> bool {
 
 /// A magnet handed to the app as its own URL, not wrapped in `garia://`.
 /// Clients open `magnet:?xt=…` directly once we claim the scheme; the
-/// bookmarklet still goes through `url_from_garia_link`.
+/// bookmarklet still goes through `catch_from_garia_link`.
 pub fn magnet_url(link: &str) -> Option<String> {
     let link = link.trim();
     link.starts_with("magnet:").then(|| link.to_string())
@@ -341,6 +336,10 @@ fn from_hex(b: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn url_from_garia_link(link: &str) -> Option<String> {
+        catch_from_garia_link(link).map(|event| event.url)
+    }
 
     #[test]
     fn a_copied_iso_is_a_file() {
