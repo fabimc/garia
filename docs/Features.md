@@ -20,6 +20,7 @@
 - Delete a download, and optionally move the file it wrote to the Trash
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
+- Finished downloads stay in the list across a restart, a crash, or a SIGTERM until you clear them. Clear Completed keeps the files on disk
 - A notification when a download finishes
 - Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard and a bookmarklet. The extension options page turns click capture, download takeover, and the video button on or off.
 - Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives

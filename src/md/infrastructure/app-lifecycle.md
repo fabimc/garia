@@ -3,7 +3,8 @@
 ## Close vs quit
 
 - Closing the window hides it; aria2 keeps running. The tray or application launcher can bring it back.
-- Quit (Ctrl+Q): save session, stop aria2, exit.
+- Quit (Ctrl+Q): record finished downloads, save session, stop aria2, exit.
+- Finished downloads are written to `history.json` as they finish, so a SIGTERM keeps them too. See [features/download-list.md](../features/download-list.md#finished-history).
 - Window size and position survive quit.
 
 ## Tray

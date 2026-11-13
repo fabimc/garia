@@ -2293,6 +2293,16 @@ export function collapseMagnetDownloads(downloads) {
   return { rows, hidden: [...hidden], handoffs, forget };
 }
 
+// Finished rows from Garia's history that aria2 no longer knows, in front of
+// aria2's own stopped rows: they finished earlier. A gid aria2 still has, live
+// or stopped, is aria2's row and newer.
+export function withHistory(stopped, live, history) {
+  if (!Array.isArray(history) || !history.length) return stopped;
+  const known = new Set([...live, ...stopped].map((dl) => dl.gid));
+  const old = history.filter((dl) => dl?.gid && !known.has(dl.gid));
+  return old.length ? [...old, ...stopped] : stopped;
+}
+
 export function quietCaptureDir({
   quietMode = false,
   quietCategoryId = "",

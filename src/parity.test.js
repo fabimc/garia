@@ -121,6 +121,7 @@ import {
   magnetDisplayName,
   announcesCompletion,
   collapseMagnetDownloads,
+  withHistory,
   revealPath,
 } from "./parity.js";
 
@@ -1273,4 +1274,20 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.equal(failedEmpty.action?.id, "new-download");
   assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
+});
+
+test("finished rows from earlier runs come back only where aria2 has none", () => {
+  const old = { gid: "old", status: "complete" };
+  const seeding = { gid: "seed", status: "complete" };
+  const again = { gid: "again", status: "complete" };
+  const stopped = [{ gid: "again", status: "complete" }, { gid: "now", status: "complete" }];
+  const live = [{ gid: "seed", status: "active", seeder: "true" }];
+
+  const merged = withHistory(stopped, live, [old, seeding, again]);
+  assert.deepEqual(merged.map((dl) => dl.gid), ["old", "again", "now"]);
+  assert.equal(merged[1], stopped[0], "aria2's own row wins");
+
+  assert.equal(withHistory(stopped, live, []), stopped);
+  assert.equal(withHistory(stopped, live, undefined), stopped);
+  assert.equal(withHistory(stopped, [], [again]), stopped);
 });

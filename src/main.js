@@ -90,6 +90,7 @@ import {
   followedByGids,
   announcesCompletion,
   collapseMagnetDownloads,
+  withHistory,
   revealPath,
   diskConflictLabel,
   explicitMagnetUri,
@@ -4892,14 +4893,34 @@ function withShape(dl) {
   return out;
 }
 
+// Finished downloads from earlier runs, which aria2 forgot when it stopped.
+// Rust writes them down as they finish (history.rs). Asked by revision, so an
+// unchanged history is one number a tick.
+let finishedHistory = { rev: 0, list: [] };
+
+async function fetchHistory() {
+  const invoker = window.__TAURI__?.core?.invoke;
+  if (typeof invoker !== "function") return finishedHistory.list;
+  try {
+    const got = await invoker("download_history", { rev: finishedHistory.rev });
+    if (Array.isArray(got?.entries)) finishedHistory = { rev: got.rev, list: got.entries };
+  } catch (err) {
+    console.error(err);
+  }
+  return finishedHistory.list;
+}
+
 // The three lists, as aria2 has them right now, each row with its files.
 // Usually one round trip: the counts, the active list and the queue. A second
 // only when something needs its files asked for, or the stopped list moved.
 async function fetchLists() {
-  const [statA, activeA, waitingA] = await rpcBatch([
-    ["aria2.getGlobalStat", []],
-    ["aria2.tellActive", [KEYS]],
-    ["aria2.tellWaiting", [0, LIST_MAX, KEYS]],
+  const [[statA, activeA, waitingA], kept] = await Promise.all([
+    rpcBatch([
+      ["aria2.getGlobalStat", []],
+      ["aria2.tellActive", [KEYS]],
+      ["aria2.tellWaiting", [0, LIST_MAX, KEYS]],
+    ]),
+    fetchHistory(),
   ]);
   const stat = resultOf(statA);
   const live = [...resultOf(activeA), ...resultOf(waitingA)];
@@ -4933,7 +4954,7 @@ async function fetchLists() {
   // that finished in between is in both. The newer word wins. A row whose
   // files could not be asked for is one aria2 forgot in between, and without
   // them it has no name to show — it is gone by the next tick anyway.
-  const stopped = stoppedCache.list;
+  const stopped = withHistory(stoppedCache.list, live, kept);
   const done = new Set(stopped.map((dl) => dl.gid));
   const current = (dl) => !done.has(dl.gid) && shapes.has(dl.gid);
   return {
