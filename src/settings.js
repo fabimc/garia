@@ -336,7 +336,7 @@ const DEFAULT_CATEGORIES = [
   { id: "video", name: "Video", extensions: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ts"], folder: "Video", host: "" },
   { id: "music", name: "Music", extensions: ["mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac"], folder: "Music", host: "" },
   { id: "documents", name: "Documents", extensions: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "txt", "csv", "epub", "mobi", "djvu"], folder: "Documents", host: "" },
-  { id: "archives", name: "Archives", extensions: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso"], folder: "Archives", host: "" },
+  { id: "archives", name: "Archives", extensions: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg"], folder: "Archives", host: "" },
 ];
 
 function categorySummary(cat) {

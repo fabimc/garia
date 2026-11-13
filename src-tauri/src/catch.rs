@@ -44,8 +44,8 @@ const FILE_EXTS: &[&str] = &[
     "mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac",
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
     "rtf", "txt", "csv", "epub", "mobi", "djvu",
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso",
-    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
+    "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent", "xip",
     "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat",
 ];
 
@@ -280,21 +280,6 @@ fn is_download_url(s: &str) -> bool {
         || s.starts_with("magnet:")
 }
 
-/// A URL the user pointed at on purpose — a selected line.
-/// Unlike the clipboard, a page counts: they chose the menu action.
-pub fn url_from_selection(text: &str) -> Option<String> {
-    for raw in text.split_whitespace() {
-        let token = tidy_token(raw);
-        if let Some(url) = url_from_garia_link(token) {
-            return Some(url);
-        }
-        if is_download_url(token) {
-            return Some(token.to_string());
-        }
-    }
-    None
-}
-
 /// A magnet handed to the app as its own URL, not wrapped in `garia://`.
 /// Clients open `magnet:?xt=…` directly once we claim the scheme; the
 /// bookmarklet still goes through `url_from_garia_link`.
@@ -368,8 +353,8 @@ mod tests {
     #[test]
     fn query_strings_dont_hide_the_extension() {
         assert_eq!(
-            file_url_in("https://files.example.com/archive.zip?dl=1"),
-            Some("https://files.example.com/archive.zip?dl=1".into())
+            file_url_in("https://files.example.com/app.dmg?dl=1"),
+            Some("https://files.example.com/app.dmg?dl=1".into())
         );
     }
 
@@ -379,7 +364,7 @@ mod tests {
             page_url_in("https://www.youtube.com/watch?v=aqz-KE-bpKQ"),
             Some("https://www.youtube.com/watch?v=aqz-KE-bpKQ".into())
         );
-        assert_eq!(page_url_in("https://files.example.com/archive.zip?dl=1"), None);
+        assert_eq!(page_url_in("https://files.example.com/app.dmg?dl=1"), None);
     }
 
     #[test]
@@ -447,19 +432,6 @@ mod tests {
         // dialog lists it. The clipboard ignores it, because it has no
         // file extension — same rule as a copied web page.
         assert_eq!(file_url_in("ftp://ftp.gnu.org/gnu/"), None);
-    }
-
-    #[test]
-    fn a_selected_page_is_an_instruction() {
-        assert_eq!(
-            url_from_selection("watch https://youtube.com/watch?v=abc later"),
-            Some("https://youtube.com/watch?v=abc".into())
-        );
-        assert_eq!(
-            url_from_selection("magnet:?xt=urn:btih:abc"),
-            Some("magnet:?xt=urn:btih:abc".into())
-        );
-        assert_eq!(url_from_selection("nothing here"), None);
     }
 
     #[test]

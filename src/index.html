@@ -1370,10 +1370,7 @@
                     </button>
                 </div>
                 <div class="modal-body setup-body">
-                    <p class="setup-lead setup-generic">
-                        Four things to check before the first download.
-                    </p>
-                    <p class="setup-lead setup-linux-only">
+                    <p class="setup-lead">
                         Linux / Omarchy: four quick checks before your first download.
                     </p>
                     <div class="setup-row">
@@ -1388,22 +1385,9 @@
                             </button>
                         </div>
                         <p id="setup-dir" class="setup-value is-path">—</p>
-                        <p class="field-hint setup-generic">New files are saved here.</p>
-                        <p class="field-hint setup-linux-only">
+                        <p class="field-hint">
                             New downloads go here. Confirm this location or choose another before adding a link.
                         </p>
-                    </div>
-                    <div class="setup-row setup-generic">
-                        <div class="modal-label">Categories</div>
-                        <label class="field-check" for="setup-categories">
-                            <input type="checkbox" id="setup-categories" />
-                            <span>Sort files into folders by type</span>
-                        </label>
-                        <p id="setup-categories-hint" class="field-hint"></p>
-                    </div>
-                    <div class="setup-row setup-generic">
-                        <div class="modal-label">Video pages</div>
-                        <p id="setup-video" class="setup-value">Checking…</p>
                     </div>
                     <div class="setup-row">
                         <div class="setup-row-head">
@@ -1416,12 +1400,7 @@
                                 Show extension folder
                             </button>
                         </div>
-                        <p class="field-hint setup-generic">
-                            Load the folder as an unpacked extension in Chrome,
-                            Edge, Brave, Arc, or Firefox. Or drag the bookmarklet
-                            to your bookmarks bar.
-                        </p>
-                        <p class="field-hint setup-linux-only">
+                        <p class="field-hint">
                             In Omarchy Chromium, open <code>chrome://extensions</code>,
                             enable Developer mode, choose Load unpacked, then select
                             the folder opened by this button.
@@ -1429,15 +1408,9 @@
                             ·
                             <a href="https://github.com/fabimc/garia#linux" target="_blank" rel="noreferrer">Omarchy install notes</a>
                         </p>
-                        <a
-                            id="setup-bookmarklet"
-                            class="bookmarklet setup-generic"
-                            href="javascript:void(open('garia://add?url='+encodeURIComponent(location.href)))"
-                            >Send this page to Garia</a
-                        >
                         <p id="setup-extension-error" class="error hidden"></p>
                     </div>
-                    <div class="setup-row setup-linux-only">
+                    <div class="setup-row">
                         <div class="setup-row-head">
                             <div class="modal-label">Tray and login</div>
                             <button type="button" class="btn-secondary" id="setup-settings">
@@ -1451,7 +1424,7 @@
                             autostart are optional in Settings.
                         </p>
                     </div>
-                    <div class="setup-row setup-linux-only">
+                    <div class="setup-row">
                         <div class="setup-row-head">
                             <div class="modal-label">Keyboard shortcuts</div>
                             <button type="button" class="btn-secondary" id="setup-help">

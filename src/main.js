@@ -61,8 +61,6 @@ import {
   templateSummary,
   rememberedQualityRule,
   newPackageId,
-  formatSetupCategoryHint,
-  setupCategoriesPatch,
   formatSpeedLimitScope,
   filterClipboardUrls,
   quietCaptureSkipsConfirm,
@@ -285,7 +283,7 @@ const FOLDERS = {
   Music: ["mp3", "flac", "wav", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "alac"],
   Documents: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
               "rtf", "txt", "csv", "epub", "mobi", "djvu"],
-  Archives: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso"],
+  Archives: ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg"],
 };
 
 const DEFAULT_CATEGORIES = Object.entries(FOLDERS).map(([name, extensions]) => ({
@@ -800,7 +798,7 @@ function renderVideoTools() {
 const DIRECT_EXTS = new Set([
   ...Object.values(FOLDERS).flat(),
   "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "torrent",
-  "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat",
+  "json", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "dat", "xip",
 ]);
 
 // Worth asking yt-dlp about? Anything that isn't already a file, a magnet, or
@@ -1514,7 +1512,7 @@ const ROW_ICONS = {
 };
 
 const ARCHIVE_EXTS = new Set([
-  ...FOLDERS.Archives, "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img",
+  ...FOLDERS.Archives, "exe", "msi", "deb", "rpm", "apk", "jar", "bin", "img", "xip",
 ]);
 
 function fileKind(dl) {
@@ -7420,18 +7418,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const setupOverlay = document.getElementById("setup-overlay");
   const setupDir = document.getElementById("setup-dir");
-  const setupVideo = document.getElementById("setup-video");
-  const setupCategories = document.getElementById("setup-categories");
-  const setupCategoriesHint = document.getElementById("setup-categories-hint");
   const setupExtError = document.getElementById("setup-extension-error");
 
   function paintSetup() {
     setupDir.textContent = settings.downloadDir || "—";
-    const { text, missing } = videoToolsSummary();
-    setupVideo.textContent = text;
-    setupVideo.classList.toggle("is-missing", missing);
-    setupCategories.checked = settings.smartFolders === true;
-    setupCategoriesHint.textContent = formatSetupCategoryHint(settings.categories);
   }
 
   function openSetup() {
@@ -7439,11 +7429,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     setupExtError.textContent = "";
     paintSetup();
     openOverlay(setupOverlay, { focus: document.getElementById("setup-done"), close: dismissSetup });
-    if (!videoToolsLoaded) {
-      loadVideoTools().then(() => {
-        if (!setupOverlay.classList.contains("hidden")) paintSetup();
-      });
-    }
   }
 
   async function dismissSetup() {
@@ -7460,25 +7445,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("setup-done").addEventListener("click", () => dismissSetup());
   setupOverlay.addEventListener("click", (e) => {
     if (e.target === setupOverlay) dismissSetup();
-  });
-  setupCategories.addEventListener("change", async () => {
-    const enabled = setupCategories.checked;
-    const patch = setupCategoriesPatch({
-      enabled,
-      categories: settings.categories,
-      starters: DEFAULT_CATEGORIES,
-    });
-    try {
-      await saveSettingsPatch(patch);
-      paintSetup();
-      // Settings reaches the sidebar through settings-changed. This save
-      // is in the same window, so the list is told here as well.
-      renderCategoryNav();
-      applyFilter(listEl);
-    } catch (err) {
-      console.error(err);
-      setupCategories.checked = settings.smartFolders === true;
-    }
   });
   document.getElementById("setup-browse").addEventListener("click", async () => {
     const pick = window.__TAURI__?.dialog?.open;
@@ -7514,13 +7480,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       setupExtError.classList.remove("hidden");
     }
   });
-  document.getElementById("setup-bookmarklet").addEventListener("click", (e) => {
-    e.preventDefault();
-  });
   setupOverlay.addEventListener("click", async (e) => {
     const link = e.target.closest("a[href]");
     if (!link || !window.__TAURI__?.opener?.openUrl) return;
-    if (link.classList.contains("bookmarklet")) return;
     const href = link.getAttribute("href") || "";
     if (!/^https?:/i.test(href)) return;
     e.preventDefault();

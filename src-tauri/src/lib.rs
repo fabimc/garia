@@ -627,7 +627,7 @@ fn default_categories() -> Vec<Category> {
             id: "archives".into(),
             name: "Archives".into(),
             extensions: ext_list(&[
-                "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso",
+                "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst", "iso", "dmg", "pkg",
             ]),
             folder: "Archives".into(),
             host: String::new(),
@@ -771,16 +771,12 @@ fn remote_secret(path: &Path) -> String {
 
 /// 0600, the way the logins file is. A token that anyone with an account on
 /// the machine can read is a token, not a secret.
-#[cfg(unix)]
 fn restrict(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
         eprintln!("[garia] Could not restrict {}: {e}", path.display());
     }
 }
-
-#[cfg(not(unix))]
-fn restrict(_path: &Path) {}
 
 /// The address a phone on the same network would use. Asking the routing
 /// table beats enumerating interfaces: a UDP socket that is *connected* has
@@ -1629,7 +1625,7 @@ fn set_status_item(app: tauri::AppHandle, active: u32) -> Result<(), String> {
         format!("Garia — {active} downloading")
     };
     tray.set_tooltip(Some(&tip))
-        .map_err(|e| format!("could not set the menu-bar tooltip: {e}"))
+        .map_err(|e| format!("could not set the tray tooltip: {e}"))
 }
 
 #[derive(Serialize)]
@@ -4103,7 +4099,7 @@ pub fn run() {
                 Err(e) => eprintln!("[garia] Could not install the menu: {e}"),
             }
             if let Err(e) = install_status_item(app) {
-                eprintln!("[garia] Could not install the menu-bar extra: {e}");
+                eprintln!("[garia] Could not install the tray icon: {e}");
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {

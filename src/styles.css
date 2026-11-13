@@ -1565,17 +1565,16 @@ html.in-app .statusbar {
 
 /* In the app, dialogs hang from the titlebar as a sheet.
    The browser mock stays a centered overlay — it has no titlebar to attach to.
-   38px clears the traffic lights; the sheet is centered, so it never
-   reaches them on the min window. */
+   Native decorations sit above the webview, so only a small gutter is needed. */
 html.in-app .modal-overlay {
     align-items: flex-start;
-    padding: 38px 20px 20px;
+    padding: 12px 20px 20px;
 }
 
 html.in-app .modal {
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     border-top-color: transparent;
-    max-height: calc(100vh - 58px);
+    max-height: calc(100vh - 32px);
     animation: sheet-down 0.18s ease-out;
 }
 
@@ -1861,15 +1860,6 @@ html.in-app .modal {
     gap: 0.3rem;
     padding-top: 0.85rem;
     border-top: 1px solid var(--border);
-}
-.setup-generic {
-    display: none;
-}
-.setup-linux-only {
-    display: block;
-}
-.setup-row.setup-linux-only {
-    display: flex;
 }
 .setup-row:first-of-type {
     padding-top: 0;

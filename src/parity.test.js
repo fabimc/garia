@@ -875,14 +875,6 @@ test("turning categories on seeds starters only when the list is empty", () => {
   assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
 });
 
-test("the welcome sheet is where categories are introduced", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /Four things to check before the first download/);
-  assert.match(html, /id="setup-categories"/);
-  assert.match(html, /Sort files into folders by type/);
-  assert.match(html, /id="setup-categories-hint"/);
-});
-
 test("Linux first-run presents the Omarchy checklist", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
@@ -894,8 +886,7 @@ test("Linux first-run presents the Omarchy checklist", () => {
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
-  assert.match(css, /\.setup-generic/);
-  assert.match(css, /\.setup-linux-only/);
+  assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
