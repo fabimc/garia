@@ -14,6 +14,7 @@ use tauri::{Emitter, Manager};
 mod catch;
 mod file_priorities;
 mod ftp;
+mod history;
 mod logins;
 mod schedule;
 
@@ -986,8 +987,18 @@ fn aria2_call(
         params
     };
 
+    // A finished row from an earlier run is one aria2 has never heard of.
+    let asked = matches!(
+        method,
+        "aria2.removeDownloadResult" | "aria2.tellStatus" | "system.multicall"
+    )
+    .then(|| params.clone());
     let _up = aria2.restarting.read().unwrap_or_else(|e| e.into_inner());
-    let out = aria2_request(aria2.port, &aria2.secret(), method, params)?;
+    let mut out = aria2_request(aria2.port, &aria2.secret(), method, params);
+    if let (Some(asked), Some(history)) = (asked, app.try_state::<history::History>()) {
+        out = history.answer(method, &asked, out);
+    }
+    let out = out?;
 
     if holding {
         if let Some(gid) = schedule::gid_of(&out) {
@@ -1285,6 +1296,13 @@ fn aria2_endpoint(state: tauri::State<Aria2>) -> String {
     format!("127.0.0.1:{}", state.port)
 }
 
+/// Finished rows from earlier runs, or only the revision when the caller
+/// already has it — the list asks every tick.
+#[tauri::command]
+fn download_history(history: tauri::State<history::History>, rev: u64) -> history::Snapshot {
+    history.snapshot(rev)
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<SettingsState>) -> Settings {
     state
@@ -1412,7 +1430,7 @@ fn save_settings_blocking(
     schedule_tick(&app);
 
     if jar_changed || remote_changed || proxy_changed {
-        restart_aria2(&aria2, &settings, next_secret).map_err(|e| {
+        restart_aria2(&aria2, &app.state::<history::History>(), &settings, next_secret).map_err(|e| {
             format!("The settings are saved, but {e}. Unfinished downloads are in the session file.")
         })?;
     }
@@ -1555,7 +1573,7 @@ fn commit(
 
     if before != after {
         let current = settings.current.lock().map(|s| s.clone()).unwrap_or_default();
-        restart_aria2(aria2, &current, None).map_err(|e| {
+        restart_aria2(aria2, &app.state::<history::History>(), &current, None).map_err(|e| {
             format!("The login is saved, but {e}. It will be in force from the next launch.")
         })?;
     }
@@ -2026,6 +2044,100 @@ fn spawn_schedule_watch(app: tauri::AppHandle) {
         schedule_tick(&app);
         std::thread::sleep(schedule::TICK);
     });
+}
+
+/// Writes finished downloads down as they finish, whether or not the window
+/// is open to poll. A SIGTERM never reaches Quit, so Quit cannot be the moment
+/// the history is saved.
+fn spawn_history_watch(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut mark = String::new();
+        loop {
+            if let (Some(aria2), Some(history)) =
+                (app.try_state::<Aria2>(), app.try_state::<history::History>())
+            {
+                record_finished(&aria2, &history, Some(&mut mark));
+            }
+            std::thread::sleep(history::TICK);
+        }
+    });
+}
+
+/// Every finished download aria2 has that the history has not. Seeding rows
+/// are read every time, since aria2 never saves them to the session. The
+/// stopped list is read again only when aria2's stopped counts moved since
+/// `mark` — a long one is most of what aria2 knows. No mark reads it now.
+fn record_finished(aria2: &Aria2, history: &history::History, mark: Option<&mut String>) {
+    let secret = aria2.secret();
+    let ask = |method: &str, params: serde_json::Value| {
+        aria2_request(aria2.port, &secret, method, params)
+            .ok()?
+            .get("result")
+            .cloned()
+    };
+    let first = |answer: &serde_json::Value| answer.as_array()?.first().cloned();
+
+    let Some(answers) = ask(
+        "system.multicall",
+        serde_json::json!([[
+            { "methodName": "aria2.getGlobalStat", "params": [] },
+            { "methodName": "aria2.tellActive", "params": [history::PEEK_KEYS] },
+        ]]),
+    ) else {
+        return;
+    };
+    let (Some(stat), Some(active)) = (
+        answers.get(0).and_then(first),
+        answers.get(1).and_then(first),
+    ) else {
+        return;
+    };
+    let key = format!(
+        "{}/{}",
+        as_str(&stat, "numStopped"),
+        as_str(&stat, "numStoppedTotal")
+    );
+
+    let mut rows: Vec<serde_json::Value> = active.as_array().cloned().unwrap_or_default();
+    if mark.as_deref() != Some(&key) {
+        let Some(stopped) = ask(
+            "aria2.tellStopped",
+            serde_json::json!([0, history::MAX_ENTRIES, history::PEEK_KEYS]),
+        ) else {
+            return;
+        };
+        rows.extend(stopped.as_array().cloned().unwrap_or_default());
+    }
+    let gids: Vec<String> = rows
+        .iter()
+        .filter(|row| history::finished(row))
+        .map(|row| as_str(row, "gid"))
+        .filter(|gid| history.wants(gid))
+        .collect();
+
+    if !gids.is_empty() {
+        let calls: Vec<serde_json::Value> = gids
+            .iter()
+            .map(|gid| {
+                serde_json::json!({ "methodName": "aria2.tellStatus", "params": [gid, history::KEYS] })
+            })
+            .collect();
+        let Some(answers) = ask("system.multicall", serde_json::json!([calls])) else {
+            return;
+        };
+        let full = answers
+            .as_array()
+            .map(|list| list.iter().filter_map(first).collect::<Vec<_>>())
+            .unwrap_or_default();
+        if let Err(e) = history.record(full, schedule::epoch_now()) {
+            // The mark stays where it was, so the next tick tries again.
+            eprintln!("[garia] Could not save the download history: {e}");
+            return;
+        }
+    }
+    if let Some(mark) = mark {
+        *mark = key;
+    }
 }
 
 fn schedule_tick(app: &tauri::AppHandle) {
@@ -3703,10 +3815,14 @@ fn spawn_aria2(
 /// has never seen is an Unauthorized and a lost queue.
 fn restart_aria2(
     aria2: &Aria2,
+    history: &history::History,
     settings: &Settings,
     next_secret: Option<String>,
 ) -> Result<(), String> {
     let _down = aria2.restarting.write().unwrap_or_else(|e| e.into_inner());
+
+    // The next aria2 starts with an empty stopped list.
+    record_finished(aria2, history, None);
 
     // kill() is a SIGKILL and aria2 would never get to write the session.
     if let Err(e) = aria2_request(
@@ -3895,6 +4011,7 @@ pub fn run() {
             trash_files,
             get_settings,
             save_settings,
+            download_history,
             get_logins,
             save_login,
             delete_login,
@@ -4060,6 +4177,7 @@ pub fn run() {
                 pending: Mutex::new(Vec::new()),
             });
             app.manage(schedule::Schedule::new(schedule::state_file(&dir)));
+            app.manage(history::History::load(dir.join("history.json")));
             app.manage(DrainWatch {
                 seen_work: Mutex::new(false),
                 cancel: Mutex::new(None),
@@ -4131,6 +4249,7 @@ pub fn run() {
             // Closing the window no longer stops it — only Quit does — so a
             // schedule that opens at 2am has a process to talk to.
             spawn_schedule_watch(app.handle().clone());
+            spawn_history_watch(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -4147,6 +4266,9 @@ pub fn run() {
             match event {
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app.try_state::<Aria2>() {
+                        if let Some(history) = app.try_state::<history::History>() {
+                            record_finished(&state, &history, None);
+                        }
                         // kill() is a SIGKILL, so aria2 never gets to write the
                         // session itself — ask it to before pulling the plug.
                         if let Err(e) = aria2_request(

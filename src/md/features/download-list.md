@@ -6,6 +6,7 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 
 - Show progress without making the user watch the engine.
 - Keep unfinished work across relaunch via aria2's session file.
+- Keep finished rows across relaunch via Garia's own history file — not the session.
 - Route new files into category folders at add time — never move files already on disk.
 
 ## Statuses Garia invents
@@ -25,6 +26,20 @@ Verified / Checking stay on `.dl-verified`.
 
 Long names use a head + tail split so the extension stays visible at any Name
 column width (CSS ellipsis on the head; tail never shrinks).
+
+## Finished history
+
+aria2 keeps stopped downloads in memory only. Its session file holds unfinished work. A quit, a SIGTERM, or an aria2 restart for new settings empties its stopped list.
+
+- Rust keeps finished rows in `history.json` in the app data folder (`src-tauri/src/history.rs`). It does not use the session file, and the session file does not use it.
+- Finished means: `complete`, a seeding torrent, or a `removed` torrent that has all its bytes (stopped seeding). A magnet's metadata download is not a finished row.
+- A watcher thread asks aria2 every second and writes each new finished row at once (temp file, fsync, rename). Quit and an aria2 restart also record before aria2 stops. Do not depend on a graceful Quit — a SIGTERM must keep every row seen before it.
+- The list shows a history row only when aria2 does not know its gid. aria2's own row is newer and wins.
+- `aria2.removeDownloadResult` through `aria2_rpc` also forgets the gid from history. That is how Delete and Clear completed reach it. For a gid only the history knows, the call answers OK. A forgotten gid is not recorded again in this run.
+- `aria2.tellStatus` on a gid only the history knows answers with the saved row, so the inspector and checksum check still work.
+- Clear completed keeps the files on disk. It removes rows from aria2 and from history.
+- The history keeps the newest 1000 rows (aria2's own `max-download-result`).
+- A remote client that purges a result through aria2 directly does not reach the history; the row comes back at the next launch.
 
 ## Categories
 
