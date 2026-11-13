@@ -7,6 +7,7 @@ The keyboard path covers adding a URL, filtering the library, pausing and resumi
 - `keyboard-add` opens Add download, submits a URL, and shows its row.
 - `keyboard-filter` moves among sidebar filters with arrow keys and applies one with Enter.
 - `keyboard-pause-resume` pauses and resumes the focused row with Space while preserving focus.
+- `keyboard-row-controls` activates a focused row button (Retry, Pause/Resume, Show in folder, Delete, the name) with Enter or Space instead of running the list shortcut on the selection.
 - `keyboard-inspector` opens details with the platform shortcut.
 - `keyboard-escape` closes a dialog before the inspector.
 - `keyboard-help` opens Help with the platform shortcut and shows platform-aware keyboard and file-location guidance.
@@ -29,6 +30,7 @@ Preconditions:
 - **Add by keyboard.** Run `./helpers/control-garia browser press --key Control+n`. `#modal-overlay` is visible and `#modal-url-input` has focus. Fill `#modal-url-input` with a unique URL and press `Control+Enter`; the dialog closes and one matching row appears.
 - **Filter by keyboard.** Focus `#filter-bar .nav-item[data-filter=all]`, press `ArrowDown`, then `Enter`. The Torrents filter is active and the focus ring remains visible.
 - **Pause and resume.** Focus an active `#download-list [role=option]`, press `ArrowDown` to select it, then press `Space`. The row becomes paused and retains focus. Press `Space` again; it becomes active and retains focus.
+- **Row controls.** Select the active Ubuntu row, press `Control+f`, then Tab to `[data-gid="cccc4444"] [data-action="retry"]` and press `Enter`. RPC sees `aria2.addUri`, `#detail-pane` stays hidden, and the Ubuntu row stays active. Space on another row's Retry behaves the same. `node --test helpers/keyboard-activation.test.mjs` covers every row control with both keys; it launches and cleans up its own instance, so run it with no instance live.
 - **Inspector and Escape.** With a row selected, press `Control+i` to open the inspector. Press `Control+n`, then `Escape`: the Add dialog closes and the inspector stays open. Press `Escape` again; the inspector closes.
 - **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note.
 - **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, and Help snapshots and screenshots, including `show-in-folder-help.aria.txt`, `.rows.json`, and `.png`.
