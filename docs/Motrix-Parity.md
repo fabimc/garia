@@ -2,7 +2,7 @@
 
 This document compares Garia with the Motrix feature list and records the remaining work needed to close the gaps that matter most for everyday desktop downloading.
 
-This is a product review and implementation plan, not a claim that Garia should copy Motrix feature-by-feature. Garia is a smaller, cross-platform desktop downloader built on aria2, and its goal is to match the workflow users expect from a modern download manager while keeping the app simpler, more focused, and easier to maintain.
+This is a product review and implementation plan, not a claim that Garia should copy Motrix feature-by-feature. Garia is a smaller Linux desktop downloader built on aria2, and its goal is to match the workflow users expect from a modern download manager while keeping the app simpler, more focused, and easier to maintain.
 
 ## Current Garia coverage
 
@@ -16,7 +16,7 @@ Garia already covers a substantial portion of the core Motrix workflow:
 - Torrent controls for file selection, seeding rules, and tracker/peer visibility
 - Video downloads with yt-dlp and ffmpeg merging
 - Checksum verification, login/auth handling, and HTTP proxy support
-- Remote control, tray/dock status indicators, and restart-safe queued downloads
+- Remote control, tray status indicators, and restart-safe queued downloads
 - Notifications and app-layer housekeeping such as retry failed and clear completed
 
 The core Motrix experience is already present in a simplified form: add a download, track progress, catch it from browsers, and let the queue keep working while the app is hidden.
@@ -32,7 +32,7 @@ Priority: high
 - The capture sheet says the link came from the browser and asks for a look at the URL and folder before it starts.
 - A paste or an extension dump of several links is reviewed first. Each row is marked File, Page, Magnet, FTP file, or FTP folder. Files start selected. Pages and folders stay off until they are ticked, so a page is not saved as HTML.
 - All, Files, and None sit on that review. All and Files skip a link that is already in the list.
-- Download all links also picks up embedded video and audio, and links with a download attribute. The same content script does this in Chrome, Firefox, Edge, Brave, and Safari.
+- Download all links also picks up embedded video and audio, and links with a download attribute. The same content script does this in Chromium-based browsers and Firefox.
 
 ### 2. Queue and row actions
 
@@ -69,12 +69,11 @@ Priority: medium
 
 ## Remaining gaps versus Motrix
 
-### 6. Native menu and Safari
+### 6. Native menu
 
 Priority: medium
 
-- Menu, tray, and dock verbs were not extended. Retry Failed and Clear Completed are already on the menu bar, the tray, and the dock menu.
-- Safari still cannot cancel a download the browser has already started, so takeover there remains click capture, the context menu, and the on-page button.
+- Menu and tray verbs were not extended. Retry Failed and Clear Completed are already available from both.
 
 ## Recommended implementation order
 
@@ -94,4 +93,4 @@ Priority: medium
 
 ## Outcome
 
-Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. Capture review, queue chips, media filenames, torrent next steps, and a first-run introduction to categories are in the app. What is left is the Safari takeover limit. Menu, tray, and dock already share Retry Failed and Clear Completed, and no further verbs were added.
+Garia already matches the core Motrix feature set for day-to-day downloading: browser capture, queue controls, video downloads, torrent handling, auth/proxy support, and app-level bandwidth management. Capture review, queue chips, media filenames, torrent next steps, and a first-run introduction to categories are in the app. Menu and tray already share Retry Failed and Clear Completed, and no further verbs were added.
