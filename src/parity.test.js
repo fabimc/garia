@@ -1276,6 +1276,99 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
 });
 
+test("a poll completes an interrupted large-list filter without repeating clean passes", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const filter = source.slice(source.indexOf("async function applyFilterAsync("), source.indexOf("// Assigned from DOMContentLoaded"));
+  const poll = source.slice(source.indexOf("async function poll(listEl)"), source.indexOf("async function pollAndSync()"));
+
+  for (const [needle, activeFilter, expected] of [
+    ["file-49", "all", 11],
+    ["", "all", 500],
+    ["", "active", 0],
+  ]) {
+    const classes = (...initial) => {
+      const values = new Set(initial);
+      return {
+        contains: (value) => values.has(value),
+        add: (value) => values.add(value),
+        remove: (value) => values.delete(value),
+        toggle(value, force) {
+          if (force) values.add(value);
+          else values.delete(value);
+        },
+      };
+    };
+    const downloads = Array.from({ length: 500 }, (_, i) => ({ gid: String(i), status: "paused" }));
+    const rows = downloads.map((dl, i) => ({
+      dataset: { gid: dl.gid, status: dl.status, name: `file-${i}.bin` },
+      classList: classes("dl-item", ...(needle ? [] : ["hidden"])),
+    }));
+    const sectionCount = { textContent: "" };
+    const section = {
+      dataset: { section: "paused" },
+      classList: classes("dl-section"),
+      querySelector: () => sectionCount,
+    };
+    const listEl = {
+      children: [section, ...rows],
+      classList: classes(),
+      querySelectorAll: () => rows,
+    };
+    const elements = {
+      "view-count": { textContent: "" },
+      "empty-state": { classList: classes() },
+      "empty-title": {},
+      "empty-sub": {},
+    };
+    let resume;
+    let yields = 0;
+    let applied = 0;
+    const errors = [];
+    const noop = () => {};
+    const context = vm.createContext({
+      listEl, nameFilter: needle, activeFilter,
+      filterDirty: false, filterGeneration: 0, filterPending: false, pollDomLock: null,
+      LARGE_LIST_THRESHOLD: 64, FILTER_BATCH_SIZE: 16, RENDER_BATCH_SIZE: 8,
+      document: { hidden: false, getElementById: (id) => elements[id] || null },
+      window: {}, console: { error: (error) => errors.push(error) },
+      yieldToPaint: () => ++yields === 1 ? new Promise((resolve) => { resume = resolve; }) : Promise.resolve(),
+      sidebarViewOf: (status) => status,
+      formatEmptyQueueState: () => ({ title: "", sub: "" }),
+      modGlyph: () => "", connState: "ok", schedule: {}, settings: {},
+      onFilterApplied: () => { applied++; },
+      fetchLists: async () => ({ active: [], waiting: downloads, stopped: [] }),
+      loadSchedule: noop, setConn: noop, renderSchedule: noop, renderQueueToggle: noop,
+      withSeeding: (dl) => dl, rawPaths: new Map(), learnOptions: noop,
+      optionsAsked: new Set(), rowLimits: new Map(), rowChecksums: new Map(), rowReferrers: new Map(),
+      rememberMagnets: noop, collapseJobs: (dl) => dl,
+      collapseMagnetDownloads: (dl) => ({ rows: dl, handoffs: [], forget: [] }),
+      rememberedMagnet: noop, removing: new Set(), runPendingMerges: noop,
+      activeCategories: () => [], snapshot: new Map(), firstPoll: false,
+      announcesCompletion: () => false, isTorrent: () => false, categoryIdFor: noop,
+      rowEls: new Map(rows.map((row) => [row.dataset.gid, row])), updateItemEl: noop,
+      pollQueued: true, prunePackages: noop, categoryMemo: new Map(), downloadTags: new Map(),
+      statusRank: () => 0, sectionEl: () => section, reorderHold: true,
+      sectionEls: new Map([["paused", section]]), renderCounts: noop, syncStatusItem: noop,
+      advanceFilePriorities: noop, refreshDetail: noop,
+    });
+    vm.runInContext(`${filter}\n${poll}`, context);
+    const interrupted = context.applyFilterAsync(listEl);
+    assert.equal(typeof resume, "function");
+    await context.poll(listEl);
+    resume();
+    await interrupted;
+
+    assert.deepEqual(errors, []);
+    assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, expected);
+    assert.equal(elements["view-count"].textContent, `${expected} items`);
+    assert.equal(sectionCount.textContent, expected);
+    assert.equal(section.classList.contains("hidden"), activeFilter !== "all" || expected === 0);
+    assert.equal(applied, 1);
+    await context.poll(listEl);
+    assert.equal(applied, 1);
+  }
+});
+
 test("finished rows from earlier runs come back only where aria2 has none", () => {
   const old = { gid: "old", status: "complete" };
   const seeding = { gid: "seed", status: "complete" };

@@ -8,6 +8,7 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 - Keep unfinished work across relaunch via aria2's session file.
 - Keep finished rows across relaunch via Garia's own history file — not the session.
 - Route new files into category folders at add time — never move files already on disk.
+- A poll that interrupts a batched filter pass must finish filtering again, even if no download changed. Rows and counts must agree with the latest search and sidebar view.
 
 ## Statuses Garia invents
 

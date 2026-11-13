@@ -2580,6 +2580,7 @@ const ENGINE_STARTUP_GRACE_MS = 5000;
 // directly.
 let filterDirty = true;
 let filterGeneration = 0;
+let filterPending = false;
 const LARGE_LIST_THRESHOLD = 64;
 const FILTER_BATCH_SIZE = 16;
 const RENDER_BATCH_SIZE = 8;
@@ -2608,6 +2609,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
   }
   const generation = ++filterGeneration;
   filterDirty = false;
+  filterPending = true;
   const items = listEl.querySelectorAll(".dl-item");
   const needle = nameFilter.toLowerCase();
   const catId = activeFilter.startsWith("cat:") ? activeFilter.slice(4) : "";
@@ -2710,6 +2712,7 @@ async function applyFilterAsync(listEl, { waitForPoll = true } = {}) {
     emptyAction.textContent = "";
   }
 
+  filterPending = false;
   onFilterApplied();
 }
 
@@ -5049,7 +5052,7 @@ async function poll(listEl) {
     // the lock through create/update/reorder and the trailing filter pass.
     pollDomLock = new Promise((resolve) => { releasePollDom = resolve; });
     filterGeneration++;
-    if (document.hidden) filterDirty = true;
+    if (filterPending || document.hidden) filterDirty = true;
 
     for (const dl of all) {
       seen.add(dl.gid);
