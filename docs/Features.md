@@ -1,38 +1,39 @@
 # Features
 
 - A welcome sheet on the first launch for the download folder, categories, yt-dlp, and the browser extension — reopen from Help
-- Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from Finder
-- Close the window and downloads keep going; Quit (⌘Q) is what stops them
-- A menu-bar extra while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
-- Right-click the dock icon for the same verbs — New Download, Pause All, Resume All, Stop Queue, Start Queue, Retry Failed, Clear Completed, Open Download Folder
-- A real Mac menu — New Download (⌘N), Open Torrent (⌘O), Settings (⌘,), View → Columns
+- Add downloads by URL, magnet link, `.torrent` file, or an FTP directory — typed, dropped on the window, or opened from the desktop
+- Close the window and downloads keep going; Quit (Ctrl+Q) is what stops them
+- A tray menu while the window is hidden — New Download, Pause All, Stop Queue, and how many are running
+- The tray menu provides New Download, Pause All, Resume All, Stop Queue, Start Queue, Retry Failed, Clear Completed, and Open Download Folder
+- A native Linux menu — New Download (Ctrl+N), Open Torrent (Ctrl+O), Settings (Ctrl+,), View → Columns
 - The window comes back where you left it; launch at login is a switch in Settings
 - File → Open Download Folder, and the same verbs stay in the menu while the window is hidden
-- Select rows, right-click them, and use the keyboard — Space pauses, ⌘⌫ deletes, ⌘C copies the URL
-- Follows the system appearance, including a translucent sidebar; drag a finished file out to Finder
+- Select rows, right-click them, and use the keyboard — Space pauses, Ctrl+Backspace deletes, Ctrl+C copies the URL
+- Follows the system appearance, including a translucent sidebar
 - Check for Updates from the Garia menu, once a signed GitHub release exists
 - Video downloads — paste a video page and pick a quality; the streams go through aria2 like any other file
 - Multi-connection downloads — 16 segments per file
 - Live progress bars, and View → Columns for size, speed, time left, sockets, source, and category on every row
 - Pause and resume downloads
-- Drag a queued download somewhere else in the queue — or move it with ⌥↑ / ⌥↓
+- Drag a queued download somewhere else in the queue — or move it with Alt+↑ / Alt+↓
 - A detail panel on every row — where the bytes come from, where they land, how many sockets are open, and every peer of a torrent
 - Delete a download, and optionally move the file it wrote to the Trash
 - Retry a failed download — the row says why it failed
 - Queued and unfinished downloads survive a restart
-- A notification when a download finishes, and a count on the dock icon for the ones that landed while you were elsewhere
-- Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard, a bookmarklet, and Services → Download with Garia. The extension options page turns click capture, download takeover, and the video button on or off.
+- Finished downloads stay in the list across a restart, a crash, or a SIGTERM until you clear them. Clear Completed keeps the files on disk
+- A notification when a download finishes
+- Catch a download from the browser — click a file, a Download button on a video page, right-click a link, or send the page — plus the clipboard and a bookmarklet. The extension options page turns click capture, download takeover, and the video button on or off.
 - Optional categories — new downloads sorted into folders you name, by file type or by site, starting with Video, Music, Documents, and Archives
 - Add several URLs at once — paste, drop, or send every link on a page from the extension, then uncheck the ones you do not want
 - Expand a uGet-style URL sequence (`file[01-10].zip`) into that same batch review, optionally with mirror URLs for one file
 - Quiet mode and a clipboard file-type filter in Settings → Browser — skip the confirm sheet, only offer the extensions you name, and optionally pin quiet captures to one category folder without turning smart folders on
-- A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, the dock, and the header
-- When the last download finishes: do nothing, sleep, or shut the Mac down — after a 30-second warning
+- A daily download window, a start time on any download, and Stop Queue / Start Queue from the menu, tray, and header
+- When the last download finishes: do nothing, sleep, or shut down — after a 30-second warning
 - Three traffic modes — Full, Medium, Light — switched from the status bar, over everything at once or over the one download that is saturating the line
 - Settings: download folder, categories, what Medium and Light mean, how many files run at once, clipboard catching, an HTTP proxy, and both switches above
 - Torrents you can take part of: tick the files inside one, set each file to High, Normal, Low, or Off, and see seeds, leechers, tracker status, and health. A torrent with nowhere to fetch from says Stalled. The Torrents filter is every magnet and `.torrent`
 - Seed until a share ratio or a time — saved, applied to torrents added after the change, and shown on the torrent itself. Stop seeding is still a button
-- Move a queued download to the top or the end, copy its path, remove it and keep the file, retry every failure, or clear completed rows. Download menu, the dock, and the tray carry Retry Failed and Clear Completed
+- Move a queued download to the top or the end, copy its path, remove it and keep the file, retry every failure, or clear completed rows. The Download menu and tray carry Retry Failed and Clear Completed
 - A cap on one download, in KB/s, separate from Full, Medium, and Light. It stays with that download across a relaunch
 - Downloads behind a login: a saved user name and password per site, custom headers, and a cookie jar exported from the browser
 - An HTTP proxy: host, port, and an optional login — HTTP, HTTPS, and FTP, not BitTorrent peers
