@@ -1209,6 +1209,22 @@ fn schedule_state(
     }
 }
 
+fn hold_for_start(
+    schedule: &schedule::Schedule,
+    gid: &str,
+    mut ask: impl FnMut(&str, serde_json::Value) -> Result<serde_json::Value, String>,
+) {
+    let paused = ask("aria2.forcePause", serde_json::json!([gid]))
+        .ok()
+        .is_some_and(|answer| answer["result"].as_str() == Some(gid))
+        || ask("aria2.tellStatus", serde_json::json!([gid, ["status"]]))
+            .ok()
+            .is_some_and(|answer| answer["result"]["status"].as_str() == Some("paused"));
+    if paused {
+        schedule.hold(gid);
+    }
+}
+
 /// Give one download an hour of its own, or take it away. Setting a time in
 /// the future stops the download now rather than waiting for the next tick —
 /// the click and the effect belong in the same moment — and clearing one lets
@@ -1229,17 +1245,11 @@ fn set_download_start_blocking(
         Some(_) => {
             // forcePause takes a `waiting` download as readily as an `active`
             // one, and both land on `paused` — which is why a queued row and a
-            // running one need no separate handling here.
-            if aria2_request(
-                aria2.port,
-                &secret,
-                "aria2.forcePause",
-                serde_json::json!([gid]),
-            )
-            .is_ok()
-            {
-                schedule.hold(&gid);
-            }
+            // running one need no separate handling here. An add with a start
+            // time is already paused, so confirm that status if pausing fails.
+            hold_for_start(&schedule, &gid, |method, params| {
+                aria2_request(aria2.port, &secret, method, params)
+            });
         }
         None => {
             if run_allowed(&settings) {
@@ -4535,6 +4545,80 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduled_already_paused_download_is_held_and_released_after_relaunch() {
+        let file = std::env::temp_dir().join(format!(
+            "garia-scheduled-add-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&file);
+        let schedule = schedule::Schedule::new(file.clone());
+        schedule.set_start("a", Some(2_000));
+        let mut calls = Vec::new();
+        hold_for_start(&schedule, "a", |method, params| {
+            calls.push((method.to_owned(), params));
+            match method {
+                "aria2.forcePause" => Err("cannot be paused now".into()),
+                "aria2.tellStatus" => Ok(serde_json::json!({"result": {"status": "paused"}})),
+                _ => panic!("unexpected RPC"),
+            }
+        });
+        assert_eq!(
+            calls[0],
+            ("aria2.forcePause".into(), serde_json::json!(["a"]))
+        );
+        assert_eq!(
+            calls[1],
+            ("aria2.tellStatus".into(), serde_json::json!(["a", ["status"]]))
+        );
+
+        let saved = schedule::Schedule::new(file.clone()).snapshot();
+        assert!(saved.held.contains("a"));
+        let row = schedule::Row {
+            gid: "a".into(),
+            status: "paused".into(),
+        };
+        assert_eq!(
+            schedule::decide(&row, schedule::allowed("a", true, &saved.starts, 1_999), true, false),
+            schedule::Act::Leave
+        );
+        assert_eq!(
+            schedule::decide(&row, schedule::allowed("a", true, &saved.starts, 2_000), true, false),
+            schedule::Act::Release
+        );
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn scheduled_hold_requires_a_successful_pause_or_confirmed_paused_status() {
+        let file = std::env::temp_dir().join(format!(
+            "garia-scheduled-hold-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&file);
+        let schedule = schedule::Schedule::new(file.clone());
+
+        hold_for_start(&schedule, "running", |method, _| {
+            assert_eq!(method, "aria2.forcePause");
+            Ok(serde_json::json!({"result": "running"}))
+        });
+        assert!(schedule.snapshot().held.contains("running"));
+
+        for status in ["active", "waiting", "complete"] {
+            hold_for_start(&schedule, status, |method, _| match method {
+                "aria2.forcePause" => Err("request failed".into()),
+                "aria2.tellStatus" => Ok(serde_json::json!({"result": {"status": status}})),
+                _ => panic!("unexpected RPC"),
+            });
+            assert!(!schedule.snapshot().held.contains(status));
+        }
+        hold_for_start(&schedule, "unknown", |_, _| Err("request failed".into()));
+        assert!(!schedule.snapshot().held.contains("unknown"));
+        hold_for_start(&schedule, "invalid", |_, _| Ok(serde_json::json!({"error": {}})));
+        assert!(!schedule.snapshot().held.contains("invalid"));
+        let _ = std::fs::remove_file(file);
+    }
 
     #[test]
     fn rpc_args_put_the_token_first() {
