@@ -121,15 +121,45 @@ import {
   magnetDisplayName,
   announcesCompletion,
   collapseMagnetDownloads,
+  withHistory,
   revealPath,
+  purgeFailures,
 } from "./parity.js";
 
-test("disk-image extensions are labelled as such and archive hints stay readable", () => {
+test("purge accepts a missing result only after successful removal and retries", () => {
+  const missing = { error: "GID queued is not found" };
+  const removed = new Set(["queued"]);
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, false), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, true), {
+    left: [], reason: "",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], new Set(), true), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "GID other is not found" }], removed, true), {
+    left: ["queued"], reason: "GID other is not found",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "Permission denied" }], removed, true), {
+    left: ["queued"], reason: "Permission denied",
+  });
+});
+
+test("purge reports only genuine remaining errors in mixed batches", () => {
+  assert.deepEqual(purgeFailures(
+    ["queued", "stuck", "done"],
+    [{ error: "GID queued is not found" }, { error: "Still active" }, { result: "OK" }],
+    new Set(["queued", "stuck"]),
+    true,
+  ), { left: ["stuck"], reason: "Still active" });
+});
+
+test("Linux disk-image extensions are labelled as such and archive hints stay readable", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
-  assert.equal(classifyIntakeUrl("https://ex.test/app.dmg", true).content, "disk");
   assert.equal(classifyIntakeUrl("https://ex.test/app.img", true).contentLabel, "Disk image");
   assert.equal(contentKindFromUrl("https://cdn.test/iso.app"), "other");
-  assert.equal(mimeHintFromExt("dmg"), "application/x-apple-diskimage");
+  assert.equal(mimeHintFromExt("iso"), "application/x-iso9660-image");
   const rows = [
     { file: true, content: "archive", queued: false },
     { file: true, content: "video", queued: false },
@@ -307,9 +337,9 @@ test("priority labels match the detail panel wording", () => {
 });
 
 test("empty queue copy follows filter and connection state", () => {
-  const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
+  const fresh = formatEmptyQueueState({ modNHint: "Ctrl+N" });
   assert.equal(fresh.title, "No downloads yet");
-  assert.match(fresh.sub, /⌘N/);
+  assert.match(fresh.sub, /Ctrl\+N/);
   assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
   assert.equal(
@@ -421,7 +451,7 @@ test("intake content kinds and filters name video, archive, and disk links", () 
   assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
   assert.equal(contentKindFromUrl("https://cdn.test/os.iso"), "disk");
   assert.equal(mimeHintFromExt("mp4"), "video/mp4");
-  const isFile = (url) => /\.(mp4|zip|pdf|iso|dmg)(\?|$)/i.test(url);
+  const isFile = (url) => /\.(mp4|zip|pdf|iso|img)(\?|$)/i.test(url);
   const rows = reviewIntake([
     "https://cdn.test/clip.mp4",
     "https://cdn.test/pack.zip",
@@ -582,87 +612,6 @@ test("the extension collector matches the shared page-capture helper", () => {
     JSON.stringify(sandbox.gariaCaptureTargets(sample)),
     JSON.stringify(captureTargetsFromPage(sample)),
   );
-});
-
-test("large-list filters preserve interruptions and concurrent invalidations", async () => {
-  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
-  const start = source.indexOf("async function applyFilterAsync(");
-  const end = source.indexOf("\n// Assigned from DOMContentLoaded", start);
-  assert.ok(start >= 0 && end > start);
-  const classes = (...initial) => {
-    const values = new Set(initial);
-    return {
-      contains: (name) => values.has(name),
-      add: (name) => values.add(name),
-      remove: (name) => values.delete(name),
-      toggle: (name, force) => force ? values.add(name) : values.delete(name),
-    };
-  };
-  const count = { textContent: "" };
-  const sectionCount = { textContent: "" };
-  const header = {
-    classList: classes("dl-section"),
-    querySelector: () => sectionCount,
-  };
-  const rows = Array.from({ length: 500 }, (_, i) => ({
-    classList: classes("dl-item"),
-    dataset: { status: "paused", name: `file-${i}.bin` },
-  }));
-  const listEl = {
-    children: [header, ...rows],
-    querySelectorAll: () => rows,
-  };
-  const yields = [];
-  const context = vm.createContext({
-    listEl, filterDirty: true, filterGeneration: 0, pollDomLock: null,
-    document: {
-      hidden: false,
-      getElementById: (id) => id === "view-count" ? count
-        : id === "empty-state" ? { classList: classes() } : null,
-    },
-    nameFilter: "file-49", activeFilter: "all",
-    LARGE_LIST_THRESHOLD: 64, FILTER_BATCH_SIZE: 16,
-    sidebarViewOf: (status) => status,
-    yieldToPaint: () => new Promise((resolve) => yields.push(resolve)),
-    onFilterApplied: () => {},
-  });
-  vm.runInContext(source.slice(start, end), context);
-  const interrupt = async () => {
-    const pass = context.applyFilterAsync(listEl);
-    assert.equal(yields.length, 1);
-    context.filterGeneration++;
-    yields.shift()();
-    await pass;
-    assert.equal(context.filterDirty, true);
-  };
-  const finish = async (invalidate = false) => {
-    let done = false;
-    const pass = context.applyFilterAsync(listEl).then(() => { done = true; });
-    if (invalidate) context.filterDirty = true;
-    while (!done) {
-      assert.ok(yields.length);
-      yields.shift()();
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    await pass;
-    assert.equal(context.filterDirty, invalidate);
-  };
-
-  await interrupt();
-  await finish();
-  assert.equal(count.textContent, "11 items");
-  assert.equal(sectionCount.textContent, 11);
-  assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, 11);
-
-  context.nameFilter = "";
-  await interrupt();
-  await finish();
-  assert.equal(count.textContent, "500 items");
-  assert.equal(sectionCount.textContent, 500);
-  assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, 500);
-
-  await finish(true);
-  await finish();
 });
 
 test("page capture lists embedded media before links and drops the page itself", () => {
@@ -957,15 +906,7 @@ test("turning categories on seeds starters only when the list is empty", () => {
   assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
 });
 
-test("the welcome sheet is where categories are introduced", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /Four things to check before the first download/);
-  assert.match(html, /id="setup-categories"/);
-  assert.match(html, /Sort files into folders by type/);
-  assert.match(html, /id="setup-categories-hint"/);
-});
-
-test("Linux first-run links the Omarchy checklist without changing other platforms", () => {
+test("Linux first-run presents the Omarchy checklist", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
   assert.match(html, /Linux \/ Omarchy: four quick checks/);
@@ -976,8 +917,7 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
-  assert.match(css, /html\.platform-linux \.setup-generic/);
-  assert.match(css, /html\.platform-linux \.setup-linux-only/);
+  assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
@@ -1359,9 +1299,118 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "Ctrl+N" });
   assert.equal(failedEmpty.title, "No failed downloads");
   assert.equal(failedEmpty.action?.id, "new-download");
-  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
+  assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
+});
+
+test("a poll completes an interrupted large-list filter without repeating clean passes", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const filter = source.slice(source.indexOf("async function applyFilterAsync("), source.indexOf("// Assigned from DOMContentLoaded"));
+  const poll = source.slice(source.indexOf("async function poll(listEl)"), source.indexOf("async function pollAndSync()"));
+
+  for (const [needle, activeFilter, expected] of [
+    ["file-49", "all", 11],
+    ["", "all", 500],
+    ["", "active", 0],
+  ]) {
+    const classes = (...initial) => {
+      const values = new Set(initial);
+      return {
+        contains: (value) => values.has(value),
+        add: (value) => values.add(value),
+        remove: (value) => values.delete(value),
+        toggle(value, force) {
+          if (force) values.add(value);
+          else values.delete(value);
+        },
+      };
+    };
+    const downloads = Array.from({ length: 500 }, (_, i) => ({ gid: String(i), status: "paused" }));
+    const rows = downloads.map((dl, i) => ({
+      dataset: { gid: dl.gid, status: dl.status, name: `file-${i}.bin` },
+      classList: classes("dl-item", ...(needle ? [] : ["hidden"])),
+    }));
+    const sectionCount = { textContent: "" };
+    const section = {
+      dataset: { section: "paused" },
+      classList: classes("dl-section"),
+      querySelector: () => sectionCount,
+    };
+    const listEl = {
+      children: [section, ...rows],
+      classList: classes(),
+      querySelectorAll: () => rows,
+    };
+    const elements = {
+      "view-count": { textContent: "" },
+      "empty-state": { classList: classes() },
+      "empty-title": {},
+      "empty-sub": {},
+    };
+    let resume;
+    let yields = 0;
+    let applied = 0;
+    const errors = [];
+    const noop = () => {};
+    const context = vm.createContext({
+      listEl, nameFilter: needle, activeFilter,
+      filterDirty: false, filterGeneration: 0, filterPending: false, pollDomLock: null,
+      LARGE_LIST_THRESHOLD: 64, FILTER_BATCH_SIZE: 16, RENDER_BATCH_SIZE: 8,
+      document: { hidden: false, getElementById: (id) => elements[id] || null },
+      window: {}, console: { error: (error) => errors.push(error) },
+      yieldToPaint: () => ++yields === 1 ? new Promise((resolve) => { resume = resolve; }) : Promise.resolve(),
+      sidebarViewOf: (status) => status,
+      formatEmptyQueueState: () => ({ title: "", sub: "" }),
+      modGlyph: () => "", connState: "ok", schedule: {}, settings: {},
+      onFilterApplied: () => { applied++; },
+      fetchLists: async () => ({ active: [], waiting: downloads, stopped: [] }),
+      loadSchedule: noop, setConn: noop, renderSchedule: noop, renderQueueToggle: noop,
+      withSeeding: (dl) => dl, rawPaths: new Map(), learnOptions: noop,
+      optionsAsked: new Set(), rowLimits: new Map(), rowChecksums: new Map(), rowReferrers: new Map(),
+      rememberMagnets: noop, collapseJobs: (dl) => dl,
+      collapseMagnetDownloads: (dl) => ({ rows: dl, handoffs: [], forget: [] }),
+      rememberedMagnet: noop, removing: new Set(), runPendingMerges: noop,
+      activeCategories: () => [], snapshot: new Map(), firstPoll: false,
+      announcesCompletion: () => false, isTorrent: () => false, categoryIdFor: noop,
+      rowEls: new Map(rows.map((row) => [row.dataset.gid, row])), updateItemEl: noop,
+      pollQueued: true, prunePackages: noop, categoryMemo: new Map(), downloadTags: new Map(),
+      statusRank: () => 0, sectionEl: () => section, reorderHold: true,
+      sectionEls: new Map([["paused", section]]), renderCounts: noop, syncStatusItem: noop,
+      advanceFilePriorities: noop, refreshDetail: noop,
+    });
+    vm.runInContext(`${filter}\n${poll}`, context);
+    const interrupted = context.applyFilterAsync(listEl);
+    assert.equal(typeof resume, "function");
+    await context.poll(listEl);
+    resume();
+    await interrupted;
+
+    assert.deepEqual(errors, []);
+    assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, expected);
+    assert.equal(elements["view-count"].textContent, `${expected} items`);
+    assert.equal(sectionCount.textContent, expected);
+    assert.equal(section.classList.contains("hidden"), activeFilter !== "all" || expected === 0);
+    assert.equal(applied, 1);
+    await context.poll(listEl);
+    assert.equal(applied, 1);
+  }
+});
+
+test("finished rows from earlier runs come back only where aria2 has none", () => {
+  const old = { gid: "old", status: "complete" };
+  const seeding = { gid: "seed", status: "complete" };
+  const again = { gid: "again", status: "complete" };
+  const stopped = [{ gid: "again", status: "complete" }, { gid: "now", status: "complete" }];
+  const live = [{ gid: "seed", status: "active", seeder: "true" }];
+
+  const merged = withHistory(stopped, live, [old, seeding, again]);
+  assert.deepEqual(merged.map((dl) => dl.gid), ["old", "again", "now"]);
+  assert.equal(merged[1], stopped[0], "aria2's own row wins");
+
+  assert.equal(withHistory(stopped, live, []), stopped);
+  assert.equal(withHistory(stopped, live, undefined), stopped);
+  assert.equal(withHistory(stopped, [], [again]), stopped);
 });
