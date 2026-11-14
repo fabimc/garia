@@ -184,7 +184,9 @@ OpenWindow ==
   /\ UNCHANGED <<status, held, overridden, hasStart, startDue,
                  badRelease, badRehold, badStaleHold, badLostOverride>>
 
-\* set_download_start_blocking with a future time: forcePause + hold + starts
+\* set_download_start_blocking with a future time: starts + hold_for_start.
+\* hold_for_start holds after forcePause, or after tellStatus confirms the row
+\* is already paused (forcePause refuses one), so status ends paused and held.
 AssignFutureStart ==
   /\ ~hasStart
   /\ hasStart' = TRUE

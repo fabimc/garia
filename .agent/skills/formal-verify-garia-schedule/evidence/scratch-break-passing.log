@@ -1,15 +1,15 @@
-Pinned TLC: TLC2 Version 2026.10.30.154139 (rev: 090e85c)
-Jar SHA-256: 011267fca25d0752cf18894dd585cd28b96960c112ea8a20b823ea770e7e10cd
-TLC2 Version 2026.10.30.154139 (rev: 090e85c)
-Running breadth-first search Model-Checking with fp 67 and seed -54823832489848386 with 4 workers on 4 cores with 3330MB heap and 64MB offheap memory [pid: 2969] (Linux 6.12.94+ amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
-Parsing file /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold.tla
-Parsing file /tmp/tlc-17212960082666048408/Integers.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
-Parsing file /tmp/tlc-17212960082666048408/_TLCTrace.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /tmp/tlc-17212960082666048408/Naturals.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /tmp/tlc-17212960082666048408/TLC.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /tmp/tlc-17212960082666048408/TLCExt.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /tmp/tlc-17212960082666048408/Sequences.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /tmp/tlc-17212960082666048408/FiniteSets.tla (jar:file:/workspace/.cursor/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Pinned TLC: TLC2 Version 2026.11.06.222357 (rev: d8fb231)
+Jar SHA-256: e1f11b75c4b5bc4478ba0ac5cb6ae28e40a01b0016bc33e0aa97da22dfdbcd7f
+TLC2 Version 2026.11.06.222357 (rev: d8fb231)
+Running breadth-first search Model-Checking with fp 37 and seed -1904108596515624910 with 8 workers on 8 cores with 3483MB heap and 64MB offheap memory [pid: 132779] (Linux 7.2.15-1-omarchy amd64, Eclipse Adoptium 21.0.13 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/ScheduleHold.tla
+Parsing file /tmp/tlc-1844897964275624058/Integers.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-1844897964275624058/_TLCTrace.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-1844897964275624058/Naturals.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-1844897964275624058/TLC.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-1844897964275624058/TLCExt.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-1844897964275624058/Sequences.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-1844897964275624058/FiniteSets.tla (jar:file:/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
 Semantic processing of module Naturals
 Semantic processing of module Integers
 Semantic processing of module Sequences
@@ -21,9 +21,9 @@ Semantic processing of module ScheduleHold
 Linting of module TLCExt
 Linting of module _TLCTrace
 Linting of module ScheduleHold
-Starting... (2026-11-01 23:31:52)
+Starting... (2026-11-14 11:13:30)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-11-01 23:31:52.
+Finished computing initial states: 1 distinct state generated at 2026-11-14 11:13:30.
 Error: Invariant UserPauseSafety is violated.
 Error: The behavior up to this point is:
 State 1: <Initial predicate>
@@ -39,7 +39,7 @@ State 1: <Initial predicate>
 /\ badRelease = FALSE
 /\ startDue = FALSE
 
-State 2: <UserPause line 158, col 3 to line 162, col 71 of module ScheduleHold>
+State 2: <UserPause line 157, col 3 to line 161, col 71 of module ScheduleHold>
 /\ lastDecision = "none"
 /\ held = FALSE
 /\ badStaleHold = FALSE
@@ -52,7 +52,7 @@ State 2: <UserPause line 158, col 3 to line 162, col 71 of module ScheduleHold>
 /\ badRelease = FALSE
 /\ startDue = FALSE
 
-State 3: <Tick line 141, col 6 to line 151, col 36 of module ScheduleHold>
+State 3: <Tick line 140, col 6 to line 150, col 36 of module ScheduleHold>
 /\ lastDecision = "Release"
 /\ held = FALSE
 /\ badStaleHold = FALSE
@@ -65,14 +65,14 @@ State 3: <Tick line 141, col 6 to line 151, col 36 of module ScheduleHold>
 /\ badRelease = TRUE
 /\ startDue = FALSE
 
-129 states generated, 47 distinct states found, 10 states left on queue.
-The depth of the complete state graph search is 6.
-Finished in 00s at (2026-11-01 23:31:52)
-Trace exploration spec path: ./ScheduleHold_TTrace_1793575912.tla
+294 states generated, 81 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 11.
+Finished in 00s at (2026-11-14 11:13:31)
+Trace exploration spec path: ./ScheduleHold_TTrace_1794676410.tla
 
 TLC exit: 12 (0 = all checked invariants held)
-Config: /workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold-passing.cfg
-Expected banner (must match evidence): TLC2 Version 2026.10.30.154139 (rev: 090e85c)
+Config: /home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/ScheduleHold-passing.cfg
+Expected banner (must match evidence): TLC2 Version 2026.11.06.222357 (rev: d8fb231)
 Counterexample trace spec(s):
-/workspace/.cursor/skills/formal-verify-garia-schedule/model/ScheduleHold_TTrace_1793575912.tla
+/home/fabimc/.herdr/worktrees/garia/worktree-calm-field-98d1/.agent/skills/formal-verify-garia-schedule/model/ScheduleHold_TTrace_1794676410.tla
 Read every TLC result with the pstack /statechart skill (by name).
