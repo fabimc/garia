@@ -4221,6 +4221,8 @@ pub fn run() {
             }
             app.on_menu_event(|app, event| {
                 match event.id().as_ref() {
+                    "show-window" => bring_to_front(app),
+                    "quit" => app.exit(0),
                     "settings" => {
                         if let Err(e) = show_settings(app) {
                             eprintln!("[garia] Could not open Settings: {e}");
@@ -4526,18 +4528,7 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .tooltip("Garia")
         .icon(icon);
-    tray
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "show-window" => bring_to_front(app),
-            "quit" => app.exit(0),
-            id @ ("new-download" | "pause-all" | "resume-all" | "stop-queue" | "start-queue"
-                | "retry-failed" | "clear-completed" | "open-folder") => {
-                bring_to_front(app);
-                let _ = app.emit("menu", id);
-            }
-            _ => {}
-        })
-        .build(app)?;
+    tray.build(app)?;
     Ok(())
 }
 

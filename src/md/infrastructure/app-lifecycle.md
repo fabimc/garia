@@ -10,6 +10,7 @@
 ## Tray
 
 - The tray provides New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, Open Download Folder, Show Garia, and Quit.
+- Tauri sends tray and application menu events to the same global handler. Dispatch each action once.
 - Relaunching Garia from the application launcher restores the existing instance if the Wayland tray host is unavailable.
 - The tray tooltip shows the running count while the window is hidden.
 
