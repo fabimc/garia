@@ -5534,8 +5534,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   let paintedFocusGid = null;
 
   function paintSelection() {
-    const rows = visibleItemRows();
-    const focusGid = selected.size ? selectAnchor : rows[0]?.dataset.gid;
+    const focusGid = selected.size
+      ? selectAnchor
+      : listEl.querySelector(".dl-item:not(.hidden)")?.dataset.gid;
     const changed = new Set([...paintedSelection, ...selected]);
     for (const gid of changed) {
       const li = rowEl(gid);
@@ -5583,8 +5584,8 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   function selectRow(row, e) {
     const gid = row.dataset.gid;
-    const rows = visibleItemRows();
     if (e.shiftKey && selectAnchor) {
+      const rows = visibleItemRows();
       const a = rows.findIndex((r) => r.dataset.gid === selectAnchor);
       const b = rows.indexOf(row);
       if (a >= 0 && b >= 0) {
@@ -7305,13 +7306,15 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     if (fieldHasFocus() || overlayOpen()) return;
 
-    const rows = visibleItemRows();
-    if ((e.metaKey || e.ctrlKey) && key === "a" && rows.length) {
-      e.preventDefault();
-      selected.clear();
-      for (const row of rows) selected.add(row.dataset.gid);
-      selectAnchor = rows[rows.length - 1].dataset.gid;
-      paintSelection();
+    if ((e.metaKey || e.ctrlKey) && key === "a") {
+      const rows = visibleItemRows();
+      if (rows.length) {
+        e.preventDefault();
+        selected.clear();
+        for (const row of rows) selected.add(row.dataset.gid);
+        selectAnchor = rows[rows.length - 1].dataset.gid;
+        paintSelection();
+      }
       return;
     }
 
@@ -7341,15 +7344,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
     if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey) {
       e.preventDefault();
-      if (!rows.length) return;
-      const current = selectAnchor
-        ? rows.findIndex((r) => r.dataset.gid === selectAnchor)
-        : -1;
-      const next = e.key === "ArrowDown"
-        ? Math.min(rows.length - 1, current + 1)
-        : Math.max(0, current < 0 ? 0 : current - 1);
-      selectRow(rows[next], e);
-      rows[next].scrollIntoView({ block: "nearest" });
+      const current = rowEl(selectAnchor);
+      let next;
+      if (current && listEl.contains(current) && !current.classList.contains("hidden")) {
+        const direction = e.key === "ArrowDown" ? "nextElementSibling" : "previousElementSibling";
+        next = current[direction];
+        while (next && (!next.classList.contains("dl-item") || next.classList.contains("hidden"))) {
+          next = next[direction];
+        }
+        next ||= current;
+      } else {
+        next = listEl.querySelector(".dl-item:not(.hidden)");
+      }
+      if (!next) return;
+      selectRow(next, e);
+      next.scrollIntoView({ block: "nearest" });
     }
   });
 

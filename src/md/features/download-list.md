@@ -12,6 +12,8 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
   the result purge for aria2's filing race; a final missing-GID error for that
   removed gid is success, but other purge failures remain errors.
 - A poll that interrupts a batched filter pass must finish filtering again, even if no download changed. Rows and counts must agree with the latest search and sidebar view.
+- Keyboard selection should not scan every row more than needed; hidden windows
+  keep the slower poll interval.
 
 ## Statuses Garia invents
 
