@@ -1,8 +1,8 @@
 # Folx parity review
 
-This document is the implementation roadmap for the Folx feature gap that Garia still has to close before it can feel like a full-featured desktop downloader on macOS for power users.
+This document is the implementation roadmap for the feature gaps Garia can close to feel like a full-featured desktop downloader for power users.
 
-This is intentionally a product review and planning document, not a promise that Garia should copy Folx feature-by-feature. The goal is to match the workflow and control users expect from a macOS-native downloader where those features materially improve speed, organization, resilience, or usability.
+This is intentionally a product review and planning document, not a promise that Garia should copy Folx feature-by-feature. The goal is to improve speed, organization, resilience, and usability where those workflows fit Garia.
 
 ## Current Garia coverage
 
@@ -16,7 +16,7 @@ Garia already covers a large share of the core download-manager workflow:
 - Torrent controls for file selection, seeding rules, and tracker/peer visibility
 - Video downloads with yt-dlp and ffmpeg merging
 - Checksum verification, login/auth handling, and HTTP proxy support
-- Remote control, restart-safe queued downloads, and tray/dock status indicators
+- Remote control, restart-safe queued downloads, and tray status indicators
 
 The core everyday workflow is already present: add a download, track progress, capture from browsers, and let the queue keep working while the app is hidden.
 
@@ -85,7 +85,7 @@ Priority: medium
 
 Priority: medium
 
-- Download menu, dock, and tray already share Retry Failed and Clear Completed; Features docs match those verbs.
+- Download menu and tray already share Retry Failed and Clear Completed; Features docs match those verbs.
 - Empty states for Failed, Completed, and Torrents point at Retry Failed / Clear Completed / Open Torrent.
 - Status bar shows Retry Failed and Clear Completed when the queue has work for them (`desktopHousekeepingItems`), so housekeeping is visible without opening a menu.
 
@@ -95,7 +95,7 @@ None of the numbered roadmap items are open after `#68` (organization + queue) a
 
 - Deeper network sniffing for blob players / DRM streams (yt-dlp already covers most watch pages)
 - Folder-tree collapse inside torrent file lists
-- Dock verbs beyond the existing Download menu set
+- More verbs beyond the existing Download menu set
 
 ## Recommended implementation order
 
