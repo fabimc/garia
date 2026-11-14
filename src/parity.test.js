@@ -126,6 +126,68 @@ import {
   purgeFailures,
 } from "./parity.js";
 
+test("clear confirmations name downloads and keep files on disk", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const openConfirm = source.slice(source.indexOf("  function openConfirm("), source.indexOf("  function closeConfirm()"));
+  const clearActions = source.slice(source.indexOf("  async function clearFailed()"), source.indexOf("  async function stopSeedingAll()"));
+  const element = () => ({
+    textContent: "",
+    checked: false,
+    classList: { toggle(_name, hidden) { this.hidden = hidden; } },
+  });
+  const confirmTitle = element();
+  const confirmName = element();
+  const confirmKeepFiles = element();
+  const confirmFileRow = element();
+  const confirmTrash = element();
+  const confirmTrashLabel = element();
+  const confirmDelete = element();
+  const snapshot = new Map();
+  let opened = 0;
+  const context = {
+    snapshot, confirmTitle, confirmName, confirmKeepFiles, confirmFileRow,
+    confirmTrash, confirmTrashLabel, confirmOverlay: {}, confirmCancel: {},
+    closeConfirm() {}, openOverlay() { opened++; },
+    document: { getElementById() { return confirmDelete; } },
+    fileName: (dl) => dl.name,
+    rowWroteBytes: () => true,
+  };
+  vm.createContext(context);
+  vm.runInContext(`let confirmGids = []; let confirmKeepOnly = false;\n${openConfirm}\n${clearActions}`, context);
+
+  await context.clearCompleted();
+  assert.equal(opened, 0);
+  snapshot.set("a", { gid: "a", status: "complete", name: "tiny-tray.bin" });
+  await context.clearCompleted();
+  assert.equal(confirmTitle.textContent, "Clear completed");
+  assert.equal(confirmName.textContent, "tiny-tray.bin");
+  assert.equal(confirmKeepFiles.textContent, "The file stays on disk.");
+  assert.equal(confirmKeepFiles.classList.hidden, false);
+  assert.equal(confirmFileRow.classList.hidden, true);
+  assert.equal(confirmDelete.textContent, "Remove");
+
+  snapshot.set("b", { gid: "b", status: "complete", name: "second.bin" });
+  await context.clearCompleted();
+  assert.equal(confirmName.textContent, "2 downloads");
+  assert.equal(confirmKeepFiles.textContent, "The files stay on disk.");
+
+  snapshot.set("c", { gid: "c", status: "error", name: "failed.bin" });
+  await context.clearFailed();
+  assert.equal(confirmTitle.textContent, "Clear failed");
+  assert.equal(confirmName.textContent, "failed.bin");
+  assert.equal(confirmKeepFiles.textContent, "The file stays on disk.");
+  snapshot.set("d", { gid: "d", status: "error", name: "failed-again.bin" });
+  await context.clearFailed();
+  assert.equal(confirmName.textContent, "2 downloads");
+  assert.equal(confirmKeepFiles.textContent, "The files stay on disk.");
+
+  context.openConfirm(["a"]);
+  assert.equal(confirmName.textContent, "tiny-tray.bin");
+  assert.equal(confirmKeepFiles.classList.hidden, true);
+  assert.equal(confirmFileRow.classList.hidden, false);
+  assert.equal(confirmDelete.textContent, "Delete");
+});
+
 test("purge accepts a missing result only after successful removal and retries", () => {
   const missing = { error: "GID queued is not found" };
   const removed = new Set(["queued"]);
