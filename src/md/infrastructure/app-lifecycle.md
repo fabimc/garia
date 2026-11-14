@@ -2,21 +2,22 @@
 
 ## Close vs quit
 
-- Closing the window hides it; aria2 keeps running. The Dock, tray, or app launcher can bring it back.
-- Quit (⌘Q): save session, stop aria2, exit.
+- Closing the window hides it; aria2 keeps running. The tray or application launcher can bring it back.
+- Quit (Ctrl+Q): record finished downloads, save session, stop aria2, exit.
+- Finished downloads are written to `history.json` as they finish, so a SIGTERM keeps them too. See [features/download-list.md](../features/download-list.md#finished-history).
 - Window size and position survive quit.
 
-## Dock and tray
+## Tray
 
-- The macOS dock menu and desktop tray provide New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, and Open Download Folder.
-- The tray also provides Show Garia and Quit. On Linux, relaunching Garia from the application launcher restores the existing instance if the Wayland tray host is unavailable.
+- The tray provides New Download, Pause/Resume All, Stop/Start Queue, Retry Failed, Clear Completed, Open Download Folder, Show Garia, and Quit.
 - Tauri sends tray and application menu events to the same global handler. Dispatch each action once.
-- macOS menu-bar extra shows the running count while the window is hidden.
+- Relaunching Garia from the application launcher restores the existing instance if the Wayland tray host is unavailable.
+- The tray tooltip shows the running count while the window is hidden.
 
 ## Launch at login
 
-- macOS uses a LaunchAgent; Linux uses an XDG autostart entry.
-- Linux autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
+- Garia uses an XDG autostart entry.
+- Autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
 - Settings reports errors when the autostart state cannot be read or changed.
 
 ## Notifications
@@ -34,5 +35,5 @@ Built bundles register `garia://`, `magnet:`, and `.torrent`. Dev builds do not 
 
 ## Related
 
-- Code: `src-tauri/src/dock.rs`, `src-tauri/src/service.rs`, `src-tauri/src/lib.rs`
+- Code: `src-tauri/src/lib.rs`
 - [features/browser-capture.md](../features/browser-capture.md)
