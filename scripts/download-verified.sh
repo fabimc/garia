@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Downloads a sidecar's source once, checks its SHA-256, and prints where it
-# is. Every later caller gets the copy already on disk, so a universal build
-# fetches each tarball one time, not one time per chip.
+# is. Every later caller gets the copy already on disk, so each tarball is
+# fetched only once per build.
 #
 # The servers behind these URLs drop connections now and then, and one reset
 # used to cost a whole release run. So the download retries, on every kind of
