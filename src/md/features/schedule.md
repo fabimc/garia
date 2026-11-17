@@ -15,7 +15,7 @@ aria2 resumes unfinished downloads from the session file before the webview pain
 ## Per-download start
 
 - Add sheet or detail panel can name a start time for one download.
-- Meaning: start at that time, **or** the next moment Garia is open after it. Not an alarm clock that wakes the Mac.
+- Meaning: start at that time, **or** the next moment Garia is open after it. Not an alarm clock that wakes the computer.
 
 ## Stop Queue / Start Queue
 
@@ -25,7 +25,7 @@ aria2 resumes unfinished downloads from the session file before the webview pain
 
 ## Done action
 
-- After the last unfinished download lands: none / sleep / shut down (Mac).
+- After the last unfinished download lands: none / sleep / shut down.
 - Arm only after this run has had real work — launch onto an empty list must not sleep the machine.
 - 30-second warning before sleep/shutdown.
 

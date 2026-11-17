@@ -1,19 +1,8 @@
 # Building Garia
 
-Garia is a desktop app for macOS and Linux. The [root README](../README.md) has the short path; this page is the rest — requirements, a release build, signing, notarization, and the GitHub Release workflow. The bundled aria2, ffmpeg, and yt-dlp are documented in [Sidecars](Sidecars.md).
+Garia is a Linux desktop app. The [root README](../README.md) has the short path; this page covers requirements, development, release builds, and the GitHub Release workflow. The bundled aria2, ffmpeg, and yt-dlp are documented in [Sidecars](Sidecars.md).
 
 ## Requirements
-
-### macOS
-
-| Tool | Version | Install |
-|------|---------|---------|
-| macOS | 11.0+ | — |
-| [Xcode Command Line Tools](https://developer.apple.com/xcode/) | — | `xcode-select --install` |
-| [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
-| [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
-
-### Linux
 
 | Tool | Version | Install (Debian/Ubuntu) |
 |------|---------|-------------------------|
@@ -29,13 +18,7 @@ sudo apt-get install -y \
   librsvg2-dev patchelf
 ```
 
-aria2 and ffmpeg aren't on those lists. Garia builds both and bundles them — see [Sidecars](Sidecars.md). Video downloads want one more:
-
-| Tool | Why | Install |
-|------|-----|---------|
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Reads a video page and resolves it into media URLs | `brew install yt-dlp` / distro package — or nothing, if you have a `python3` 3.10+, which the bundled copy runs under |
-
-Without yt-dlp, a video page downloads as a page. Settings says which yt-dlp and which ffmpeg Garia is using.
+Garia builds and bundles aria2 and ffmpeg. Video downloads use the bundled yt-dlp zipapp or one on `PATH`; the zipapp needs Python 3.10 or newer.
 
 ## Development
 
@@ -45,136 +28,58 @@ Install JavaScript dependencies:
 npm install
 ```
 
-Start the app in development mode (hot-reloads the frontend, recompiles Rust on changes):
+Start the app in development mode:
 
 ```sh
 npm run tauri dev
 ```
 
-The first run takes a few minutes while Cargo compiles the Tauri runtime and the sidecar scripts build aria2 and ffmpeg. Subsequent runs are fast — the scripts are no-ops once the binaries exist.
+The first run takes a few minutes while Cargo compiles Tauri and the sidecar scripts build aria2 and ffmpeg. Subsequent runs reuse those binaries.
 
-`npm run sidecar` (run for you before every `tauri dev`) compiles aria2 and ffmpeg into `src-tauri/binaries/` and fetches yt-dlp into `src-tauri/resources/`. To build for another architecture, or both Mac chips at once:
-
-```sh
-npm run sidecar -- x86_64-apple-darwin
-npm run sidecar -- universal-apple-darwin
-npm run sidecar -- x86_64-unknown-linux-gnu
-```
+`npm run sidecar` builds sidecars for the current Linux host and fetches yt-dlp. Cross-compiling sidecars is not supported.
 
 ## Building a release
 
-### macOS
-
-Produce an optimised `.app` and `.dmg` in `src-tauri/target/release/bundle/`:
-
 ```sh
 npm run tauri build
 ```
 
-That first build also compiles the Intel sidecars and `lipo`s them with the Apple Silicon ones when you ask for a universal target. The Rust side of a *universal* app is a second target:
+The build produces an AppImage and a `.deb` under `src-tauri/target/release/bundle/appimage/` and `src-tauri/target/release/bundle/deb/`. Prefer the `.deb` when you want the package manager to register `garia://`, magnet, and `.torrent` associations; the AppImage is the portable single-file option. Releases also include `garia-<version>-linux-x86_64.tar.gz` for Arch-based distributions.
+
+The Tauri icon set uses the PNG files under `src-tauri/icons/`. To regenerate them from the master artwork:
 
 ```sh
-rustup target add x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
+npx tauri icon app-icon.png
 ```
 
-The result lands under `src-tauri/target/universal-apple-darwin/release/bundle/` and runs natively on both chips. A release tag does this on CI.
+Keep the tracked files under `src-tauri/icons/`; the CLI may also emit platform assets that are not used by Garia.
 
-### Linux
-
-On Linux the same command produces an AppImage and a `.deb`:
-
-```sh
-npm run tauri build
-```
-
-Artifacts land under `src-tauri/target/release/bundle/appimage/` and `…/deb/`. Prefer the `.deb` when you want `garia://`, magnet, and `.torrent` file associations installed by the package manager; the AppImage is the portable single-file option. Linux and macOS packages read `bundle.icon` in `src-tauri/tauri.conf.json` (`32x32`, `128x128`, `128x128@2x`, `icon.png`, `icon.icns`, `icon.ico`) — there is no separate Linux icon override.
-
-## App icon
-
-Master art is `app-icon.png` at the repo root (1024×1024 RGBA, cream rounded tile, transparent outside). To refresh from new pixel art:
-
-1. Start from a PNG of the helmet (or other mark). Key near-white background to alpha (`R,G,B ≥ ~248` → transparent; soft fringe optional). Prefer nearest-neighbour when scaling pixel art — smooth resampling blurs it.
-2. Composite onto the cream tile `(243, 230, 212)` using the existing `app-icon.png` alpha mask for macOS-style padding and corner radius, or rebuild an equivalent rounded square with ~10% margin.
-3. Write the result to `app-icon.png`, then regenerate the Tauri set:
-   ```sh
-   npx tauri icon app-icon.png
-   ```
-   Keep the tracked files under `src-tauri/icons/` (drop any untracked `ios/` / `android/` / `64x64.png` the CLI may also emit).
-4. Rebuild `tray-template.png` as a black-on-clear silhouette. Design it on an 18×18 pixel grid (helmet dome, lamp hole, two goggle holes), then nearest-neighbour upscale to 72×72 so macOS menu-bar size stays crisp. Non-macOS trays use the colour `32x32.png` instead.
-5. Regenerate extension icons (`extensions/garia/icons/{16,32,48,128}.png`), site favicons / `icon-512` / apple-touch, and the in-app `src/assets/logo.png` (helmet only, transparent — no cream tile) with nearest-neighbour from the master.
-
-A release build also writes updater artifacts. Those need the updater private key:
+A release build can create updater artifacts when `TAURI_SIGNING_PRIVATE_KEY` is configured:
 
 ```sh
 export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/.tauri/garia.key"
 ```
 
-That file is gitignored. Back it up. Losing it means already-installed copies cannot be updated. Put the same value in the GitHub secret `TAURI_SIGNING_PRIVATE_KEY` (the key contents, not the path) when you want CI to sign a release.
-
-## Signing and notarization (macOS)
-
-Gatekeeper will warn on an unsigned `.app`. Notarization wants a **Developer ID Application** certificate from an [Apple Developer](https://developer.apple.com) account. Garia is not going to the App Store — the translucent sidebar uses a private API — so Developer ID is the right kind of certificate.
-
-With the certificate in the login keychain:
-
-```sh
-export APPLE_ID="you@example.com"
-export APPLE_PASSWORD="app-specific-password"
-export APPLE_TEAM_ID="YOURTEAMID"
-npm run tauri build
-```
-
-Tauri picks the Developer ID identity, signs with the hardened runtime and `src-tauri/entitlements.plist`, and submits the bundle for notarization.
+Keep that file out of Git and back it up. Set the key contents in the GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` to sign CI releases; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` only when the key is encrypted. Without the key, the release workflow builds packages without updater signatures.
 
 ## Releasing
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
-2. Tag `v0.1.0` (or whatever the version is) and push the tag.
-3. The Release workflow builds a universal Mac app and Linux AppImage/`.deb` on CI, signs the updater payload when the key is present, and drafts a GitHub release that includes `latest.json`.
-4. Garia → Check for Updates reads that file.
+2. Tag the release as `v<version>` and push the tag.
+3. The Release workflow builds the Linux AppImage, `.deb`, and Arch-compatible tarball, and drafts a GitHub release. When the updater key is present it also signs the update payload and publishes `latest.json`.
+4. Garia → Check for Updates reads `latest.json`.
 
 The first published release is what makes Check for Updates have something to find. Until then the menu says it could not check, and a quiet launch check stays quiet.
 
-Publishing the draft is also what the Homebrew tap can download. The [homebrew-garia](https://github.com/fabimc/homebrew-garia) cask tracks `Garia_<version>_universal.dmg`. After the release is public, the tap's **Update cask** workflow pins the version and SHA (daily cron, or immediately if this repo has a `HOMEBREW_TAP_TOKEN` secret that can dispatch to that tap). Homebrew 7 also needs `brew trust fabimc/garia` once per machine.
-
-The Release workflow is a no-op for signing until these GitHub Actions secrets exist:
-
-| Secret | What |
-|--------|------|
-| `TAURI_SIGNING_PRIVATE_KEY` | Contents of `.tauri/garia.key` (the key is local; it is not in GitHub yet) |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Only if that key is encrypted |
-| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: …` |
-| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization (app-specific password) |
-| `HOMEBREW_TAP_TOKEN` | Optional. A PAT that can dispatch to `fabimc/homebrew-garia` |
-
-For an alpha, mark the GitHub release as a pre-release once the draft is up. The workflow currently opens a regular draft (`prerelease: false` in `.github/workflows/release.yml`); tick **Set as a pre-release** on the draft if that is what you are shipping.
+For an alpha, mark the GitHub release as a pre-release after the draft is up; the workflow opens a regular draft by default.
 
 ## Project structure
 
 ```
 garia/
 ├── src/                  # Frontend (HTML, CSS, JS)
-│   ├── index.html        # App shell
-│   ├── styles.css        # Styles and animations
-│   └── main.js           # aria2 JSON-RPC client + UI logic
 ├── docs/                 # This documentation
-├── extensions/garia/     # Browser capture — Chrome and Firefox unpacked; Safari via the converter script
-├── extensions/PRIVACY.md # Store privacy policy
-├── scripts/              # sidecar scripts — builds aria2 and ffmpeg, fetches yt-dlp
-└── src-tauri/            # Tauri / Rust backend
-    ├── binaries/         # Bundled aria2c and ffmpeg (built, not committed)
-    ├── resources/        # Bundled yt-dlp zipapp (fetched, not committed)
-    ├── tests/fixtures/   # Real yt-dlp output, for the parser's unit tests
-    ├── src/
-    │   ├── lib.rs        # App setup — spawns and stops aria2
-    │   ├── catch.rs      # Clipboard file URLs and garia://add?url=…
-    │   ├── logins.rs     # Site credentials, and the netrc aria2 reads
-    │   └── main.rs       # Binary entry point
-    ├── Cargo.toml        # Rust dependencies
-    ├── tauri.conf.json   # Shared Tauri configuration
-    ├── tauri.macos.conf.json
-    └── tauri.linux.conf.json
+├── extensions/garia/     # Chromium and Firefox browser capture
+├── scripts/              # Linux sidecar builders and packagers
+└── src-tauri/            # Tauri / Rust backend and configuration
 ```
