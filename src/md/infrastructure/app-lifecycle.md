@@ -16,7 +16,9 @@
 
 ## Launch at login
 
-- Garia uses an XDG autostart entry.
+- Garia uses an XDG autostart entry in `$XDG_CONFIG_HOME/autostart` (or `~/.config/autostart` by default).
+- The entry changes only when the setting is toggled. On startup Garia only adds a missing `--garia-background` flag; it never rewrites the executable path.
+- An entry the desktop marks `Hidden=true` or `X-GNOME-Autostart-enabled=false` counts as off.
 - Autostart starts the engine without showing a tiled window. Opening Garia from the launcher restores the existing instance.
 - Settings reports errors when the autostart state cannot be read or changed.
 

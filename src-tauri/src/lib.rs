@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
+mod autostart_linux;
 mod catch;
 mod file_priorities;
 mod ftp;
@@ -1773,22 +1774,18 @@ fn read_torrent(path: String) -> Result<String, String> {
 
 /// Settings reflects changes made to the XDG autostart entry outside Garia too.
 #[tauri::command]
-fn autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri_plugin_autostart::ManagerExt;
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|e| e.to_string())
+fn autostart_enabled() -> Result<bool, String> {
+    autostart_linux::is_enabled(dirs::home_dir().as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri_plugin_autostart::ManagerExt;
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
-    }
-    .map_err(|e| e.to_string())
+    let executable = match app.env().appimage {
+        Some(appimage) => std::path::PathBuf::from(appimage),
+        None => std::env::current_exe().map_err(|e| e.to_string())?,
+    };
+    autostart_linux::set_enabled(enabled, &executable, dirs::home_dir().as_deref())
+        .map_err(|e| e.to_string())
 }
 
 fn encode_base64(data: &[u8]) -> String {
@@ -3981,7 +3978,6 @@ fn session_path(dir: &Path) -> PathBuf {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
-    let autostart_args = ["--garia-background"];
 
     // The desktop starts a new process for every link or file the
     // desktop opens. This hands it to the running instance instead — links
@@ -4013,7 +4009,6 @@ pub fn run() {
                 )
                 .build(),
         )
-        .plugin(tauri_plugin_autostart::Builder::new().args(autostart_args).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             aria2_rpc,
@@ -4068,19 +4063,11 @@ pub fn run() {
                     None => eprintln!("[garia] Main window was unavailable during startup"),
                 }
             }
-            {
-                // Rewrite an existing XDG autostart Exec so upgrades pick up
-                // --garia-background without requiring the user to toggle it.
-                use tauri_plugin_autostart::ManagerExt;
-                match app.autolaunch().is_enabled() {
-                    Ok(true) => {
-                        if let Err(e) = app.autolaunch().enable() {
-                            eprintln!("[garia] Could not refresh autostart entry: {e}");
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(e) => eprintln!("[garia] Could not read autostart state: {e}"),
-                }
+            // Entries written before --garia-background existed gain the
+            // flag. Only the flag: the Exec path stays whatever the user
+            // enabled, so a test or dev run never takes over their login.
+            if let Err(e) = autostart_linux::add_background_flag(dirs::home_dir().as_deref()) {
+                eprintln!("[garia] Could not update autostart entry: {e}");
             }
 
             let dir = app
