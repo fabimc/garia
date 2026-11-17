@@ -657,6 +657,19 @@ test("extension handoff can retry a dismissed prompt, including long batches", a
   }
 });
 
+test("extension handoff without a payload stays put and hides retry", () => {
+  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
+  const retry = { hidden: true, addEventListener: () => assert.fail("retry wired without a payload") };
+  const location = { search: "", hash: "", href: "" };
+  vm.runInNewContext(source, {
+    URLSearchParams, location,
+    document: { getElementById: () => retry },
+    navigator: { clipboard: { writeText: async () => assert.fail("clipboard written") } },
+  });
+  assert.equal(retry.hidden, true);
+  assert.equal(location.href, "");
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",

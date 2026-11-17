@@ -8,7 +8,7 @@ The Garia extension does not talk to a Garia server. There is no account, no ana
 - On a video page, a Download chip. That sends the **page** address, not the media stream.
 - “Download all links on this page” reads the `href` of every link in the tab you asked it to.
 
-The extension keeps two things in the browser’s local storage on this computer: the on/off choices from its options page (click capture, download takeover, video button), and the hostnames where you hid the video chip with ×. Nothing else is stored. A long “download all” list that will not fit in the link is copied to the clipboard so Garia can read it, then the handoff tab closes.
+The extension keeps two things in the browser’s local storage on this computer: the on/off choices from its options page (click capture, download takeover, video button), and the hostnames where you hid the video chip with ×. Nothing else is stored. A long “download all” list that will not fit in the link is copied to the clipboard so Garia can read it. The handoff tab stays open until you close it, so the browser's prompt to open Garia can be answered.
 
 ## What leaves the browser
 
