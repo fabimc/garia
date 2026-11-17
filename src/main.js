@@ -10,7 +10,6 @@ import {
   isSlowDownload,
   isStalled,
   isTorrentDownload,
-  rowDownloadSpeed,
   leechersOf,
   parseChecksum,
   parseKilobytes,
@@ -19,6 +18,7 @@ import {
   prioritiesNeedAdvance,
   prioritySummary,
   recoveryNextStep,
+  rowDownloadSpeed,
   sameOrder,
   scheduleHoldNote,
   seedUntilLabel,
@@ -3403,7 +3403,7 @@ function factValues(st) {
   const total = Number(st.totalLength) || 0;
   const done = Number(st.completedLength) || 0;
   const up = Number(st.uploadLength) || 0;
-  const speed = Number(st.downloadSpeed) || 0;
+  const speed = rowDownloadSpeed(st);
   const pieces = Number(st.numPieces) || 0;
   const remaining = st.status === "active" && total > 0 ? total - done : 0;
   return {

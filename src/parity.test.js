@@ -11,7 +11,6 @@ import {
   isSlowDownload,
   isStalled,
   isTorrentDownload,
-  rowDownloadSpeed,
   leechersOf,
   parseChecksum,
   parseKilobytes,
@@ -21,6 +20,7 @@ import {
   priorityDisplay,
   prioritySummary,
   recoveryNextStep,
+  rowDownloadSpeed,
   sameOrder,
   scheduleHoldNote,
   seedUntilLabel,
@@ -240,7 +240,7 @@ test("a torrent is recognised by its metainfo or its info hash", () => {
 
 test("row download speed is shown only while active", () => {
   const dl = { status: "active", downloadSpeed: "1677721" };
-  assert.equal(rowDownloadSpeed(dl), "1677721");
+  assert.equal(rowDownloadSpeed(dl), 1677721);
   for (const status of ["paused", "waiting", "complete", "error", "removed", "merging", "seeding"]) {
     assert.equal(rowDownloadSpeed({ ...dl, status }), 0, status);
   }

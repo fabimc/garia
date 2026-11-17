@@ -36,8 +36,10 @@ export function isTorrentDownload(dl) {
   return Boolean(dl.bittorrent || dl.infoHash);
 }
 
+// aria2 can still report the last speed for a moment after a pause. Only a
+// running download has a download speed worth showing.
 export function rowDownloadSpeed(dl) {
-  return dl?.status === "active" ? dl.downloadSpeed : 0;
+  return dl?.status === "active" ? Number(dl.downloadSpeed) || 0 : 0;
 }
 
 export function fileDone(file) {
