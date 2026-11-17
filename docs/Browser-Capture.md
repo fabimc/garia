@@ -6,6 +6,8 @@ A copied file URL is offered as a banner rather than queued immediately, because
 
 The extension lives in `extensions/garia`. Settings → Browser → **Show extension folder** opens it. Chromium loads the folder from `chrome://extensions` with Developer mode enabled. Firefox loads `manifest.json` from `about:debugging` (Load Temporary Add-on) until addons.mozilla.org signs it. Right-click a page to review all its links in the add dialog. `npm run ext:pack` writes the Chromium and Firefox store zips; see [Publishing the browser extension](Publishing-the-Extension.md).
 
+The extension opens a handoff tab for each capture. Allow the browser's prompt to open Garia if asked. The tab stays open until you close it; use its retry button if you dismissed the prompt. If Garia is not installed, a browser download cancelled by takeover remains in the browser's download history to retry.
+
 ## Omarchy: Chromium
 
 The package-bundled unpacked extension is the supported Omarchy install path.
