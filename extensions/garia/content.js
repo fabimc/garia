@@ -31,10 +31,33 @@ function sendFileCapture(href, name) {
   });
 }
 
+// Alt- or Ctrl-click leaves the file with the browser, so download takeover
+// must not grab the download it starts. Tell the background on mousedown as
+// well as click: the message is async, and mousedown gives it a head start
+// over downloads.onCreated.
+function sendBypass(event) {
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (!event.altKey && !event.ctrlKey) return;
+  const a = event.target.closest?.("a[href]");
+  if (!a) return;
+  let url;
+  try { url = new URL(a.href, document.baseURI).href; } catch { return; }
+  if (!/^https?:/i.test(url)) return;
+  try {
+    Promise.resolve(api.runtime.sendMessage({ type: "bypass-download", url })).catch(() => {});
+  } catch { /* extension reloaded; the browser still downloads */ }
+}
+
+document.addEventListener("mousedown", sendBypass, true);
+
 document.addEventListener("click", (event) => {
+  if (event.altKey || event.ctrlKey) {
+    sendBypass(event);
+    return;
+  }
   if (!clickCapture) return;
   if (event.defaultPrevented || event.button !== 0) return;
-  if (event.ctrlKey || event.shiftKey || event.altKey) return;
+  if (event.shiftKey) return;
 
   const a = event.target.closest?.("a[href]");
   if (a) {

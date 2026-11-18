@@ -772,6 +772,89 @@ test("extension handoff without a payload stays put and hides retry", () => {
   assert.equal(location.href, "");
 });
 
+test("extension leaves Alt- and Ctrl-clicked file links to the browser", () => {
+  const source = readFileSync(new URL("../extensions/garia/content.js", import.meta.url), "utf8");
+  const handlers = {};
+  const messages = [];
+  const sandbox = {
+    URL,
+    location: { href: "https://example.test/" },
+    document: { baseURI: "https://example.test/", addEventListener: (type, fn) => { handlers[type] = fn; } },
+    window: {},
+    chrome: { runtime: { sendMessage: (message) => { messages.push(message); return Promise.resolve(); } } },
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasenameFromUrl: () => "file.zip",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  let prevented = false;
+  const event = {
+    button: 0, altKey: true, ctrlKey: false, shiftKey: false,
+    target: { closest: () => ({ href: "https://example.test/file.zip", getAttribute: () => "" }) },
+    preventDefault: () => { prevented = true; },
+    stopPropagation() {},
+  };
+  handlers.mousedown(event);
+  handlers.click(event);
+  assert.equal(prevented, false);
+  assert.deepEqual(messages.map((m) => [m.type, m.url]), [
+    ["bypass-download", "https://example.test/file.zip"],
+    ["bypass-download", "https://example.test/file.zip"],
+  ]);
+  messages.length = 0;
+  event.altKey = false;
+  event.ctrlKey = true;
+  handlers.click(event);
+  assert.equal(prevented, false);
+  assert.equal(messages[0].type, "bypass-download");
+  messages.length = 0;
+  event.ctrlKey = false;
+  handlers.mousedown(event);
+  assert.equal(messages.length, 0);
+  handlers.click(event);
+  assert.equal(prevented, true);
+  assert.equal(messages[0].type, "capture");
+  assert.equal(messages[0].url, "https://example.test/file.zip");
+});
+
+test("a link bypass skips download takeover once, including redirects", async () => {
+  const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
+  const listeners = {};
+  const cancelled = [];
+  const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
+  let now = 1000;
+  const sandbox = {
+    URLSearchParams, Date: { now: () => now },
+    gariaIsHttpUrl: (url) => /^https?:/.test(url),
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasename: () => "file.zip",
+    gariaBasenameFromUrl: () => "file.zip",
+    chrome: {
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
+      contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
+      action: { onClicked: event("action") },
+      tabs: { create: () => Promise.resolve({ id: 1 }) },
+      downloads: { onCreated: event("download"), cancel: async (id) => { cancelled.push(id); } },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  const url = "https://example.test/file.zip";
+  listeners.message({ type: "bypass-download", url });
+  // A download takeover would ignore anyway must not spend the bypass.
+  listeners.download({ id: 1, url, byExtensionId: "other" });
+  listeners.download({ id: 2, url, finalUrl: "https://cdn.test/file.zip" });
+  listeners.download({ id: 3, url, finalUrl: "https://cdn.test/file.zip" });
+  now += 3000;
+  listeners.message({ type: "bypass-download", url: "https://cdn.test/file.zip" });
+  listeners.download({ id: 4, url: "https://mirror.test/file.zip", finalUrl: "https://cdn.test/file.zip" });
+  listeners.message({ type: "bypass-download", url });
+  now += 10001;
+  listeners.download({ id: 5, url });
+  await new Promise(setImmediate);
+  assert.deepEqual(cancelled, [3, 5]);
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",
@@ -1076,6 +1159,18 @@ test("Linux first-run presents the Omarchy checklist", () => {
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
   assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
+});
+
+test("Help keeps its body keyboard-scrollable within the sheet", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  const main = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  assert.match(html, /class="modal-body help-body" role="region" aria-label="Help topics" tabindex="0"/);
+  assert.match(main, /openOverlay\(helpOverlay,\s*\{\s*focus:\s*helpOverlay\.querySelector\("\.help-body"\)/);
+  assert.match(css, /html:not\(\.in-app\) #help-overlay \.modal\s*\{[^}]*max-height:/);
+  assert.doesNotMatch(css, /html\.in-app #help-overlay \.modal\s*\{/, "in-app Help uses the shared sheet max-height");
+  assert.match(css, /#help-overlay \.modal-footer\s*\{[^}]*flex-shrink:\s*0/);
+  assert.match(css, /#help-overlay \.help-body\s*\{[^}]*overflow:\s*auto;[^}]*min-height:\s*0/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
@@ -1516,6 +1611,67 @@ test("desktop housekeeping matches Download menu verbs", () => {
   assert.equal(failedEmpty.action?.id, "new-download");
   assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
+});
+
+test("download state text meets contrast on selected rows in both color schemes", () => {
+  const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  const light = styles.match(/:root\s*\{([^}]*)\}/)?.[1];
+  const dark = styles.match(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{([^}]*)\}/)?.[1];
+  assert.ok(light);
+  assert.ok(dark);
+
+  const color = (block, name) => {
+    const value = block.match(new RegExp(`--${name}:\\s*(#[\\da-f]{6})\\s*;`, "i"))?.[1];
+    assert.ok(value, `missing --${name}`);
+    return value;
+  };
+  const rgb = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  const luminance = (hex) => {
+    const channels = rgb(hex).map((value) => {
+      const channel = value / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const contrast = (foreground, background) => {
+    const [high, low] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const mix = (foreground, background, percentage) => {
+    const foregroundRgb = rgb(foreground);
+    const backgroundRgb = rgb(background);
+    return `#${backgroundRgb.map((channel, index) =>
+      Math.round(channel * (1 - percentage) + foregroundRgb[index] * percentage)
+        .toString(16).padStart(2, "0"),
+    ).join("")}`;
+  };
+
+  // Read the selected / hover-selected tints from the stylesheet so the guard
+  // follows any change to the row highlight.
+  const selectedTints = [/\.dl-item\.is-selected\s*\{([^}]*)\}/, /\.dl-item\.is-selected:hover\s*\{([^}]*)\}/]
+    .map((rule) => {
+      const percentage = styles.match(rule)?.[1]
+        .match(/color-mix\(in srgb, var\(--state-active\) (\d+)%, var\(--bg\)\)/)?.[1];
+      assert.ok(percentage, `missing selected-row tint for ${rule}`);
+      return Number(percentage) / 100;
+    });
+
+  for (const [mode, block] of [["light", light], ["dark", dark]]) {
+    const background = color(block, "bg");
+    const selected = [0, ...selectedTints].map((percentage) =>
+      percentage === 0 ? background : mix(color(block, "state-active"), background, percentage),
+    );
+    // --warning colors Stalled / Slow status text, which also sits on selected rows.
+    for (const name of ["state-active-text", "state-queued", "state-done", "state-failed", "warning"]) {
+      const foreground = color(block, name);
+      for (const rowBackground of selected) {
+        assert.ok(
+          contrast(foreground, rowBackground) >= 4.5,
+          `${mode} --${name} must reach 4.5:1 on ${rowBackground}`,
+        );
+      }
+    }
+  }
 });
 
 test("tray actions use the single global menu dispatcher", () => {
