@@ -4429,13 +4429,21 @@ fn install_menu(app: &tauri::App) -> tauri::Result<Vec<tauri::menu::CheckMenuIte
         ..Default::default()
     };
 
+    // A custom item, not the predefined `.quit()`: muda leaves the predefined
+    // Quit unsupported on GTK, so on Linux it rendered greyed out with no
+    // Ctrl+Q. This one goes through the same "quit" arm as the tray, and
+    // RunEvent::Exit stops aria2c on the way out.
+    let quit = MenuItemBuilder::with_id("quit", "Quit")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
+
     let app_menu = SubmenuBuilder::new(app, "Garia")
         .about(Some(about))
         .item(&check_updates)
         .separator()
         .item(&settings)
         .separator()
-        .quit()
+        .item(&quit)
         .build()?;
 
     let file_menu = SubmenuBuilder::new(app, "File")
