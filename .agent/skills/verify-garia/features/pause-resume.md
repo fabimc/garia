@@ -32,6 +32,6 @@ Preconditions:
 
 - **No stale speed.** After pause, the Ubuntu row's `[data-col="speed"]` cell reads `—`; with the row selected, `#detail-pane [data-fact="speed"] dd` reads `—`. The stock mock zeros a paused row's speed in `tellWaiting`, so to reproduce aria2's lag serve a copy of `mock-rpc.js` that keeps `downloadSpeed` on paused rows.
 - Pause the seeded Ubuntu ISO, not a seeding torrent — Garia models stop-seeding as remove, not pause.
-- After pause, the row leaves the Active filter; assert in All Downloads or Paused.
+- After pause, the row leaves the Active filter; assert in All Downloads or Paused. The Paused view picks the row up on the next poll (about a second), so wait before snapshotting it. `pause-named` and `click-named` follow the row by `data-gid`, so their reported `status` is still correct after the row leaves the current filter.
 - `Pause all` requires enabled header buttons and selected/global semantics — do not treat a disabled `#pause-all` as a pass.
 - Resume after pause is supported by the mock (`aria2.unpause`); if the row action group does not expose Resume yet, report the unmet control rather than clicking elsewhere.

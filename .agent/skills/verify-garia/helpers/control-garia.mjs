@@ -817,10 +817,14 @@ async function cmdBrowser(argv) {
     if (!name) die("click-named requires --name");
     if (!action) die("click-named requires --action");
     await withPage(async (page) => {
-      const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      const visible = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      // Pin the row by gid: once the action moves it out of the current filter
+      // it is hidden, and the visible-row locator would no longer match it.
+      const gid = await visible.getAttribute("data-gid");
+      const row = page.locator(`#download-list [role='option'][data-gid="${gid}"]`);
       await row.locator(`.dl-actions [data-action="${action}"]`).click();
       await sleep(800);
-      const status = await row.getAttribute("data-status").catch(() => null);
+      const status = await row.getAttribute("data-status", { timeout: 2000 }).catch(() => null);
       console.log(JSON.stringify({ ok: true, name, action, status }, null, 2));
     });
     return;
@@ -844,10 +848,13 @@ async function cmdBrowser(argv) {
     const name = args.name || args._[0];
     if (!name) die("pause-named requires --name");
     await withPage(async (page) => {
-      const row = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      const visible = page.locator("#download-list [role='option']:not(.hidden)").filter({ hasText: name }).first();
+      // Pin by gid: under the Active filter the paused row is hidden next poll.
+      const gid = await visible.getAttribute("data-gid");
+      const row = page.locator(`#download-list [role='option'][data-gid="${gid}"]`);
       await row.locator('.dl-actions [data-action="stop"]').click();
       await sleep(800);
-      const status = await row.getAttribute("data-status");
+      const status = await row.getAttribute("data-status", { timeout: 2000 }).catch(() => null);
       console.log(JSON.stringify({ ok: status === "paused", name, status }, null, 2));
       if (status !== "paused") process.exit(2);
     });

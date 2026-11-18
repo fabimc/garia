@@ -14,7 +14,7 @@ Agents read this cold. Follow Launch → Doctor → Drive (one feature file) →
 | Surface | Role in verification |
 | --- | --- |
 | **Browser-dev UI** (`src/` + `npm run mock`) | **Primary harness for agents / cloud VMs.** Same frontend as the app; talks to a mock aria2 JSON-RPC on `127.0.0.1:6800`. |
-| **Native Tauri app** (`npm run tauri dev` / packaged build) | Real product surface. Needs WebKitGTK (Linux), Rust sidecars (aria2/ffmpeg/yt-dlp), and a display. Prove native-only paths (tray, dock, Quit vs close, `garia://`, Settings via invoke) on a machine that can run Tauri. |
+| **Native Tauri app** (`npm run tauri dev` / packaged build) | Real product surface. Needs WebKitGTK (Linux), Rust sidecars (aria2/ffmpeg/yt-dlp), and a display. Prove native-only paths (tray, dock, Quit vs close, `garia://`, Settings via invoke) on a machine that can run Tauri. `helpers/native-quit` drives the Quit paths (menu, Ctrl+Q, tray) of a debug build headless under Xvfb; see [`features/native-quit.md`](features/native-quit.md). |
 | Browser extension / marketing `site/` | Out of scope for this skill's first map. |
 
 **Stand-in honesty:** a browser-dev proof does **not** cover Tauri `invoke` paths (settings persistence, video tools, queue stop via Rust, file reveal, folder opening, notifications, deep links). Those stay unverified until a native run.
@@ -150,6 +150,7 @@ After failed iterations, run cleanup before relaunching so `:6800` and the UI po
 | `helpers/control-garia` | `./helpers/control-garia <launch\|doctor\|cleanup\|browser\|rpc> …` |
 | `helpers/control-garia.mjs` | Same, via `node` (wrapper ensures `npm install` in `helpers/`) |
 | `helpers/ux-visual-baselines` | CDP screenshots after `launch` (see Visual baselines) |
+| `helpers/native-quit` | `./helpers/native-quit [--bin PATH] [--out DIR] [menu-click\|ctrl-q\|tray-quit …]` — native Quit journeys under Xvfb; no `launch` needed |
 | `helpers/package.json` | Pins `playwright` for the driver |
 
 All helpers are executable / runnable as shown above. Logs for a live run: `.run/mock.log`, `.run/ui.log`.
