@@ -1615,3 +1615,12 @@ test("open download folder invokes the directory-only native command", async () 
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(errors[1][1].message, /unavailable/);
 });
+
+test("folder actions never use the webview's openPath", () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const containing = source.slice(source.indexOf('if (action === "open-containing")'), source.indexOf('if (action === "set-category")'));
+  assert.match(containing, /invoke\("open_folder", \{ path: folder \}\)/);
+  assert.doesNotMatch(source, /opener\?\.openPath/);
+  const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  assert.match(lib, /\n\s+open_folder,\n/);
+});
