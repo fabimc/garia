@@ -1,100 +1,58 @@
-url: http://127.0.0.1:8765/?platform=linux
-title: Garia
-conn: aria2 · 127.0.0.1:6800
-view: Queued
-
-- complementary:
-  - text: garia
-  - button "Hide sidebar":
-    - img
-  - button "Add download":
-    - img
-    - text: Add download
-  - navigation:
-    - text: Library
-    - button "All Downloads 22":
-      - img
-      - text: All Downloads 22
-    - button "Torrents 1":
-      - img
-      - text: Torrents 1
-    - button "Active 3":
-      - img
-      - text: Active 3
-    - button "Seeding 1":
-      - img
-      - text: Seeding 1
-    - button "Queued 4":
-      - img
-      - text: Queued 4
-    - button "Paused 3":
-      - img
-      - text: Paused 3
-    - text: Archive
-    - button "Completed 5":
-      - img
-      - text: Completed 5
-    - button "Failed 6":
-      - img
-      - text: Failed 6
-  - button "Settings":
-    - img
-    - text: Settings
-- main:
-  - heading "Queued" [level=1]
-  - text: 4 items
-  - button "Stop Queue"
-  - button "Move to top" [disabled]
-  - button "Move to end" [disabled]
-  - button "Columns":
-    - img
-    - text: Columns
-  - button "Inspector"
-  - img
-  - searchbox "Search downloads…"
-  - row "Name Size Status"
-  - listbox "Downloads":
-    - option "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across- lines.tar.gz 2.1 GB Queued Pause Show in folder Delete download":
-      - img
-      - button "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across- lines.tar.gz"
-      - text: 2.1 GB Queued
-      - button "Pause":
-        - img
-      - button "Show in folder":
-        - img
-      - button "Delete download":
-        - img
-    - option "node-v24.4.0-darwin- arm64.tar.gz 62.0 MB Queued Pause Show in folder Delete download":
-      - img
-      - button "node-v24.4.0-darwin- arm64.tar.gz"
-      - text: 62.0 MB Queued
-      - button "Pause":
-        - img
-      - button "Show in folder":
-        - img
-      - button "Delete download":
-        - img
-    - option "Sintel (2010) 4K.mkv 5.0 GB Queued Pause Show in folder Delete download":
-      - img
-      - button "Sintel (2010) 4K.mkv"
-      - text: 5.0 GB Queued
-      - button "Pause":
-        - img
-      - button "Show in folder":
-        - img
-      - button "Delete download":
-        - img
-    - option "postgresql-18 .1-macos.dmg 310.0 MB Queued Pause Show in folder Delete download":
-      - img
-      - button "postgresql-18 .1-macos.dmg"
-      - text: 310.0 MB Queued
-      - button "Pause":
-        - img
-      - button "Show in folder":
-        - img
-      - button "Delete download":
-        - img
-- contentinfo:
-  - text: aria2 · 127.0.0.1:6800 · 3 downloading · 1 seeding · 4 queued · 3 paused · 5 done · 6 failed ·
-  - button "Full speed"
-  - text: ↓ 9.5 MB/s ↑ 1.4 MB/s Ctrl+F search
+- dialog "Garia Help":
+  - heading "Garia Help" [level=2]
+  - button "Close": ✕
+  - region "Help topics":
+    - term: Add a download
+    - definition:
+      - text: File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or drop a torrent on the window. A magnet or
+      - code: .torrent
+      - text: the system opens is queued, not offered. The browser extension in Settings (Ctrl+,) → Browser takes a clicked file, and the bookmarklet sends the page you are on.
+    - term: The window is not the app
+    - definition: The close button and Ctrl+W hide the list. Downloads keep going. Ctrl+Q quits, and Tray → Quit stops downloads.
+    - term: The list
+    - definition: Click selects. Arrows move the selection; Ctrl+A selects all. Double-click or Enter opens detail. Space pauses or resumes while the list has focus. Ctrl+C copies the URL. Ctrl+Backspace removes. Alt+↑ / Alt+↓ reorder a queued row — hold Shift for either end. Right-click also moves a selection to the top or the end, copies the file path, or removes the row and keeps the file. Download → Retry Failed and Clear Completed cover the whole list. Ctrl+F finds. Ctrl+? opens this sheet. Escape closes the topmost dialog, then the inspector.
+    - term: Show in folder
+    - definition: Show in folder opens the download's containing folder and selects the file.
+    - term: Keyboard-only path
+    - definition: Ctrl+N opens New Download (or Tab to Add download and press Enter); paste a URL and press Enter (Ctrl+Enter submits several). Tab to the sidebar, use ↑ / ↓ to choose a filter such as Active or Queued, then Enter. Focus the list for Space / Enter / Ctrl+C / Ctrl+Backspace — those keys stay with the focused control when the list is not focused. In the list, ↑ / ↓ selects a row; Space pauses or resumes it, and Enter opens details. A focused row button runs on Enter or Space. Ctrl+C copies the URL; Ctrl+Backspace removes the selected row. Ctrl+I opens details; Tab to Show in folder. Ctrl+F finds. Escape closes the topmost dialog, then the inspector. Close the window to hide downloads; reopen Garia from the tray or app launcher. Ctrl+Q quits.
+    - term: Video downloads
+    - definition:
+      - text: Paste a video page and pick a quality.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Video-Downloads.md
+    - term: FTP
+    - definition:
+      - text: Paste an
+      - code: ftp://
+      - text: folder and tick what to queue.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/FTP.md
+    - term: Checksums
+    - definition:
+      - text: Paste a hash beside the URL; aria2 checks as bytes arrive.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Checksums.md
+    - term: Torrents
+    - definition:
+      - text: The Torrents filter is every magnet and
+      - code: .torrent
+      - text: . Open a row for tracker status, peer health, per-file priority, and Seed until. A row that says Stalled has the metadata and no peers.
+    - term: Schedule
+    - definition:
+      - text: A daily window in Settings, or a start time on one row. Stop Queue / Start Queue are in the menu and the header.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/How-It-Works.md
+    - term: Video button
+    - definition:
+      - text: On a watch page the extension draws Download on the player; it sends the page, not the stream.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md
+    - term: Leave with the browser
+    - definition:
+      - text: Hold Alt while clicking a file link to leave that download with the browser.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md
+    - paragraph: Licenses for the bundled tools are under Help → Licenses.
+    - paragraph:
+      - button "Set up Garia again"
+  - button "Done"
