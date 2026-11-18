@@ -772,6 +772,89 @@ test("extension handoff without a payload stays put and hides retry", () => {
   assert.equal(location.href, "");
 });
 
+test("extension leaves Alt- and Ctrl-clicked file links to the browser", () => {
+  const source = readFileSync(new URL("../extensions/garia/content.js", import.meta.url), "utf8");
+  const handlers = {};
+  const messages = [];
+  const sandbox = {
+    URL,
+    location: { href: "https://example.test/" },
+    document: { baseURI: "https://example.test/", addEventListener: (type, fn) => { handlers[type] = fn; } },
+    window: {},
+    chrome: { runtime: { sendMessage: (message) => { messages.push(message); return Promise.resolve(); } } },
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasenameFromUrl: () => "file.zip",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  let prevented = false;
+  const event = {
+    button: 0, altKey: true, ctrlKey: false, shiftKey: false,
+    target: { closest: () => ({ href: "https://example.test/file.zip", getAttribute: () => "" }) },
+    preventDefault: () => { prevented = true; },
+    stopPropagation() {},
+  };
+  handlers.mousedown(event);
+  handlers.click(event);
+  assert.equal(prevented, false);
+  assert.deepEqual(messages.map((m) => [m.type, m.url]), [
+    ["bypass-download", "https://example.test/file.zip"],
+    ["bypass-download", "https://example.test/file.zip"],
+  ]);
+  messages.length = 0;
+  event.altKey = false;
+  event.ctrlKey = true;
+  handlers.click(event);
+  assert.equal(prevented, false);
+  assert.equal(messages[0].type, "bypass-download");
+  messages.length = 0;
+  event.ctrlKey = false;
+  handlers.mousedown(event);
+  assert.equal(messages.length, 0);
+  handlers.click(event);
+  assert.equal(prevented, true);
+  assert.equal(messages[0].type, "capture");
+  assert.equal(messages[0].url, "https://example.test/file.zip");
+});
+
+test("a link bypass skips download takeover once, including redirects", async () => {
+  const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
+  const listeners = {};
+  const cancelled = [];
+  const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
+  let now = 1000;
+  const sandbox = {
+    URLSearchParams, Date: { now: () => now },
+    gariaIsHttpUrl: (url) => /^https?:/.test(url),
+    gariaIsFileUrl: (url) => url.endsWith(".zip"),
+    gariaBasename: () => "file.zip",
+    gariaBasenameFromUrl: () => "file.zip",
+    chrome: {
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
+      contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
+      action: { onClicked: event("action") },
+      tabs: { create: () => Promise.resolve({ id: 1 }) },
+      downloads: { onCreated: event("download"), cancel: async (id) => { cancelled.push(id); } },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  const url = "https://example.test/file.zip";
+  listeners.message({ type: "bypass-download", url });
+  // A download takeover would ignore anyway must not spend the bypass.
+  listeners.download({ id: 1, url, byExtensionId: "other" });
+  listeners.download({ id: 2, url, finalUrl: "https://cdn.test/file.zip" });
+  listeners.download({ id: 3, url, finalUrl: "https://cdn.test/file.zip" });
+  now += 3000;
+  listeners.message({ type: "bypass-download", url: "https://cdn.test/file.zip" });
+  listeners.download({ id: 4, url: "https://mirror.test/file.zip", finalUrl: "https://cdn.test/file.zip" });
+  listeners.message({ type: "bypass-download", url });
+  now += 10001;
+  listeners.download({ id: 5, url });
+  await new Promise(setImmediate);
+  assert.deepEqual(cancelled, [3, 5]);
+});
+
 test("page capture lists embedded media before links and drops the page itself", () => {
   const urls = captureTargetsFromPage({
     pageUrl: "https://ex.test/watch",

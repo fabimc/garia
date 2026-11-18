@@ -8,6 +8,7 @@ if (typeof importScripts === "function") {
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 const recent = new Map();
+const bypassDownloads = new Map();
 let downloadTakeover = true;
 
 function refreshPrefs() {
@@ -24,11 +25,17 @@ if (api.storage?.onChanged) {
   });
 }
 
+const BYPASS_MS = 10000;
+
+function pruneOlderThan(map, ms, now = Date.now()) {
+  for (const [key, at] of map) {
+    if (now - at > ms) map.delete(key);
+  }
+}
+
 function alreadySent(url) {
   const now = Date.now();
-  for (const [key, at] of recent) {
-    if (now - at > 2500) recent.delete(key);
-  }
+  pruneOlderThan(recent, 2500, now);
   if (recent.has(url)) return true;
   recent.set(url, now);
   return false;
@@ -115,6 +122,12 @@ api.action.onClicked.addListener((tab) => {
 
 api.runtime.onMessage.addListener((message) => {
   if (!message || !message.url) return;
+  if (message.type === "bypass-download") {
+    const now = Date.now();
+    pruneOlderThan(bypassDownloads, BYPASS_MS, now);
+    bypassDownloads.set(message.url, now);
+    return;
+  }
   if (message.type === "send-page") {
     if (gariaIsHttpUrl(message.url)) sendToGaria(message.url, { from: "extension" });
     return;
@@ -185,6 +198,17 @@ function urlsFromSelection(text) {
   return urls;
 }
 
+// An Alt- or Ctrl-clicked link stays with the browser. The content script
+// names the link before the download starts; match it on the original or
+// redirected URL, once, and only for a download takeover would have taken.
+function consumeBypass(item) {
+  pruneOlderThan(bypassDownloads, BYPASS_MS);
+  for (const url of [item.url, item.finalUrl]) {
+    if (url && bypassDownloads.delete(url)) return true;
+  }
+  return false;
+}
+
 function shouldTakeDownload(item) {
   const url = item.finalUrl || item.url || "";
   if (item.byExtensionId) return false;
@@ -221,6 +245,7 @@ if (api.downloads?.onCreated) {
   api.downloads.onCreated.addListener((item) => {
     if (!downloadTakeover) return;
     if (!shouldTakeDownload(item)) return;
+    if (consumeBypass(item)) return;
     takeOverDownload(item);
   });
 }
