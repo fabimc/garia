@@ -1,0 +1,249 @@
+{
+	"type" : "u(ia{sv}av)",
+	"data" : [
+		2,
+		[
+			0,
+			{
+				"children-display" : {
+					"type" : "s",
+					"data" : "submenu"
+				}
+			},
+			[
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						2,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "New Download"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						3,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						4,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Pause All"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						5,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Resume All"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						6,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						7,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Stop Queue"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						8,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Start Queue"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						9,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						10,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Retry Failed"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						11,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Clear Completed"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						12,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						13,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Open Download Folder"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						14,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						15,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Show Garia"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						16,
+						{
+							"enabled" : {
+								"type" : "b",
+								"data" : true
+							},
+							"type" : {
+								"type" : "s",
+								"data" : "separator"
+							}
+						},
+						[]
+					]
+				},
+				{
+					"type" : "(ia{sv}av)",
+					"data" : [
+						17,
+						{
+							"label" : {
+								"type" : "s",
+								"data" : "Quit"
+							}
+						},
+						[]
+					]
+				}
+			]
+		]
+	]
+}

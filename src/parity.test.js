@@ -1692,6 +1692,19 @@ test("tray actions use the single global menu dispatcher", () => {
   assert.match(dispatcher, /"quit"\s*=>\s*app\.exit\(0\)/);
 });
 
+test("app menu Quit is a custom Ctrl+Q item on the shared quit path", () => {
+  const source = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const menu = source.split("fn install_menu(")[1].split("fn install_status_item(")[0];
+  const appMenu = menu.split('SubmenuBuilder::new(app, "Garia")')[1].split(".build()?;")[0];
+  const dispatcher = source.split("app.on_menu_event(")[1].split("spawn_clipboard_watch")[0];
+
+  // muda's predefined Quit is unsupported on GTK: greyed out, no accelerator.
+  assert.doesNotMatch(appMenu, /\.quit\(\)/);
+  assert.match(appMenu, /\.item\(&quit\)/);
+  assert.match(menu, /MenuItemBuilder::with_id\("quit", "Quit"\)\s*\.accelerator\("CmdOrCtrl\+Q"\)/);
+  assert.match(dispatcher, /"quit"\s*=>\s*app\.exit\(0\)/);
+});
+
 test("a poll completes an interrupted large-list filter without repeating clean passes", async () => {
   const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
   const filter = source.slice(source.indexOf("async function applyFilterAsync("), source.indexOf("// Assigned from DOMContentLoaded"));

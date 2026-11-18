@@ -26,7 +26,7 @@ This directory is the maintained source for verifying Garia's user-facing behavi
 - Record the feature ID and entry point used with every artifact under `evidence/<feature>/`.
 - Report an unreachable path with the attempted command and the unmet precondition.
 - Do not report a skipped entry point as verified through a different path.
-- Browser-dev proofs must not claim native-only behavior (tray, dock, Quit, Settings persistence, real disk downloads).
+- Browser-dev proofs must not claim native-only behavior (tray, dock, Quit, Settings persistence, real disk downloads). Native Quit has its own headless harness (`helpers/native-quit`).
 
 ## Feature entry contract
 
@@ -50,3 +50,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Large-library scale](./large-list-scale.md) covers rendering, filtering, selecting, and restoring lists with hundreds of rows.
 - [Linux / Omarchy first-run setup](./first-run-omarchy.md) covers the setup checklist, Help and Settings links, and Chromium guidance.
 - [Open folders](./open-folder.md) covers Open Download Folder, Open Containing Folder, and the missing-folder notice, using the `--tauri-stub` IPC stand-in.
+- [Quit the native app](./native-quit.md) covers Garia → Quit, Ctrl+Q, and tray Quit in the real Tauri binary under Xvfb, using `helpers/native-quit`.

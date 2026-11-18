@@ -23,7 +23,7 @@ The keyboard path covers adding a URL, filtering the library, pausing and resumi
 - Focus a download row to move through, pause, resume, inspect, or delete it.
 - Focus a row button and press Enter or Space to activate it; use Ctrl+Delete or Ctrl+Backspace to remove a selected row.
 - Press Ctrl+Shift+/.
-- Native only: close the window to hide Garia, restore it from the tray or launcher, and use Ctrl+Q to exit.
+- Native only: close the window to hide Garia, restore it from the tray or launcher, and use Ctrl+Q to exit (see [native-quit](./native-quit.md)).
 
 ## Driving it with control-garia
 

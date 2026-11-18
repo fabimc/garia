@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Drive the real Tauri binary's Quit paths on Linux, headless, and record
+# whether Garia and its aria2c exit. See features/native-quit.md.
+#
+# Usage (from .agent/skills/verify-garia/):
+#   ./helpers/native-quit [--bin PATH] [--out DIR] [menu-click|ctrl-q|tray-quit ...]
+#     --bin  Tauri binary (default: ../../../src-tauri/target/debug/garia, which
+#            needs its aria2c sidecar next to it, as `cargo build` leaves it)
+#     --out  evidence folder (default: evidence/native-quit)
+#     modes  default: all three
+#
+# Needs Xvfb, xfwm4, xdotool, ImageMagick `import`, busctl, jq, dbus-run-session.
+# Owns everything it starts: a private X display, window manager, and D-Bus
+# session (torn down on exit), and a throwaway HOME/XDG sandbox per mode.
+# Uses display :99 unless GARIA_NATIVE_DISPLAY is set.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL="$(dirname "$HERE")"
+REPO="$(cd "$SKILL/../../.." && pwd)"
+
+if [ "${1:-}" != "--inner" ]; then
+  for t in Xvfb xfwm4 xdotool import busctl jq dbus-run-session; do
+    command -v "$t" >/dev/null || { echo "native-quit: missing $t" >&2; exit 2; }
+  done
+  exec dbus-run-session -- "$0" --inner "$@"
+fi
+shift
+
+BIN="$REPO/src-tauri/target/debug/garia"
+OUT="$SKILL/evidence/native-quit"
+MODES=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --bin) BIN=$2; shift 2 ;;
+    --out) OUT=$2; shift 2 ;;
+    menu-click|ctrl-q|tray-quit) MODES+=("$1"); shift ;;
+    *) echo "native-quit: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+[ ${#MODES[@]} -eq 0 ] && MODES=(menu-click ctrl-q tray-quit)
+BIN=$(readlink -f "$BIN")
+[ -x "$BIN" ] || { echo "native-quit: no binary at $BIN (cargo build in src-tauri first)" >&2; exit 2; }
+mkdir -p "$OUT"; OUT=$(readlink -f "$OUT")
+
+export DISPLAY="${GARIA_NATIVE_DISPLAY:-:99}"
+Xvfb "$DISPLAY" -screen 0 1400x900x24 >/dev/null 2>&1 & XV=$!
+sleep 1
+xfwm4 --compositor=off >/dev/null 2>&1 & WM=$!
+trap 'kill $WM $XV 2>/dev/null' EXIT
+sleep 1
+
+FAIL=0
+for MODE in "${MODES[@]}"; do
+  SB=$(mktemp -d); mkdir -p "$SB"/{data,config,cache,state,Downloads}
+  LOG=$OUT/$MODE.log; : >"$LOG"
+  log() { printf '%s %s\n' "$(date +%T.%3N)" "$*" | tee -a "$LOG"; }
+  shot() { import -window root "$OUT/$1" && log "screenshot $1"; }
+
+  env HOME="$SB" XDG_DATA_HOME="$SB/data" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" \
+    XDG_STATE_HOME="$SB/state" XDG_DOWNLOAD_DIR="$SB/Downloads" WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+    "$BIN" >"$OUT/$MODE.garia.log" 2>&1 &
+  GPID=$!
+  log "launched $BIN pid=$GPID"
+
+  WID=""
+  for _ in $(seq 1 60); do WID=$(xdotool search --pid "$GPID" --name '^Garia$' 2>/dev/null | head -1); [ -n "$WID" ] && break; sleep 0.5; done
+  sleep 4
+  ARIA=$(pgrep -P "$GPID" -x aria2c)
+  log "window=$WID aria2c=${ARIA:-none}"
+  xdotool windowactivate --sync "$WID" 2>/dev/null; xdotool windowmove "$WID" 0 0; sleep 1
+  # The window sits at 0,0 under the xfwm4 title bar (~29 px), so these are
+  # screen coordinates. Continue dismisses the first-run Welcome sheet.
+  xdotool mousemove 677 693 click 1; sleep 1
+  shot "$MODE-01-launched.png"
+
+  case $MODE in
+    menu-click)
+      # Garia is the first menu-bar item; Quit is the last item of its menu.
+      xdotool mousemove 18 41 click 1; sleep 1.5
+      shot "$MODE-02-garia-menu-open.png"
+      xdotool mousemove 48 143; sleep 0.5; shot "$MODE-03-quit-hovered.png"
+      xdotool click 1
+      ;;
+    ctrl-q)
+      xdotool key --clearmodifiers ctrl+q
+      ;;
+    tray-quit)
+      # Click the tray menu's Quit over D-Bus (com.canonical.dbusmenu), the
+      # same call a tray host makes. No tray host is needed.
+      NAME=""; MENU=""
+      for n in $(busctl --user --json=short list | jq -r --argjson p "$GPID" '.[] | select(.pid == $p) | .name'); do
+        m=$(busctl --user tree --list "$n" 2>/dev/null | grep '/NotificationItem/.*/Menu$' | head -1)
+        [ -n "$m" ] && { NAME=$n; MENU=$m; break; }
+      done
+      log "tray bus=$NAME menu=$MENU"
+      busctl --user --json=pretty call "$NAME" "$MENU" com.canonical.dbusmenu GetLayout iias -- 0 -1 0 >"$OUT/$MODE.menu-layout.json"
+      jq -r '[.. | arrays | select(length == 3 and (.[0]|type) == "number" and (.[1]|type) == "object")
+              | "\(.[0]) \(.[1].label.data // "-")"] | .[]' "$OUT/$MODE.menu-layout.json" >"$OUT/$MODE.menu-labels.txt"
+      QID=$(awk '$2 == "Quit" {print $1}' "$OUT/$MODE.menu-labels.txt" | head -1)
+      log "tray Quit id=$QID"
+      busctl --user call "$NAME" "$MENU" com.canonical.dbusmenu Event isvu -- "$QID" clicked s "" 0
+      ;;
+  esac
+  log "sent $MODE"
+
+  for _ in $(seq 1 20); do kill -0 "$GPID" 2>/dev/null || break; sleep 0.25; done
+  sleep 0.5
+  if kill -0 "$GPID" 2>/dev/null; then G=running; else G=exited; fi
+  if [ -n "$ARIA" ] && kill -0 "$ARIA" 2>/dev/null; then A=running; else A=gone; fi
+  log "RESULT mode=$MODE garia=$G aria2c=$A"
+  if [ "$G" = running ] || [ "$A" = running ]; then
+    FAIL=1
+    [ "$G" = running ] && { shot "$MODE-04-still-running.png"; kill "$GPID"; sleep 1; }
+    if [ -n "$ARIA" ]; then
+      kill "$ARIA" 2>/dev/null
+      for _ in $(seq 1 20); do kill -0 "$ARIA" 2>/dev/null || break; sleep 0.25; done
+      kill -9 "$ARIA" 2>/dev/null
+    fi
+  fi
+  rm -rf "$SB"
+done
+exit $FAIL
