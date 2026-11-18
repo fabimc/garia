@@ -8,6 +8,7 @@ The main window is a live list of aria2 downloads. The frontend polls every seco
 - Keep unfinished work across relaunch via aria2's session file.
 - Keep finished rows across relaunch via Garia's own history file — not the session.
 - Route new files into category folders at add time — never move files already on disk.
+- While the first poll is pending, the startup notice covers both engine startup and loading the download list. A busy default RPC port must not delay the first window for a retry loop; only an orphaned aria2c Garia just stopped is briefly waited for, so 6800 survives a crash.
 - A successful removal can leave no result for a never-started download. Retry
   the result purge for aria2's filing race; a final missing-GID error for that
   removed gid is success, but other purge failures remain errors.

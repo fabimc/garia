@@ -4825,7 +4825,7 @@ function setConn(state) {
         engineStartupTimer = 0;
         if (connState !== "waiting" || !engineStatus) return;
         if (engineStatus.classList.contains("hidden")) {
-          engineStatus.textContent = "Starting downloads engine…";
+          engineStatus.textContent = "Starting downloads engine or loading downloads…";
           engineStatus.classList.remove("hidden");
         }
       }, 1000);

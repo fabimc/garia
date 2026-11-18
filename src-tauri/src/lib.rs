@@ -3941,15 +3941,18 @@ fn restart_aria2(
 /// the RPC port, and answers the next launch with the previous run's secret.
 /// The pid we wrote at spawn is how we recognise our own leftovers — and only
 /// our own, so an aria2 the user runs themselves is never touched.
-fn reap_orphan(pid_file: &Path) {
+/// Returns whether it stopped one, so the port pick knows to wait for it.
+fn reap_orphan(pid_file: &Path) -> bool {
     let Ok(text) = fs::read_to_string(pid_file) else {
-        return;
+        return false;
     };
     let Ok(pid) = text.trim().parse::<u32>() else {
         let _ = fs::remove_file(pid_file);
-        return;
+        return false;
     };
 
+    #[allow(unused_mut)]
+    let mut stopped = false;
     #[cfg(unix)]
     {
         let still_aria2 = Command::new("ps")
@@ -3961,6 +3964,7 @@ fn reap_orphan(pid_file: &Path) {
         if still_aria2 {
             // SIGTERM, not SIGKILL: aria2 writes its session on the way out.
             let _ = Command::new("kill").arg(pid.to_string()).status();
+            stopped = true;
             eprintln!("[garia] Stopped an orphaned aria2c (pid {pid}) from a previous run");
 
             // It still holds the RPC port until it's actually gone, and the
@@ -3980,24 +3984,35 @@ fn reap_orphan(pid_file: &Path) {
     }
 
     let _ = fs::remove_file(pid_file);
+    stopped
 }
 
 /// aria2's conventional port, unless something else holds it — a second garia,
 /// or an aria2 the user runs themselves. Losing that race used to mean aria2
 /// exited on startup and the app sat there reporting "unreachable".
-fn pick_port() -> u16 {
-    for _ in 0..20 {
-        if TcpListener::bind(("127.0.0.1", DEFAULT_RPC_PORT)).is_ok() {
-            return DEFAULT_RPC_PORT;
+///
+/// Only an orphan we just stopped is worth waiting for: it is about to let go
+/// of 6800, and remote clients are configured for 6800. Anything else holding
+/// the port will not let go, and a retry loop there only delays the window.
+fn pick_port(reaped_orphan: bool) -> u16 {
+    let tries = if reaped_orphan { 20 } else { 1 };
+    pick_available_port(DEFAULT_RPC_PORT, tries)
+}
+
+fn pick_available_port(preferred: u16, tries: u32) -> u16 {
+    for attempt in 0..tries {
+        if TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
+            return preferred;
         }
-        // A just-reaped aria2c can hold the port a moment longer.
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        if attempt + 1 < tries {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 
     TcpListener::bind(("127.0.0.1", 0))
         .and_then(|l| l.local_addr())
         .map(|a| a.port())
-        .unwrap_or(DEFAULT_RPC_PORT)
+        .unwrap_or(preferred)
 }
 
 /// `--input-file` is an error when the path doesn't exist, so the first launch
@@ -4118,7 +4133,7 @@ pub fn run() {
             }
 
             let pid_file = dir.join("aria2.pid");
-            reap_orphan(&pid_file);
+            let reaped_orphan = reap_orphan(&pid_file);
 
             let settings_file = dir.join("settings.json");
             let mut settings = read_settings(&settings_file);
@@ -4148,7 +4163,7 @@ pub fn run() {
                 random_secret()
             };
             let session = session_path(&dir);
-            let port = pick_port();
+            let port = pick_port(reaped_orphan);
             let child = spawn_aria2(port, &secret, &session, &netrc_file, &settings);
 
             match &child {
@@ -4571,6 +4586,26 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_preferred_port_falls_back_without_waiting() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let preferred = listener.local_addr().unwrap().port();
+        let started = std::time::Instant::now();
+        let selected = pick_available_port(preferred, 1);
+        assert!(started.elapsed() < std::time::Duration::from_millis(40));
+        assert_ne!(selected, preferred);
+        assert!(TcpListener::bind(("127.0.0.1", selected)).is_ok());
+    }
+
+    #[test]
+    fn free_preferred_port_is_kept() {
+        let preferred = TcpListener::bind(("127.0.0.1", 0))
+            .and_then(|l| l.local_addr())
+            .unwrap()
+            .port();
+        assert_eq!(pick_available_port(preferred, 1), preferred);
+    }
 
     #[test]
     fn folder_opening_requires_an_existing_directory() {
