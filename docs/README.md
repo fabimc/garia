@@ -18,7 +18,7 @@ Want to learn more?
 ## 2. FAQ
 
 * **Why do downloads keep going after I close the window?**
-  Closing the window hides the list. aria2 keeps running; use the tray or application launcher to bring it back. Quit is the only exit.
+  Closing the window hides the list. aria2 keeps running; use the tray or application launcher to bring it back. On Linux, if the tray is unavailable, launch Garia again from the application launcher or run `garia` to restore the existing window. Quit is the only exit.
 
 * **Where do files land?**
   Settings names the download folder. Optional categories sort new files into folders you name, by file type or by site.

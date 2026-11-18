@@ -1746,3 +1746,37 @@ test("finished rows from earlier runs come back only where aria2 has none", () =
   assert.equal(withHistory(stopped, live, undefined), stopped);
   assert.equal(withHistory(stopped, [], [again]), stopped);
 });
+
+test("open download folder invokes the directory-only native command", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const body = source.split("  function openDownloadFolder() {")[1].split("\n  const listenMenu")[0];
+  const calls = [];
+  const errors = [];
+  const settings = { downloadDir: "/tmp/downloads" };
+  const context = {
+    settings,
+    window: { __TAURI__: { core: { invoke: async (...args) => { calls.push(args); } } } },
+    failed: (...args) => errors.push(args),
+  };
+  vm.runInNewContext(`function openDownloadFolder() {${body}\nopenDownloadFolder()`, context);
+  assert.equal(calls[0][0], "open_folder");
+  assert.equal(calls[0][1].path, "/tmp/downloads");
+  settings.downloadDir = "";
+  context.openDownloadFolder();
+  assert.equal(calls.length, 1);
+  assert.equal(errors[0][0], "Couldn't open the download folder");
+  settings.downloadDir = "/tmp/downloads";
+  context.window.__TAURI__.core.invoke = async () => { throw new Error("unavailable"); };
+  context.openDownloadFolder();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(errors[1][1].message, /unavailable/);
+});
+
+test("folder actions never use the webview's openPath", () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const containing = source.slice(source.indexOf('if (action === "open-containing")'), source.indexOf('if (action === "set-category")'));
+  assert.match(containing, /invoke\("open_folder", \{ path: folder \}\)/);
+  assert.doesNotMatch(source, /opener\?\.openPath/);
+  const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  assert.match(lib, /\n\s+open_folder,\n/);
+});

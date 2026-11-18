@@ -3534,10 +3534,34 @@ fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if !Path::new(&path).is_file() {
         return Err(format!("{path} is not there any more"));
     }
+    open_with_system(&app, path)
+}
+
+/// Hands a path the caller has already checked to the desktop's default
+/// handler. Rust-side, so it is not bound by the webview's opener scope.
+fn open_with_system(app: &tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_path(path.clone(), None::<&str>)
         .map_err(|e| format!("could not open {path}: {e}"))
+}
+
+/// Only an absolute path to a directory that exists: a relative one would
+/// resolve against Garia's working directory, not anything the user chose.
+fn ensure_folder(path: &Path) -> Result<(), String> {
+    if path.is_absolute() && path.is_dir() {
+        Ok(())
+    } else {
+        Err(format!("{} is not an existing folder", path.display()))
+    }
+}
+
+/// Open Download Folder and Show Folder. The webview's `opener:default`
+/// grants reveal, not `openPath`, so folders go through here instead.
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    ensure_folder(Path::new(&path))?;
+    open_with_system(&app, path)
 }
 
 /// Where to look for aria2c, best first. The sidecar sits next to the app
@@ -4034,6 +4058,7 @@ pub fn run() {
             mux_video,
             preview_state,
             preview_file,
+            open_folder,
             remote_info,
             schedule_state,
             set_download_start,
@@ -4532,6 +4557,16 @@ fn install_status_item(app: &tauri::App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_opening_requires_an_existing_directory() {
+        let file = std::env::current_exe().unwrap();
+        assert!(ensure_folder(&std::env::temp_dir()).is_ok());
+        assert!(ensure_folder(&file).is_err());
+        assert!(ensure_folder(&file.join("missing")).is_err());
+        assert!(ensure_folder(Path::new(".")).is_err());
+        assert!(ensure_folder(Path::new("")).is_err());
+    }
 
     #[test]
     fn scheduled_already_paused_download_is_held_and_released_after_relaunch() {
