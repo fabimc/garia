@@ -1161,6 +1161,18 @@ test("Linux first-run presents the Omarchy checklist", () => {
   assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
 });
 
+test("Help keeps its body keyboard-scrollable within the sheet", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  const main = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  assert.match(html, /class="modal-body help-body" role="region" aria-label="Help topics" tabindex="0"/);
+  assert.match(main, /openOverlay\(helpOverlay,\s*\{\s*focus:\s*helpOverlay\.querySelector\("\.help-body"\)/);
+  assert.match(css, /html:not\(\.in-app\) #help-overlay \.modal\s*\{[^}]*max-height:/);
+  assert.doesNotMatch(css, /html\.in-app #help-overlay \.modal\s*\{/, "in-app Help uses the shared sheet max-height");
+  assert.match(css, /#help-overlay \.modal-footer\s*\{[^}]*flex-shrink:\s*0/);
+  assert.match(css, /#help-overlay \.help-body\s*\{[^}]*overflow:\s*auto;[^}]*min-height:\s*0/);
+});
+
 test("notification permission message is shown only when permission is denied", () => {
   assert.equal(
     notificationPermissionMessage(false),

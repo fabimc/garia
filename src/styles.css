@@ -1805,6 +1805,20 @@ html.in-app .modal {
     flex-direction: column;
     gap: 0.85rem;
 }
+/* The browser mock centers Help with no gutter; in the app the shared sheet
+   max-height already applies. Both scroll the body, not the whole sheet. */
+html:not(.in-app) #help-overlay .modal {
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px);
+}
+#help-overlay .modal-header,
+#help-overlay .modal-footer {
+    flex-shrink: 0;
+}
+#help-overlay .help-body {
+    overflow: auto;
+    min-height: 0;
+}
 .licenses-list,
 .help-list {
     display: flex;
@@ -1889,13 +1903,10 @@ html.in-app .modal {
     font-size: 0.84rem;
 }
 html.in-app #setup-overlay .modal-header,
-html.in-app #setup-overlay .modal-footer,
-html.in-app #help-overlay .modal-header,
-html.in-app #help-overlay .modal-footer {
+html.in-app #setup-overlay .modal-footer {
     flex-shrink: 0;
 }
-html.in-app #setup-overlay .setup-body,
-html.in-app #help-overlay .help-body {
+html.in-app #setup-overlay .setup-body {
     overflow: auto;
     min-height: 0;
 }
