@@ -4,7 +4,7 @@
 #
 # This is the 3 MB zipapp, not one of the 40 MB standalone builds, and that is
 # a measured choice. The PyInstaller onefile build re-extracts itself into a
-# fresh temp directory on every run, which macOS then rescans: 22 seconds per
+# fresh temp directory on every run, which the system then rescans: 22 seconds per
 # probe, every probe. The onedir build fixes the speed and costs 124 MB
 # unpacked. The zipapp needs a python3 on the machine, but when there is one it
 # starts in half a second and weighs nothing.

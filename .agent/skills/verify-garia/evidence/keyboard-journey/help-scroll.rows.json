@@ -1,0 +1,21 @@
+{
+  "viewport": {
+    "width": 900,
+    "height": 480
+  },
+  "before": {
+    "scrollH": 1703,
+    "clientH": 321,
+    "overflow": "auto"
+  },
+  "after": {
+    "scrollTop": 633,
+    "visible": true,
+    "dtTop": 59.921875,
+    "bodyTop": 59.984375,
+    "bodyBottom": 381.421875,
+    "text": "Ctrl+N opens New Download (or Tab to Add download and press Enter); paste a URL and press Enter (Ctrl+Enter submits several). Tab to the sidebar, use ↑ / ↓ to choose a filter such as Active or Queued, then Enter. Focus the list for Space / Enter / Ctrl+C / Ctrl+Backspace — those keys stay with the focused control when the list is not focused. In the list, ↑ / ↓ selects a row; Space pauses or resumes it, and Enter opens details. A focused row button runs on Enter or Space. Ctrl+C copies the URL; Ctrl+Backspace removes the selected row. Ctrl+I opens details; Tab to Show in folder. Ctrl+F finds. Escape closes the topmost dialog, then the inspector. Close the window to hide downloads; reopen Garia from the tray or app launcher. Ctrl+Q quits.",
+    "cmd": false,
+    "footerVisible": true
+  }
+}

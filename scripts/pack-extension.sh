@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Zip the browser capture package for the Chrome Web Store and
 # addons.mozilla.org. Same files in both — Chrome uses the service
 # worker, Firefox the event page. Load the folder unpacked for day-to-day.
@@ -14,7 +14,6 @@ trap cleanup EXIT
 
 mkdir -p "$out" "$stage"
 
-# Store zips must not carry Safari's converter manifest or editor junk.
 cp "$src/manifest.json" "$stage/"
 cp "$src/background.js" "$src/content.js" "$src/file-types.js" "$src/prefs.js" "$src/video-button.js" "$stage/"
 cp "$src/handoff.html" "$src/handoff.js" "$stage/"

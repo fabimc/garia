@@ -29,10 +29,10 @@ This is **not** the behavioral `verify-garia` skill. It does not launch the UI.
 | `decide` / `allowed` | `src-tauri/src/schedule.rs` — `decide`, `allowed`, `Saved.held`, `Schedule.overridden`, `reconcile` | `model/ScheduleHold.tla` operators `Decide`, `Allowed`, vars `held` / `overridden` |
 | tick apply | `src-tauri/src/lib.rs` — `schedule_tick` (forcePause/unpause, hold/unhold, clear overrides when allowed) | `Tick` |
 | Stop/Start Queue | `src-tauri/src/lib.rs` — `set_queue_stopped_blocking` | `CloseWindow` / `OpenWindow` (+ later `Tick`) |
-| per-download start | `src-tauri/src/lib.rs` — `set_download_start_blocking` | `AssignFutureStart`, `StartBecomesDue` |
+| per-download start | `src-tauri/src/lib.rs` — `set_download_start_blocking`, `hold_for_start` (holds after a successful `forcePause`, or after `tellStatus` confirms the row is already `paused`, as an add with a start time is) | `AssignFutureStart`, `StartBecomesDue` |
 | user pause/resume | Frontend/RPC pause & unpause (aria2 status only; does not edit `held`) | `UserPause`, `UserResume` |
 
-**Sync commit:** `c020a769b020539c15e58124eda04b4c6f0e7d93` (product files above last confirmed to match this model). Move this forward only after you confirm the model still describes those files at the new commit.
+**Sync commit:** `61e5cb3b7830e09fdccd370c3b1fd1ce9396697a` (product files above last confirmed to match this model). Move this forward only after you confirm the model still describes those files at the new commit.
 
 ## Bounds and assumptions
 

@@ -155,14 +155,9 @@ fn extension_of(url: &str) -> Option<String> {
     Some(name[dot + 1..].to_ascii_lowercase())
 }
 
-/// Pull the download URL out of `garia://add?url=…`. The URL itself has to be
+/// Pull the download out of `garia://add?url=…`. The URL itself has to be
 /// percent-encoded when it contains `?` (magnets, query strings); a plain
-/// `https://…` with no extra `?` still works unencoded.
-pub fn url_from_garia_link(link: &str) -> Option<String> {
-    catch_from_garia_link(link).map(|event| event.url)
-}
-
-/// The same link, with the extras an extension can send. `from=extension`
+/// `https://…` with no extra `?` still works unencoded. `from=extension`
 /// or `confirm=1` is how a click in the browser is told apart from the
 /// bookmarklet, which stays a fast `scheme` add.
 pub fn catch_from_garia_link(link: &str) -> Option<CatchEvent> {
@@ -280,31 +275,16 @@ fn is_download_url(s: &str) -> bool {
         || s.starts_with("magnet:")
 }
 
-/// A URL the user pointed at on purpose — Services, a selected line.
-/// Unlike the clipboard, a page counts: they chose the menu item.
-pub fn url_from_selection(text: &str) -> Option<String> {
-    for raw in text.split_whitespace() {
-        let token = tidy_token(raw);
-        if let Some(url) = url_from_garia_link(token) {
-            return Some(url);
-        }
-        if is_download_url(token) {
-            return Some(token.to_string());
-        }
-    }
-    None
-}
-
 /// A magnet handed to the app as its own URL, not wrapped in `garia://`.
-/// Safari and other clients open `magnet:?xt=…` directly once we claim the
-/// scheme; the bookmarklet still goes through `url_from_garia_link`.
+/// Clients open `magnet:?xt=…` directly once we claim the scheme; the
+/// bookmarklet still goes through `catch_from_garia_link`.
 pub fn magnet_url(link: &str) -> Option<String> {
     let link = link.trim();
     link.starts_with("magnet:").then(|| link.to_string())
 }
 
-/// A `.torrent` the system asked us to open — Finder, Open With, or a
-/// `file://` from `RunEvent::Opened`. The path is what the frontend reads;
+/// A `.torrent` the system asked us to open — double-click or Open With. The
+/// path is what the frontend reads;
 /// we only decide whether it is one.
 pub fn torrent_path(link: &str) -> Option<PathBuf> {
     let link = link.trim();
@@ -356,6 +336,10 @@ fn from_hex(b: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn url_from_garia_link(link: &str) -> Option<String> {
+        catch_from_garia_link(link).map(|event| event.url)
+    }
 
     #[test]
     fn a_copied_iso_is_a_file() {
@@ -447,19 +431,6 @@ mod tests {
         // dialog lists it. The clipboard ignores it, because it has no
         // file extension — same rule as a copied web page.
         assert_eq!(file_url_in("ftp://ftp.gnu.org/gnu/"), None);
-    }
-
-    #[test]
-    fn a_selected_page_is_an_instruction() {
-        assert_eq!(
-            url_from_selection("watch https://youtube.com/watch?v=abc later"),
-            Some("https://youtube.com/watch?v=abc".into())
-        );
-        assert_eq!(
-            url_from_selection("magnet:?xt=urn:btih:abc"),
-            Some("magnet:?xt=urn:btih:abc".into())
-        );
-        assert_eq!(url_from_selection("nothing here"), None);
     }
 
     #[test]
