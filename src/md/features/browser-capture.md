@@ -7,7 +7,7 @@ Catch downloads that start outside the app: clipboard, `garia://` links, and the
 | Source | Meaning | Default UI |
 |--------|---------|------------|
 | `clipboard` | Offer — copy is not a request | Banner / confirm |
-| `scheme` | Instruction (bookmarklet, Services, Open With) | Queue or quality picker |
+| `scheme` | Instruction (bookmarklet, Open With) | Queue or quality picker |
 | `extension` | Browser intercepted a click/download | Confirm sheet (unless quiet) |
 
 Quiet mode skips the banner and confirm sheet. Magnets always pass the clipboard extension filter.
@@ -16,20 +16,20 @@ Quiet mode skips the banner and confirm sheet. Magnets always pass the clipboard
 
 - Ignore the first clipboard contents at launch (leftover copy must not greet the user).
 - Extension sends the **page** for video, not the stream URL — playlists still work; no need to play first.
-- Hold Option/Alt on a file link to leave that download with the browser.
-- An Alt-click bypass also suppresses download takeover for the resulting browser download, including redirects.
+- Hold Alt (or Ctrl) on a file link to leave that download with the browser. Download takeover skips the browser download that click starts, once, matched on the link URL or its redirect target.
 - `confirm` from the extension: ask name/folder/start-vs-queue. Video pages still use the quality picker as confirm.
 - Referrer from the page goes to aria2 as `Referer` (hotlink protection).
 - Suggested filename becomes aria2 `out` when the URL has no useful path.
-- Keep the extension handoff tab open until the user closes it. Chromium may wait for an external-app confirmation, and the extension cannot tell whether Garia opened. Allow a retry from the tab.
+- The extension keeps handoff tabs open until the user closes them. A browser
+  protocol prompt may need an answer, and the extension cannot confirm delivery.
 
 ## Schemes and document types
 
-`garia://`, `magnet:`, and `.torrent` are registered in the Mac/Linux bundle (`Info.plist` / `tauri.conf.json`). They work from a built app, not from `tauri dev` (no registered bundle).
+`garia://`, `magnet:`, and `.torrent` are registered in the Linux bundle (`tauri.conf.json`). They work from a built app, not from `tauri dev` (no registered bundle).
 
 ## Extension package
 
-Lives in `extensions/garia`. One package for Chromium and Firefox; Safari needs Apple's converter (`scripts/make-safari-extension.sh`) and cannot cancel Safari's own downloads.
+Lives in `extensions/garia`. The package supports Chromium and Firefox.
 
 ## Related
 

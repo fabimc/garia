@@ -1,7 +1,7 @@
-// Safari has no chrome.downloads, so a click on a file link is the
+// A click on a file link is the
 // intercept. Chromium has both: preventDefault here so the browser never
-// starts a download the background would then have to cancel. Hold Option
-// (or Alt) to leave the file with the browser. Options → Click capture
+// starts a download the background would then have to cancel. Hold Ctrl
+// or Alt to leave the file with the browser. Options → Click capture
 // turns the whole intercept off.
 
 const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
@@ -31,20 +31,33 @@ function sendFileCapture(href, name) {
   });
 }
 
+// Alt- or Ctrl-click leaves the file with the browser, so download takeover
+// must not grab the download it starts. Tell the background on mousedown as
+// well as click: the message is async, and mousedown gives it a head start
+// over downloads.onCreated.
+function sendBypass(event) {
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (!event.altKey && !event.ctrlKey) return;
+  const a = event.target.closest?.("a[href]");
+  if (!a) return;
+  let url;
+  try { url = new URL(a.href, document.baseURI).href; } catch { return; }
+  if (!/^https?:/i.test(url)) return;
+  try {
+    Promise.resolve(api.runtime.sendMessage({ type: "bypass-download", url })).catch(() => {});
+  } catch { /* extension reloaded; the browser still downloads */ }
+}
+
+document.addEventListener("mousedown", sendBypass, true);
+
 document.addEventListener("click", (event) => {
-  if (!event.defaultPrevented && event.button === 0 && event.altKey) {
-    const a = event.target.closest?.("a[href]");
-    if (a) {
-      try {
-        const url = new URL(a.href, document.baseURI).href;
-        if (/^https?:/i.test(url)) api.runtime.sendMessage({ type: "bypass-download", url });
-      } catch { /* leave the click to the browser */ }
-    }
+  if (event.altKey || event.ctrlKey) {
+    sendBypass(event);
     return;
   }
   if (!clickCapture) return;
   if (event.defaultPrevented || event.button !== 0) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  if (event.shiftKey) return;
 
   const a = event.target.closest?.("a[href]");
   if (a) {

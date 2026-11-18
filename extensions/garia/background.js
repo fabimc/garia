@@ -1,6 +1,6 @@
 // Service workers do not import the content-script files. Chromium loads
-// this file alone; Firefox and Safari load helpers first via
-// `background.scripts`. The importScripts call covers Chromium.
+// this file alone; Firefox loads helpers first via `background.scripts`.
+// The importScripts call covers Chromium.
 if (typeof importScripts === "function") {
   if (typeof gariaIsFileUrl !== "function") importScripts("file-types.js");
   if (typeof gariaLoadPrefs !== "function") importScripts("prefs.js");
@@ -25,11 +25,17 @@ if (api.storage?.onChanged) {
   });
 }
 
+const BYPASS_MS = 10000;
+
+function pruneOlderThan(map, ms, now = Date.now()) {
+  for (const [key, at] of map) {
+    if (now - at > ms) map.delete(key);
+  }
+}
+
 function alreadySent(url) {
   const now = Date.now();
-  for (const [key, at] of recent) {
-    if (now - at > 2500) recent.delete(key);
-  }
+  pruneOlderThan(recent, 2500, now);
   if (recent.has(url)) return true;
   recent.set(url, now);
   return false;
@@ -118,9 +124,7 @@ api.runtime.onMessage.addListener((message) => {
   if (!message || !message.url) return;
   if (message.type === "bypass-download") {
     const now = Date.now();
-    for (const [url, at] of bypassDownloads) {
-      if (now - at > 10000) bypassDownloads.delete(url);
-    }
+    pruneOlderThan(bypassDownloads, BYPASS_MS, now);
     bypassDownloads.set(message.url, now);
     return;
   }
@@ -194,16 +198,18 @@ function urlsFromSelection(text) {
   return urls;
 }
 
-function shouldTakeDownload(item) {
-  const now = Date.now();
-  for (const [url, at] of bypassDownloads) {
-    if (now - at > 10000) {
-      bypassDownloads.delete(url);
-    } else if (url === item.url || url === item.finalUrl) {
-      bypassDownloads.delete(url);
-      return false;
-    }
+// An Alt- or Ctrl-clicked link stays with the browser. The content script
+// names the link before the download starts; match it on the original or
+// redirected URL, once, and only for a download takeover would have taken.
+function consumeBypass(item) {
+  pruneOlderThan(bypassDownloads, BYPASS_MS);
+  for (const url of [item.url, item.finalUrl]) {
+    if (url && bypassDownloads.delete(url)) return true;
   }
+  return false;
+}
+
+function shouldTakeDownload(item) {
   const url = item.finalUrl || item.url || "";
   if (item.byExtensionId) return false;
   if (!gariaIsHttpUrl(url)) return false;
@@ -224,7 +230,8 @@ async function takeOverDownload(item) {
   const url = item.finalUrl || item.url;
   if (!url) return;
   // Stop the browser's copy, but leave the row — if Garia isn't installed the
-  // cancelled download is still there to retry.
+  // cancelled download is still there to retry. The handoff tab opens in front
+  // so the protocol prompt and retry instructions are hard to miss.
   try { await api.downloads.cancel(item.id); } catch { /* already gone */ }
   sendToGaria(url, {
     from: "extension",
@@ -238,6 +245,7 @@ if (api.downloads?.onCreated) {
   api.downloads.onCreated.addListener((item) => {
     if (!downloadTakeover) return;
     if (!shouldTakeDownload(item)) return;
+    if (consumeBypass(item)) return;
     takeOverDownload(item);
   });
 }

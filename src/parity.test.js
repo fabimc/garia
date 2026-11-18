@@ -20,6 +20,7 @@ import {
   priorityDisplay,
   prioritySummary,
   recoveryNextStep,
+  rowDownloadSpeed,
   sameOrder,
   scheduleHoldNote,
   seedUntilLabel,
@@ -121,15 +122,107 @@ import {
   magnetDisplayName,
   announcesCompletion,
   collapseMagnetDownloads,
+  withHistory,
   revealPath,
+  purgeFailures,
 } from "./parity.js";
 
-test("disk-image extensions are labelled as such and archive hints stay readable", () => {
+test("clear confirmations name downloads and keep files on disk", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const openConfirm = source.slice(source.indexOf("  function openConfirm("), source.indexOf("  function closeConfirm()"));
+  const clearActions = source.slice(source.indexOf("  async function clearFailed()"), source.indexOf("  async function stopSeedingAll()"));
+  const element = () => ({
+    textContent: "",
+    checked: false,
+    classList: { toggle(_name, hidden) { this.hidden = hidden; } },
+  });
+  const confirmTitle = element();
+  const confirmName = element();
+  const confirmKeepFiles = element();
+  const confirmFileRow = element();
+  const confirmTrash = element();
+  const confirmTrashLabel = element();
+  const confirmDelete = element();
+  const snapshot = new Map();
+  let opened = 0;
+  const context = {
+    snapshot, confirmTitle, confirmName, confirmKeepFiles, confirmFileRow,
+    confirmTrash, confirmTrashLabel, confirmOverlay: {}, confirmCancel: {},
+    closeConfirm() {}, openOverlay() { opened++; },
+    document: { getElementById() { return confirmDelete; } },
+    fileName: (dl) => dl.name,
+    rowWroteBytes: () => true,
+  };
+  vm.createContext(context);
+  vm.runInContext(`let confirmGids = []; let confirmKeepOnly = false;\n${openConfirm}\n${clearActions}`, context);
+
+  await context.clearCompleted();
+  assert.equal(opened, 0);
+  snapshot.set("a", { gid: "a", status: "complete", name: "tiny-tray.bin" });
+  await context.clearCompleted();
+  assert.equal(confirmTitle.textContent, "Clear completed");
+  assert.equal(confirmName.textContent, "tiny-tray.bin");
+  assert.equal(confirmKeepFiles.textContent, "The file stays on disk.");
+  assert.equal(confirmKeepFiles.classList.hidden, false);
+  assert.equal(confirmFileRow.classList.hidden, true);
+  assert.equal(confirmDelete.textContent, "Remove");
+
+  snapshot.set("b", { gid: "b", status: "complete", name: "second.bin" });
+  await context.clearCompleted();
+  assert.equal(confirmName.textContent, "2 downloads");
+  assert.equal(confirmKeepFiles.textContent, "The files stay on disk.");
+
+  snapshot.set("c", { gid: "c", status: "error", name: "failed.bin" });
+  await context.clearFailed();
+  assert.equal(confirmTitle.textContent, "Clear failed");
+  assert.equal(confirmName.textContent, "failed.bin");
+  assert.equal(confirmKeepFiles.textContent, "The file stays on disk.");
+  snapshot.set("d", { gid: "d", status: "error", name: "failed-again.bin" });
+  await context.clearFailed();
+  assert.equal(confirmName.textContent, "2 downloads");
+  assert.equal(confirmKeepFiles.textContent, "The files stay on disk.");
+
+  context.openConfirm(["a"]);
+  assert.equal(confirmName.textContent, "tiny-tray.bin");
+  assert.equal(confirmKeepFiles.classList.hidden, true);
+  assert.equal(confirmFileRow.classList.hidden, false);
+  assert.equal(confirmDelete.textContent, "Delete");
+});
+
+test("purge accepts a missing result only after successful removal and retries", () => {
+  const missing = { error: "GID queued is not found" };
+  const removed = new Set(["queued"]);
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, false), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], removed, true), {
+    left: [], reason: "",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [missing], new Set(), true), {
+    left: ["queued"], reason: missing.error,
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "GID other is not found" }], removed, true), {
+    left: ["queued"], reason: "GID other is not found",
+  });
+  assert.deepEqual(purgeFailures(["queued"], [{ error: "Permission denied" }], removed, true), {
+    left: ["queued"], reason: "Permission denied",
+  });
+});
+
+test("purge reports only genuine remaining errors in mixed batches", () => {
+  assert.deepEqual(purgeFailures(
+    ["queued", "stuck", "done"],
+    [{ error: "GID queued is not found" }, { error: "Still active" }, { result: "OK" }],
+    new Set(["queued", "stuck"]),
+    true,
+  ), { left: ["stuck"], reason: "Still active" });
+});
+
+test("Linux disk-image extensions are labelled as such and archive hints stay readable", () => {
   assert.equal(classifyIntakeUrl("https://ex.test/app.iso", true).label, "Disk image");
-  assert.equal(classifyIntakeUrl("https://ex.test/app.dmg", true).content, "disk");
   assert.equal(classifyIntakeUrl("https://ex.test/app.img", true).contentLabel, "Disk image");
   assert.equal(contentKindFromUrl("https://cdn.test/iso.app"), "other");
-  assert.equal(mimeHintFromExt("dmg"), "application/x-apple-diskimage");
+  assert.equal(mimeHintFromExt("iso"), "application/x-iso9660-image");
   const rows = [
     { file: true, content: "archive", queued: false },
     { file: true, content: "video", queued: false },
@@ -143,6 +236,15 @@ test("a torrent is recognised by its metainfo or its info hash", () => {
   assert.equal(isTorrentDownload({ infoHash: "abc" }), true);
   assert.equal(isTorrentDownload({ gid: "1" }), false);
   assert.equal(isTorrentDownload(null), false);
+});
+
+test("row download speed is shown only while active", () => {
+  const dl = { status: "active", downloadSpeed: "1677721" };
+  assert.equal(rowDownloadSpeed(dl), 1677721);
+  for (const status of ["paused", "waiting", "complete", "error", "removed", "merging", "seeding"]) {
+    assert.equal(rowDownloadSpeed({ ...dl, status }), 0, status);
+  }
+  assert.equal(rowDownloadSpeed(null), 0);
 });
 
 test("high files are requested before normal and low", () => {
@@ -307,9 +409,9 @@ test("priority labels match the detail panel wording", () => {
 });
 
 test("empty queue copy follows filter and connection state", () => {
-  const fresh = formatEmptyQueueState({ modNHint: "⌘N" });
+  const fresh = formatEmptyQueueState({ modNHint: "Ctrl+N" });
   assert.equal(fresh.title, "No downloads yet");
-  assert.match(fresh.sub, /⌘N/);
+  assert.match(fresh.sub, /Ctrl\+N/);
   assert.equal(fresh.action?.id, "new-download");
   assert.equal(formatEmptyQueueState({ filter: "torrents", hasAnyDownloads: true }).title, "No torrents");
   assert.equal(
@@ -421,7 +523,7 @@ test("intake content kinds and filters name video, archive, and disk links", () 
   assert.equal(contentKindFromUrl("https://cdn.test/pack.zip"), "archive");
   assert.equal(contentKindFromUrl("https://cdn.test/os.iso"), "disk");
   assert.equal(mimeHintFromExt("mp4"), "video/mp4");
-  const isFile = (url) => /\.(mp4|zip|pdf|iso|dmg)(\?|$)/i.test(url);
+  const isFile = (url) => /\.(mp4|zip|pdf|iso|img)(\?|$)/i.test(url);
   const rows = reviewIntake([
     "https://cdn.test/clip.mp4",
     "https://cdn.test/pack.zip",
@@ -584,56 +686,102 @@ test("the extension collector matches the shared page-capture helper", () => {
   );
 });
 
-test("extension captures keep an active handoff tab open for the protocol prompt", async () => {
-  const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
-  const tabs = [];
+test("extension handoffs stay open for download, message, and batch captures", async () => {
+  const opened = [];
   const cancelled = [];
   const timers = [];
   const listeners = {};
   const event = (name) => ({ addListener: (fn) => { listeners[name] = fn; } });
   const sandbox = {
     URLSearchParams,
-    setTimeout: (...args) => { timers.push(args); },
+    setTimeout: (...args) => timers.push(args),
     gariaIsHttpUrl: (url) => /^https?:/.test(url),
     gariaIsFileUrl: (url) => url.endsWith(".zip"),
-    gariaBasename: () => "file.zip",
-    gariaBasenameFromUrl: () => "file.zip",
+    gariaBasename: (name) => name.split("/").pop(),
+    gariaBasenameFromUrl: (url) => url.split("/").pop(),
     chrome: {
-      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
-      contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
+      runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => `extension://${path}` },
+      contextMenus: { removeAll: () => Promise.resolve(), create: () => {}, onClicked: event("menu") },
       action: { onClicked: event("action") },
-      tabs: { create: (tab) => { tabs.push(tab); return Promise.resolve({ id: tabs.length }); } },
-      downloads: { onCreated: event("download"), cancel: async (id) => { cancelled.push(id); } },
+      downloads: { onCreated: event("download"), cancel: async (id) => cancelled.push(id) },
+      tabs: { create: (tab) => { opened.push(tab); return Promise.resolve({ id: opened.length }); } },
     },
   };
   vm.createContext(sandbox);
-  vm.runInContext(source, sandbox);
-  listeners.message({ type: "capture", url: "https://example.test/file.zip", referrer: "https://example.test/" });
-  listeners.download({ id: 3, url: "https://example.test/other.zip", filename: "file.zip" });
-  vm.runInContext(`sendBatchToGaria(["https://example.test/a.zip", "https://example.test/b.zip"], "")`, sandbox);
-  vm.runInContext(`sendBatchToGaria(["https://example.test/${"x".repeat(5500)}.zip"], "")`, sandbox);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(cancelled, [3]);
-  assert.equal(timers.length, 0);
-  assert.equal(tabs.length, 4);
-  assert.ok(tabs.every((tab) => tab.active && tab.url.startsWith("handoff.html?")));
-  const capture = new URL(tabs[0].url, "https://extension.test/");
-  assert.equal(capture.searchParams.get("url"), "https://example.test/file.zip");
-  assert.equal(capture.searchParams.get("confirm"), "1");
-  assert.ok(tabs.some((tab) => tab.url.includes("urls=")));
-  assert.ok(tabs.some((tab) => tab.url.includes("#")));
+  vm.runInContext(readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8"), sandbox);
+
+  listeners.download({ id: 7, url: "https://example.test/file.zip", filename: "/tmp/file.zip" });
+  await new Promise(setImmediate);
+  assert.deepEqual(cancelled, [7]);
+  assert.equal(opened[0].active, true);
+  let url = new URL(opened[0].url);
+  assert.equal(url.searchParams.get("url"), "https://example.test/file.zip");
+  assert.equal(url.searchParams.get("name"), "file.zip");
+  assert.equal(url.searchParams.get("confirm"), "1");
+
+  listeners.message({ type: "capture", url: "https://example.test/other.zip" });
+  listeners.menu({ menuItemId: "garia-selection", selectionText: "https://example.test/a.zip https://example.test/b.zip" }, {});
+  const longUrls = Array.from({ length: 200 }, (_, i) => `https://example.test/${i}-${"x".repeat(30)}.zip`);
+  listeners.menu({ menuItemId: "garia-selection", selectionText: longUrls.join(" ") }, {});
+  assert.equal(opened.length, 4);
+  assert.ok(opened.every((tab) => tab.active));
+  assert.equal(new URL(opened[2].url).searchParams.get("urls"), "https://example.test/a.zip\nhttps://example.test/b.zip");
+  url = new URL(opened[3].url);
+  assert.equal(url.searchParams.get("batch"), "1");
+  assert.equal(decodeURIComponent(url.hash.slice(1)), longUrls.join("\n"));
+  assert.deepEqual(timers, []);
 });
 
-test("extension leaves Alt-clicked file links to the browser", () => {
+test("extension handoff can retry a dismissed prompt, including long batches", async () => {
+  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
+  for (const packed of ["", "https://example.test/a.zip\nhttps://example.test/b.zip"]) {
+    const clipboard = [];
+    const retry = { hidden: true, addEventListener: (_event, fn) => { retry.click = fn; } };
+    const location = {
+      search: packed ? "?batch=1&from=extension" : "?url=https%3A%2F%2Fexample.test%2Fa.zip&confirm=1",
+      hash: packed ? `#${encodeURIComponent(packed)}` : "",
+      href: "",
+    };
+    const sandbox = {
+      URLSearchParams, location,
+      document: { getElementById: () => retry },
+      navigator: { clipboard: { writeText: async (value) => clipboard.push(value) } },
+    };
+    vm.runInNewContext(source, sandbox);
+    await new Promise(setImmediate);
+    assert.equal(retry.hidden, false);
+    const first = location.href;
+    assert.ok(first.startsWith("garia://add?"));
+    location.href = "";
+    await retry.click();
+    assert.equal(location.href, first);
+    assert.deepEqual(clipboard, packed ? [packed, packed] : []);
+  }
+});
+
+test("extension handoff without a payload stays put and hides retry", () => {
+  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
+  const retry = { hidden: true, addEventListener: () => assert.fail("retry wired without a payload") };
+  const location = { search: "", hash: "", href: "" };
+  vm.runInNewContext(source, {
+    URLSearchParams, location,
+    document: { getElementById: () => retry },
+    navigator: { clipboard: { writeText: async () => assert.fail("clipboard written") } },
+  });
+  assert.equal(retry.hidden, true);
+  assert.equal(location.href, "");
+});
+
+test("extension leaves Alt- and Ctrl-clicked file links to the browser", () => {
   const source = readFileSync(new URL("../extensions/garia/content.js", import.meta.url), "utf8");
-  let click;
+  const handlers = {};
   const messages = [];
   const sandbox = {
     URL,
     location: { href: "https://example.test/" },
-    document: { baseURI: "https://example.test/", addEventListener: (_type, fn) => { click = fn; } },
+    document: { baseURI: "https://example.test/", addEventListener: (type, fn) => { handlers[type] = fn; } },
     window: {},
-    chrome: { runtime: { sendMessage: (message) => messages.push(message) } },
+    chrome: { runtime: { sendMessage: (message) => { messages.push(message); return Promise.resolve(); } } },
     gariaIsFileUrl: (url) => url.endsWith(".zip"),
     gariaBasenameFromUrl: () => "file.zip",
   };
@@ -641,23 +789,35 @@ test("extension leaves Alt-clicked file links to the browser", () => {
   vm.runInContext(source, sandbox);
   let prevented = false;
   const event = {
-    button: 0, altKey: true,
+    button: 0, altKey: true, ctrlKey: false, shiftKey: false,
     target: { closest: () => ({ href: "https://example.test/file.zip", getAttribute: () => "" }) },
     preventDefault: () => { prevented = true; },
     stopPropagation() {},
   };
-  click(event);
+  handlers.mousedown(event);
+  handlers.click(event);
+  assert.equal(prevented, false);
+  assert.deepEqual(messages.map((m) => [m.type, m.url]), [
+    ["bypass-download", "https://example.test/file.zip"],
+    ["bypass-download", "https://example.test/file.zip"],
+  ]);
+  messages.length = 0;
+  event.altKey = false;
+  event.ctrlKey = true;
+  handlers.click(event);
   assert.equal(prevented, false);
   assert.equal(messages[0].type, "bypass-download");
-  assert.equal(messages[0].url, "https://example.test/file.zip");
-  event.altKey = false;
-  click(event);
+  messages.length = 0;
+  event.ctrlKey = false;
+  handlers.mousedown(event);
+  assert.equal(messages.length, 0);
+  handlers.click(event);
   assert.equal(prevented, true);
-  assert.equal(messages[1].type, "capture");
-  assert.equal(messages[1].url, "https://example.test/file.zip");
+  assert.equal(messages[0].type, "capture");
+  assert.equal(messages[0].url, "https://example.test/file.zip");
 });
 
-test("Alt-click bypass prevents download takeover once, including redirects", async () => {
+test("a link bypass skips download takeover once, including redirects", async () => {
   const source = readFileSync(new URL("../extensions/garia/background.js", import.meta.url), "utf8");
   const listeners = {};
   const cancelled = [];
@@ -668,6 +828,7 @@ test("Alt-click bypass prevents download takeover once, including redirects", as
     gariaIsHttpUrl: (url) => /^https?:/.test(url),
     gariaIsFileUrl: (url) => url.endsWith(".zip"),
     gariaBasename: () => "file.zip",
+    gariaBasenameFromUrl: () => "file.zip",
     chrome: {
       runtime: { onInstalled: event("installed"), onMessage: event("message"), getURL: (path) => path },
       contextMenus: { removeAll() {}, create() {}, onClicked: event("menu") },
@@ -680,38 +841,18 @@ test("Alt-click bypass prevents download takeover once, including redirects", as
   vm.runInContext(source, sandbox);
   const url = "https://example.test/file.zip";
   listeners.message({ type: "bypass-download", url });
-  listeners.download({ id: 1, url, finalUrl: "https://cdn.test/file.zip" });
+  // A download takeover would ignore anyway must not spend the bypass.
+  listeners.download({ id: 1, url, byExtensionId: "other" });
   listeners.download({ id: 2, url, finalUrl: "https://cdn.test/file.zip" });
+  listeners.download({ id: 3, url, finalUrl: "https://cdn.test/file.zip" });
+  now += 3000;
+  listeners.message({ type: "bypass-download", url: "https://cdn.test/file.zip" });
+  listeners.download({ id: 4, url: "https://mirror.test/file.zip", finalUrl: "https://cdn.test/file.zip" });
   listeners.message({ type: "bypass-download", url });
   now += 10001;
-  listeners.download({ id: 3, url });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(cancelled, [2, 3]);
-});
-
-test("extension handoff preserves the request for retry, including clipboard batches", async () => {
-  const source = readFileSync(new URL("../extensions/garia/handoff.js", import.meta.url), "utf8");
-  for (const hash of ["", `#${encodeURIComponent("https://example.test/a.zip\nhttps://example.test/b.zip")}`]) {
-    const retry = { hidden: true };
-    const copied = [];
-    const location = { search: "?url=https%3A%2F%2Fexample.test%2Ffile.zip&confirm=1", hash };
-    const sandbox = {
-      URLSearchParams, location,
-      document: { getElementById: () => retry },
-      navigator: { clipboard: { writeText: async (text) => { copied.push(text); } } },
-    };
-    vm.createContext(sandbox);
-    await vm.runInContext(source, sandbox);
-    assert.equal(retry.hidden, false);
-    assert.equal(retry.href, location.href);
-    const url = new URL(retry.href);
-    assert.equal(url.searchParams.get("url"), "https://example.test/file.zip");
-    assert.equal(url.searchParams.get("confirm"), "1");
-    if (hash) {
-      assert.equal(copied[0], "https://example.test/a.zip\nhttps://example.test/b.zip");
-      assert.equal(url.searchParams.get("batch"), "1");
-    }
-  }
+  listeners.download({ id: 5, url });
+  await new Promise(setImmediate);
+  assert.deepEqual(cancelled, [3, 5]);
 });
 
 test("page capture lists embedded media before links and drops the page itself", () => {
@@ -1006,15 +1147,7 @@ test("turning categories on seeds starters only when the list is empty", () => {
   assert.deepEqual(kept.categories, [{ id: "iso", name: "ISOs", extensions: ["iso"] }]);
 });
 
-test("the welcome sheet is where categories are introduced", () => {
-  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /Four things to check before the first download/);
-  assert.match(html, /id="setup-categories"/);
-  assert.match(html, /Sort files into folders by type/);
-  assert.match(html, /id="setup-categories-hint"/);
-});
-
-test("Linux first-run links the Omarchy checklist without changing other platforms", () => {
+test("Linux first-run presents the Omarchy checklist", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
   assert.match(html, /Linux \/ Omarchy: four quick checks/);
@@ -1025,8 +1158,7 @@ test("Linux first-run links the Omarchy checklist without changing other platfor
   assert.match(html, /github\.com\/fabimc\/garia#linux/);
   assert.match(html, /id="setup-settings"/);
   assert.match(html, /id="setup-help"/);
-  assert.match(css, /html\.platform-linux \.setup-generic/);
-  assert.match(css, /html\.platform-linux \.setup-linux-only/);
+  assert.doesNotMatch(css, /setup-generic|setup-linux-only/);
 });
 
 test("notification permission message is shown only when permission is denied", () => {
@@ -1408,9 +1540,136 @@ test("desktop housekeeping matches Download menu verbs", () => {
     desktopHousekeepingItems({ failed: 2, completed: 1 }).map((i) => i.label),
     ["Retry Failed", "Clear Completed"],
   );
-  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "⌘N" });
+  const failedEmpty = formatEmptyQueueState({ filter: "error", hasAnyDownloads: true, modNHint: "Ctrl+N" });
   assert.equal(failedEmpty.title, "No failed downloads");
   assert.equal(failedEmpty.action?.id, "new-download");
-  assert.match(failedEmpty.sub, /⌘N|Drop a link/);
+  assert.match(failedEmpty.sub, /Ctrl\+N|Drop a link/);
   assert.equal(formatEmptyQueueState({ filter: "complete", hasAnyDownloads: true }).action?.id, "open-folder");
+});
+
+test("tray actions use the single global menu dispatcher", () => {
+  const source = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const tray = source.split("fn install_status_item(")[1].split("#[cfg(test)]")[0];
+  const dispatcher = source.split("app.on_menu_event(")[1].split("spawn_clipboard_watch")[0];
+  const shared = ["new-download", "pause-all", "resume-all", "stop-queue", "start-queue",
+    "retry-failed", "clear-completed", "open-folder"];
+  const forwarded = dispatcher.split('"new-download"')[1].split("=> {")[0];
+
+  assert.equal((source.match(/\bon_menu_event\s*\(/g) || []).length, 1);
+  for (const id of [...shared, "show-window", "quit"]) {
+    assert.ok(tray.includes(`with_id("${id}"`), `missing tray item ${id}`);
+  }
+  for (const id of shared.slice(1)) assert.ok(forwarded.includes(`"${id}"`), `missing action ${id}`);
+  assert.match(dispatcher, /bring_to_front\(app\);\s*let _ = app\.emit\("menu", event\.id\(\)\.as_ref\(\)\);/);
+  assert.match(dispatcher, /"show-window"\s*=>\s*bring_to_front\(app\)/);
+  assert.match(dispatcher, /"quit"\s*=>\s*app\.exit\(0\)/);
+});
+
+test("a poll completes an interrupted large-list filter without repeating clean passes", async () => {
+  const source = readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  const filter = source.slice(source.indexOf("async function applyFilterAsync("), source.indexOf("// Assigned from DOMContentLoaded"));
+  const poll = source.slice(source.indexOf("async function poll(listEl)"), source.indexOf("async function pollAndSync()"));
+
+  for (const [needle, activeFilter, expected] of [
+    ["file-49", "all", 11],
+    ["", "all", 500],
+    ["", "active", 0],
+  ]) {
+    const classes = (...initial) => {
+      const values = new Set(initial);
+      return {
+        contains: (value) => values.has(value),
+        add: (value) => values.add(value),
+        remove: (value) => values.delete(value),
+        toggle(value, force) {
+          if (force) values.add(value);
+          else values.delete(value);
+        },
+      };
+    };
+    const downloads = Array.from({ length: 500 }, (_, i) => ({ gid: String(i), status: "paused" }));
+    const rows = downloads.map((dl, i) => ({
+      dataset: { gid: dl.gid, status: dl.status, name: `file-${i}.bin` },
+      classList: classes("dl-item", ...(needle ? [] : ["hidden"])),
+    }));
+    const sectionCount = { textContent: "" };
+    const section = {
+      dataset: { section: "paused" },
+      classList: classes("dl-section"),
+      querySelector: () => sectionCount,
+    };
+    const listEl = {
+      children: [section, ...rows],
+      classList: classes(),
+      querySelectorAll: () => rows,
+    };
+    const elements = {
+      "view-count": { textContent: "" },
+      "empty-state": { classList: classes() },
+      "empty-title": {},
+      "empty-sub": {},
+    };
+    let resume;
+    let yields = 0;
+    let applied = 0;
+    const errors = [];
+    const noop = () => {};
+    const context = vm.createContext({
+      listEl, nameFilter: needle, activeFilter,
+      filterDirty: false, filterGeneration: 0, filterPending: false, pollDomLock: null,
+      LARGE_LIST_THRESHOLD: 64, FILTER_BATCH_SIZE: 16, RENDER_BATCH_SIZE: 8,
+      document: { hidden: false, getElementById: (id) => elements[id] || null },
+      window: {}, console: { error: (error) => errors.push(error) },
+      yieldToPaint: () => ++yields === 1 ? new Promise((resolve) => { resume = resolve; }) : Promise.resolve(),
+      sidebarViewOf: (status) => status,
+      formatEmptyQueueState: () => ({ title: "", sub: "" }),
+      modGlyph: () => "", connState: "ok", schedule: {}, settings: {},
+      onFilterApplied: () => { applied++; },
+      fetchLists: async () => ({ active: [], waiting: downloads, stopped: [] }),
+      loadSchedule: noop, setConn: noop, renderSchedule: noop, renderQueueToggle: noop,
+      withSeeding: (dl) => dl, rawPaths: new Map(), learnOptions: noop,
+      optionsAsked: new Set(), rowLimits: new Map(), rowChecksums: new Map(), rowReferrers: new Map(),
+      rememberMagnets: noop, collapseJobs: (dl) => dl,
+      collapseMagnetDownloads: (dl) => ({ rows: dl, handoffs: [], forget: [] }),
+      rememberedMagnet: noop, removing: new Set(), runPendingMerges: noop,
+      activeCategories: () => [], snapshot: new Map(), firstPoll: false,
+      announcesCompletion: () => false, isTorrent: () => false, categoryIdFor: noop,
+      rowEls: new Map(rows.map((row) => [row.dataset.gid, row])), updateItemEl: noop,
+      pollQueued: true, prunePackages: noop, categoryMemo: new Map(), downloadTags: new Map(),
+      statusRank: () => 0, sectionEl: () => section, reorderHold: true,
+      sectionEls: new Map([["paused", section]]), renderCounts: noop, syncStatusItem: noop,
+      advanceFilePriorities: noop, refreshDetail: noop,
+    });
+    vm.runInContext(`${filter}\n${poll}`, context);
+    const interrupted = context.applyFilterAsync(listEl);
+    assert.equal(typeof resume, "function");
+    await context.poll(listEl);
+    resume();
+    await interrupted;
+
+    assert.deepEqual(errors, []);
+    assert.equal(rows.filter((row) => !row.classList.contains("hidden")).length, expected);
+    assert.equal(elements["view-count"].textContent, `${expected} items`);
+    assert.equal(sectionCount.textContent, expected);
+    assert.equal(section.classList.contains("hidden"), activeFilter !== "all" || expected === 0);
+    assert.equal(applied, 1);
+    await context.poll(listEl);
+    assert.equal(applied, 1);
+  }
+});
+
+test("finished rows from earlier runs come back only where aria2 has none", () => {
+  const old = { gid: "old", status: "complete" };
+  const seeding = { gid: "seed", status: "complete" };
+  const again = { gid: "again", status: "complete" };
+  const stopped = [{ gid: "again", status: "complete" }, { gid: "now", status: "complete" }];
+  const live = [{ gid: "seed", status: "active", seeder: "true" }];
+
+  const merged = withHistory(stopped, live, [old, seeding, again]);
+  assert.deepEqual(merged.map((dl) => dl.gid), ["old", "again", "now"]);
+  assert.equal(merged[1], stopped[0], "aria2's own row wins");
+
+  assert.equal(withHistory(stopped, live, []), stopped);
+  assert.equal(withHistory(stopped, live, undefined), stopped);
+  assert.equal(withHistory(stopped, [], [again]), stopped);
 });
