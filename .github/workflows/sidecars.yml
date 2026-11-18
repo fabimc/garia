@@ -29,23 +29,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - id: cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            src-tauri/binaries
-            src-tauri/resources/yt-dlp
-          key: sidecars-macos-universal-${{ hashFiles('scripts/sidecar.sh', 'scripts/build-aria2-sidecar.sh', 'scripts/build-ffmpeg-sidecar.sh', 'scripts/fetch-ytdlp-sidecar.sh', 'scripts/download-verified.sh', 'scripts/sha256-check.sh') }}
-
-      - name: Build universal sidecars
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: ./scripts/sidecar.sh universal-apple-darwin
-
   linux:
     runs-on: ubuntu-22.04
     steps:
