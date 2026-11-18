@@ -590,6 +590,47 @@ async function cmdBrowser(argv) {
 
   if (sub === "reload") {
     await withPage(async (page, state) => {
+      if (args["tauri-stub"]) {
+        // Stand-in for the native IPC bridge, for this page load only (the
+        // next plain reload drops it). aria2_rpc goes to the mock; get_settings
+        // returns a download folder; open_folder is recorded in
+        // window.__gariaInvokes and resolves (or rejects for --missing-dir).
+        // Proves which native command the UI calls with which path — not that
+        // a file manager opened.
+        const stub = {
+          rpcUrl: state.rpcUrl || RPC_URL,
+          downloadDir: String(args["download-dir"] || "/home/garia/Downloads"),
+          missing: String(args["missing-dir"] || ""),
+        };
+        await page.addInitScript({
+          content: `(() => {
+            const stub = ${JSON.stringify(stub)};
+            window.__gariaInvokes = [];
+            window.__gariaErrors = [];
+            const consoleError = console.error.bind(console);
+            console.error = (...a) => { window.__gariaErrors.push(a.map((x) => String(x?.stack || x)).join(" ")); consoleError(...a); };
+            const invoke = async (cmd, payload = {}) => {
+              window.__gariaInvokes.push({ cmd, payload });
+              if (cmd === "aria2_rpc") {
+                const res = await fetch(stub.rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ jsonrpc: "2.0", id: "stub", method: payload.method, params: payload.params || [] }) });
+                return res.json();
+              }
+              if (cmd === "get_settings") return { downloadDir: stub.downloadDir, maxConcurrentDownloads: 5, trafficMode: "full", setupSeen: true };
+              if (cmd === "aria2_endpoint") return new URL(stub.rpcUrl).host;
+              if (cmd === "schedule_state") {
+                return { enabled: false, open: true, queueStopped: false, start: 0, end: 0, nextChange: 0, held: [], starts: {}, now: Date.now() };
+              }
+              if (cmd === "open_folder") {
+                if (stub.missing && payload.path === stub.missing) throw stub.missing + " is not an existing folder";
+                return null;
+              }
+              return null;
+            };
+            window.__TAURI__ = { core: { invoke } };
+          })();`,
+        });
+      }
       await page.goto(state.uiUrl, { waitUntil: "domcontentloaded" });
       await page.waitForFunction(
         () => (document.getElementById("conn-text")?.textContent || "").includes("aria2 ·"),
