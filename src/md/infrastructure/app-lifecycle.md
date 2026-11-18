@@ -25,7 +25,7 @@
 ## Notifications
 
 - Completion notifications use the desktop notification service.
-- Enabling notifications checks or requests permission; denied or unavailable notification services are reported in Settings.
+- Enabling notifications checks or requests permission; denied or unavailable notification services are reported in Settings. Settings also asks the session bus for a notification daemon, because the plugin reports permission as granted even when none is running.
 
 ## Crash recovery
 

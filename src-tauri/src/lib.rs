@@ -1788,6 +1788,19 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The notification plugin always reports permission as granted on Linux, so
+/// Settings asks the session bus whether a notification daemon is running.
+#[tauri::command]
+async fn check_notification_service() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(notify_rust::get_server_information)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|_| ())
+        .map_err(|e| {
+            format!("The desktop notification service is unavailable. Check your notification daemon and session bus: {e}")
+        })
+}
+
 fn encode_base64(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -3534,10 +3547,34 @@ fn preview_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if !Path::new(&path).is_file() {
         return Err(format!("{path} is not there any more"));
     }
+    open_with_system(&app, path)
+}
+
+/// Hands a path the caller has already checked to the desktop's default
+/// handler. Rust-side, so it is not bound by the webview's opener scope.
+fn open_with_system(app: &tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_path(path.clone(), None::<&str>)
         .map_err(|e| format!("could not open {path}: {e}"))
+}
+
+/// Only an absolute path to a directory that exists: a relative one would
+/// resolve against Garia's working directory, not anything the user chose.
+fn ensure_folder(path: &Path) -> Result<(), String> {
+    if path.is_absolute() && path.is_dir() {
+        Ok(())
+    } else {
+        Err(format!("{} is not an existing folder", path.display()))
+    }
+}
+
+/// Open Download Folder and Show Folder. The webview's `opener:default`
+/// grants reveal, not `openPath`, so folders go through here instead.
+#[tauri::command]
+fn open_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    ensure_folder(Path::new(&path))?;
+    open_with_system(&app, path)
 }
 
 /// Where to look for aria2c, best first. The sidecar sits next to the app
@@ -4049,6 +4086,7 @@ pub fn run() {
             mux_video,
             preview_state,
             preview_file,
+            open_folder,
             remote_info,
             schedule_state,
             set_download_start,
@@ -4056,6 +4094,7 @@ pub fn run() {
             cancel_queue_drain,
             autostart_enabled,
             set_autostart,
+            check_notification_service,
             open_settings_window,
             sync_view_menu,
             browser_extension_dir,
@@ -4566,6 +4605,16 @@ mod tests {
             .unwrap()
             .port();
         assert_eq!(pick_available_port(preferred, 1), preferred);
+    }
+
+    #[test]
+    fn folder_opening_requires_an_existing_directory() {
+        let file = std::env::current_exe().unwrap();
+        assert!(ensure_folder(&std::env::temp_dir()).is_ok());
+        assert!(ensure_folder(&file).is_err());
+        assert!(ensure_folder(&file.join("missing")).is_err());
+        assert!(ensure_folder(Path::new(".")).is_err());
+        assert!(ensure_folder(Path::new("")).is_err());
     }
 
     #[test]

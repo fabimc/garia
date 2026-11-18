@@ -20,7 +20,7 @@ Add a download lets a user open the Add download dialog, paste an HTTP(S) URL or
 ## How to get to it (user POV)
 
 - Choose `Add download` in the sidebar.
-- Press the platform New Download shortcut in the native app (⌘N / Ctrl+N) — native only.
+- Press the platform New Download shortcut in the native app (Ctrl+N) — native only.
 - Drop a URL on the window — native / DnD path; not driven here.
 
 ## Driving it with control-garia
