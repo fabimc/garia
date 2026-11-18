@@ -1,6 +1,6 @@
 ## About
 
-Garia is a fast, easy, and free download manager for macOS and Linux. It is built on [aria2](https://aria2.github.io/) and wrapped in a [Tauri](https://tauri.app/) native app.
+Garia is a fast, easy, and free Linux download manager. It is built on [aria2](https://aria2.github.io/) and wrapped in a [Tauri](https://tauri.app/) native app.
 
 Garia manages aria2 automatically — it ships its own copy inside the app and starts it with the app. Closing the window leaves downloads running; Quit is what stops them. You never have to touch the command line to download a file.
 
@@ -8,25 +8,17 @@ Garia manages aria2 automatically — it ships its own copy inside the app and s
 
 It comes as:
 
- * A native GUI application (macOS `.dmg`, Linux AppImage and `.deb`)
- * A browser capture extension for Chrome, Firefox, Edge, Brave, Arc, and Safari
+ * A native Linux GUI application (AppImage, `.deb`, and an Arch-compatible tarball)
+ * A browser capture extension for Chromium and Firefox
  * Bundled aria2, ffmpeg, and yt-dlp sidecars
 
 This is an **alpha**. Pre-built installers are on the [Releases](https://github.com/fabimc/garia/releases) page.
 
-### macOS
-
-Install with Homebrew from the [personal tap](https://github.com/fabimc/homebrew-garia) after a GitHub Release is published:
-
-```sh
-brew tap fabimc/garia
-brew trust fabimc/garia
-brew install --cask garia
-```
-
 ### Linux
 
 Grab the `.AppImage` (run anywhere) or the `.deb` (Debian/Ubuntu — preferred if you want `garia://`, magnet, and `.torrent` associations) from [Releases](https://github.com/fabimc/garia/releases).
+
+The release also includes `garia-<version>-linux-x86_64.tar.gz`, a portable payload for Arch-based distributions.
 
 On Omarchy, the recommended package will be `garia-bin` from OPR:
 
@@ -63,16 +55,7 @@ Garia builds from the command line with Tauri.
 
 For a more detailed description, dependencies, sidecar notes, signing, and the release workflow, visit [Building Garia](docs/Building.md) in docs.
 
-### Requirements (macOS)
-
-| Tool | Version | Install |
-|------|---------|---------|
-| macOS | 11.0+ | — |
-| [Xcode Command Line Tools](https://developer.apple.com/xcode/) | — | `xcode-select --install` |
-| [Rust](https://www.rust-lang.org/) | 1.70+ | `brew install rust` |
-| [Node.js](https://nodejs.org/) | 18+ | `brew install node` |
-
-### Requirements (Linux)
+### Requirements
 
 | Tool | Version | Install (Debian/Ubuntu) |
 |------|---------|-------------------------|
@@ -99,16 +82,7 @@ The first run takes a few minutes while Cargo compiles the Tauri runtime and the
 npm run tauri build
 ```
 
-On macOS that produces an `.app` and a `.dmg`. On Linux it produces an AppImage and a `.deb`. Artifacts land under `src-tauri/target/release/bundle/`.
-
-A universal Mac binary (Apple Silicon and Intel) is a second target:
-
-```sh
-rustup target add x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
-```
-
-The result lands under `src-tauri/target/universal-apple-darwin/release/bundle/` and runs natively on both chips. A release tag builds Mac and Linux on CI.
+This produces an AppImage and a `.deb` under `src-tauri/target/release/bundle/`.
 
 ## Contributing
 

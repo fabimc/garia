@@ -6,6 +6,7 @@ Pause and resume lets a user stop an active download from its row action buttons
 
 - `pause-row` pauses one active download via the row Pause control.
 - `pause-status` shows `data-status=paused` after pause.
+- `pause-no-speed` — a paused row's Speed cell and the inspector's Speed fact read `—`, never the last aria2 speed (#158).
 - `resume-row` resumes a paused download via the row Resume control in the action group.
 
 ## How to get to it (user POV)
@@ -29,6 +30,7 @@ Preconditions:
 
 ## Gotchas
 
+- **No stale speed.** After pause, the Ubuntu row's `[data-col="speed"]` cell reads `—`; with the row selected, `#detail-pane [data-fact="speed"] dd` reads `—`. The stock mock zeros a paused row's speed in `tellWaiting`, so to reproduce aria2's lag serve a copy of `mock-rpc.js` that keeps `downloadSpeed` on paused rows.
 - Pause the seeded Ubuntu ISO, not a seeding torrent — Garia models stop-seeding as remove, not pause.
 - After pause, the row leaves the Active filter; assert in All Downloads or Paused.
 - `Pause all` requires enabled header buttons and selected/global semantics — do not treat a disabled `#pause-all` as a pass.

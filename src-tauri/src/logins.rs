@@ -168,15 +168,9 @@ pub fn write_netrc(file: &Path, logins: &[Login]) -> io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(unix)]
 fn owner_only(file: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(file, fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn owner_only(_file: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 /// What the frontend gets: every site, no password, and the headers garia will
