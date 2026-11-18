@@ -7,7 +7,7 @@ This directory is the maintained source for verifying Garia's user-facing behavi
 - Launch with `./helpers/control-garia launch` from `.agent/skills/verify-garia/` (browser-dev: mock RPC + static `src/`).
 - Run `./helpers/control-garia doctor` and require `ok: true`, `ownedByUs: true`, `#conn-text` containing `aria2 ·`, and a non-zero download row count.
 - Never drive an instance that was not started by this verification run.
-- Prefer browser-dev on agent/cloud hosts. Native Tauri paths are called out per feature as unverified here when they need `invoke`.
+- Prefer browser-dev on agent/cloud hosts. Native Tauri paths are called out per feature as unverified here when they need `invoke`; `browser reload --tauri-stub` shows which `invoke` the UI makes, not what the native side does.
 
 ## Driving conventions
 
@@ -48,4 +48,5 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Filter by name](./filter-by-name.md) covers the in-list name search box.
 - [Keyboard-first download journey](./keyboard-journey.md) covers adding, filtering, pausing/resuming, row controls, the keyboard row menu (including short windows), details, Help, and Escape order.
 - [Large-library scale](./large-list-scale.md) covers rendering, filtering, selecting, and restoring lists with hundreds of rows.
-- [Linux / Omarchy first-run setup](./first-run-omarchy.md) covers the platform-specific checklist, Help and Settings links, and Chromium guidance.
+- [Linux / Omarchy first-run setup](./first-run-omarchy.md) covers the setup checklist, Help and Settings links, and Chromium guidance.
+- [Open folders](./open-folder.md) covers Open Download Folder, Open Containing Folder, and the missing-folder notice, using the `--tauri-stub` IPC stand-in.

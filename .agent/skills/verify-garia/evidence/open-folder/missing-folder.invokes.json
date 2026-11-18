@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "result": {
+    "paths": [
+      "/home/garia/Downloads",
+      "/Users/me/Downloads",
+      "/Users/me/Downloads/Video"
+    ],
+    "notice": "Couldn't open the folder: /Users/me/Downloads/Video is not an existing folder"
+  }
+}

@@ -24,6 +24,12 @@
     "selected": "false"
   },
   {
+    "gid": "dddd1111",
+    "name": "lands-in-15-seconds.mp4",
+    "status": "active",
+    "selected": "false"
+  },
+  {
     "gid": "ffff1111",
     "name": "A Very Long Talk About Nothing.f315.webm",
     "status": "active",
@@ -111,12 +117,6 @@
     "gid": "cccc9999",
     "name": "hotlinked-wallpaper.jpg",
     "status": "error",
-    "selected": "false"
-  },
-  {
-    "gid": "dddd1111",
-    "name": "lands-in-15-seconds.mp4",
-    "status": "complete",
     "selected": "false"
   },
   {

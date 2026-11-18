@@ -86,6 +86,7 @@ aria2 keeps stopped downloads in memory only. Its session file holds unfinished 
 - Optional columns (size, speed, ETA, sockets, source, category, Saved to, Show) are view prefs per sidebar filter, not engine settings.
 - Defaults never include a column that is always empty for that view: no ETA on Queued/Paused (ETA is only computed for active rows), no Finished at on Completed until Garia stores its own completion time.
 - The per-row Show button reveals the file in the desktop file manager; it does not open it (`opener:default` grants reveal, not `openPath` on arbitrary files).
+- Folder actions (toolbar, tray, menu, empty Completed state, Show Folder) call the native `open_folder` command, which accepts existing directories only, rather than granting the webview `openPath` on arbitrary paths.
 - Turning a column on removes that number from the one-line summary. Speed is in the Status line only while the Speed column is off.
 - The Speed column and the inspector's Speed fact show download speed only for active rows; paused and other non-active rows must not show stale aria2 speeds. Seeding rows show upload speed instead.
 - When the list is narrower than 720px (small window, or the inspector beside it), speed/ETA/source-style columns are not painted and Status carries the speed. The user's column choice is kept. This is done in `syncColLayout`, which writes the grid inline — CSS cannot override it.

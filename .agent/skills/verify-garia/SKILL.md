@@ -17,7 +17,9 @@ Agents read this cold. Follow Launch → Doctor → Drive (one feature file) →
 | **Native Tauri app** (`npm run tauri dev` / packaged build) | Real product surface. Needs WebKitGTK (Linux), Rust sidecars (aria2/ffmpeg/yt-dlp), and a display. Prove native-only paths (tray, dock, Quit vs close, `garia://`, Settings via invoke) on a machine that can run Tauri. |
 | Browser extension / marketing `site/` | Out of scope for this skill's first map. |
 
-**Stand-in honesty:** a browser-dev proof does **not** cover Tauri `invoke` paths (settings persistence, video tools, queue stop via Rust, file reveal, notifications, deep links). Those stay unverified until a native run.
+**Stand-in honesty:** a browser-dev proof does **not** cover Tauri `invoke` paths (settings persistence, video tools, queue stop via Rust, file reveal, folder opening, notifications, deep links). Those stay unverified until a native run.
+
+**IPC stand-in:** `./helpers/control-garia browser reload --tauri-stub [--download-dir PATH] [--missing-dir PATH]` reloads the page with a fake `window.__TAURI__.core.invoke` for that one page load. `aria2_rpc` is forwarded to the mock, `get_settings` returns a download folder with setup already seen, `schedule_state` returns an idle schedule, `open_folder` resolves (or rejects for `--missing-dir`), and everything else resolves `null`. Each call is recorded in `window.__gariaInvokes`; `console.error` output is copied to `window.__gariaErrors`. It also turns on `html.in-app`, so sheets scroll as in the native app. It proves which command the UI sends with which arguments — never that the native side did the work. Run `doctor` after it, like any reload.
 
 ## Launch
 
@@ -96,6 +98,7 @@ Examples:
 ./helpers/control-garia browser click-named --name 'Ubuntu 24.04 Desktop.iso' --action resume
 ./helpers/control-garia browser click --css '#open-modal-btn'
 ./helpers/control-garia browser viewport --width 900 --height 300   # short tiled window; persists across calls
+./helpers/control-garia browser reload --tauri-stub
 ./helpers/control-garia browser fill --css '#modal-url-input' --value 'https://example.com/a.zip'
 ./helpers/control-garia browser snapshot --path browse-library/active.aria.txt
 ./helpers/control-garia browser screenshot --path browse-library/active.png

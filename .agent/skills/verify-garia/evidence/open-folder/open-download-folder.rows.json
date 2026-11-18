@@ -1,0 +1,32 @@
+[
+  {
+    "gid": "dddd1111",
+    "name": "lands-in-15-seconds.mp4",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc2222",
+    "name": "annual-report.pdf",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "cccc3333",
+    "name": "quote\"and<angle>brackets.zip",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff3333",
+    "name": "Keynote.f315.webm",
+    "status": "complete",
+    "selected": "false"
+  },
+  {
+    "gid": "ffff4444",
+    "name": "Keynote.f251.webm",
+    "status": "complete",
+    "selected": "false"
+  }
+]
