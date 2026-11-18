@@ -30,6 +30,9 @@ getrandom = "0.2"
 tokio = { version = "1", features = ["sync"] }
 trash = "5"
 tauri-plugin-notification = "2"
+# Probes the session notification daemon; the plugin reports permission as
+# granted on Linux even when none is running.
+notify-rust = "4.18.2"
 arboard = "3"
 qrcode = { version = "0.14.1", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

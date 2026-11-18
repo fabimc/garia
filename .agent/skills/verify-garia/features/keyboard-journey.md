@@ -1,6 +1,6 @@
 # Keyboard-first download journey
 
-The keyboard path covers adding a URL, filtering the library, pausing and resuming a row, activating a focused row button, opening details, deleting a queued row, and closing the topmost surface. Browser-dev can verify Linux copy and focus behavior; hide/restore and Quit require the native app.
+The keyboard path covers adding a URL, filtering the library, pausing and resuming a row, activating a focused row button, opening details, deleting a queued row, and closing the topmost surface. Browser-dev can verify shortcut copy and focus behavior; hide/restore and Quit require the native app.
 
 ## Sub-features
 
@@ -9,20 +9,20 @@ The keyboard path covers adding a URL, filtering the library, pausing and resumi
 - `keyboard-pause-resume` pauses and resumes the focused row with Space while preserving focus.
 - `keyboard-row-controls` activates a focused row button (Retry, Pause/Resume, Show in folder, Delete, the name) with Enter or Space instead of running the list shortcut on the selection.
 - `keyboard-delete` removes a queued row with the keyboard and leaves no false error when aria2 has no result to purge.
-- `keyboard-inspector` opens details with the platform shortcut.
+- `keyboard-inspector` opens details with Ctrl+I.
 - `keyboard-row-menu` opens the focused row's context menu with Shift+F10 or the Menu key.
 - `keyboard-escape` closes a dialog before the inspector.
-- `keyboard-help` opens Help with the platform shortcut and shows platform-aware keyboard and file-location guidance.
+- `keyboard-help` opens Help with Ctrl+Shift+/ and shows the keyboard and file-location guidance.
 - `keyboard-help-scroll` reaches the keyboard-only path inside the height-limited Help sheet.
 
 ## How to get to it (user POV)
 
-- Press the platform New Download shortcut (Ctrl+N).
+- Press Ctrl+N.
 - Use Tab to reach the sidebar; use Up / Down to move between filters and Enter to apply one.
 - Focus a download row to move through, pause, resume, inspect, or delete it.
-- Focus a row button and press Enter or Space to activate it; use the platform delete chord to remove a selected row.
-- Press the platform Help shortcut (Ctrl+Shift+/).
-- Native only: close the window to hide Garia, restore it from the tray or launcher, and use the platform Quit shortcut to exit.
+- Focus a row button and press Enter or Space to activate it; use Ctrl+Delete or Ctrl+Backspace to remove a selected row.
+- Press Ctrl+Shift+/.
+- Native only: close the window to hide Garia, restore it from the tray or launcher, and use Ctrl+Q to exit.
 
 ## Driving it with control-garia
 
@@ -37,8 +37,8 @@ Preconditions:
 - **Row controls.** Select the active Ubuntu row, press `Control+f`, then Tab to `[data-gid="cccc4444"] [data-action="retry"]` and press `Enter`. RPC sees `aria2.addUri`, `#detail-pane` stays hidden, and the Ubuntu row stays active. Space on another row's Retry behaves the same. `node --test helpers/keyboard-activation.test.mjs` covers every row control with both keys; it launches and cleans up its own instance, so run it with no instance live.
 - **Delete a queued row.** Filter to Queued, focus the first row and press `ArrowDown`, then `Control+Delete`. The confirmation opens with Cancel focused; press `Tab`, then `Enter`. The row disappears and `#notice-banner` stays hidden.
 - **Inspector and Escape.** With a row selected, press `Control+i` to open the inspector. Press `Control+n`, then `Escape`: the Add dialog closes and the inspector stays open. Press `Escape` again; the inspector closes.
-- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Linux shortcut labels and the Linux “Show in folder” file-manager note. Focus lands on `.help-body` (the labelled “Help topics” region). The sheet is height-limited in browser-dev and in the app, so at a short viewport (for example 1100×520) press `PageDown` until the “Keyboard-only path” entry is in view and confirm Done stays visible. To check the in-app sheet in browser-dev, add the `in-app` class to `<html>` before opening Help; its max-height is the shared sheet value, `100vh - 32px`.
-- **Proof.** `evidence/keyboard-journey/` contains the Linux browser-dev add, filter, pause/resume, delete, and Help snapshots and screenshots, including `keyboard-delete.aria.txt`, `help-scroll.aria.txt`, and their `.rows.json` / `.png` files.
+- **Help.** Press `Control+Shift+/`. The Help sheet opens and contains the “Keyboard-only path” instructions with Ctrl shortcut labels and the “Show in folder” note. Focus lands on `.help-body` (the labelled “Help topics” region). The sheet is height-limited in browser-dev and in the app, so at a short viewport (for example 1100×520) press `PageDown` until the “Keyboard-only path” entry is in view and confirm Done stays visible. To check the in-app sheet in browser-dev, add the `in-app` class to `<html>` before opening Help; its max-height is the shared sheet value, `100vh - 32px`.
+- **Proof.** `evidence/keyboard-journey/` contains the browser-dev add, filter, pause/resume, delete, and Help snapshots and screenshots, including `keyboard-delete.aria.txt`, `help-scroll.aria.txt`, and their `.rows.json` / `.png` files.
 
 ## Gotchas
 

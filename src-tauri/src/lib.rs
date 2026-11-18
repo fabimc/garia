@@ -1788,6 +1788,19 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The notification plugin always reports permission as granted on Linux, so
+/// Settings asks the session bus whether a notification daemon is running.
+#[tauri::command]
+async fn check_notification_service() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(notify_rust::get_server_information)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|_| ())
+        .map_err(|e| {
+            format!("The desktop notification service is unavailable. Check your notification daemon and session bus: {e}")
+        })
+}
+
 fn encode_base64(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -4066,6 +4079,7 @@ pub fn run() {
             cancel_queue_drain,
             autostart_enabled,
             set_autostart,
+            check_notification_service,
             open_settings_window,
             sync_view_menu,
             browser_extension_dir,
