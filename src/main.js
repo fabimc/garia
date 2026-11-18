@@ -6272,8 +6272,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     rowMenu.classList.remove("hidden");
     const pad = 8;
     const { width, height } = rowMenu.getBoundingClientRect();
-    rowMenu.style.left = `${Math.min(x, window.innerWidth - width - pad)}px`;
-    rowMenu.style.top = `${Math.min(y, window.innerHeight - height - pad)}px`;
+    // Clamp both edges: a menu taller than a short (tiled) window would
+    // otherwise get a negative top and push its first verbs off-screen. The
+    // CSS max-height makes it scroll instead.
+    rowMenu.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - width - pad))}px`;
+    rowMenu.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - height - pad))}px`;
   }
 
   listEl.addEventListener("contextmenu", (e) => {
@@ -6295,7 +6298,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const rect = row.getBoundingClientRect();
     rowMenuAnchor = row;
     openRowMenu(rect.left, rect.bottom);
-    rowMenu.querySelector("button")?.focus({ preventScroll: true });
+    rowMenu.querySelector("button[data-action]:not(:disabled)")?.focus({ preventScroll: true });
   });
 
   rowMenu.addEventListener("keydown", (e) => {
@@ -6334,7 +6337,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       closeRowMenu();
     }
   });
-  document.addEventListener("scroll", closeRowMenu, true);
+  // Scrolling the list moves the anchor out from under the menu, so close it;
+  // scrolling the (now scrollable) menu itself is just reaching its items.
+  document.addEventListener("scroll", (e) => {
+    if (e.target !== rowMenu) closeRowMenu();
+  }, true);
 
   // ── Retry and delete ─────────────────────────────────────────────────────
   // A stopped download sticks around in aria2's lists until its result is

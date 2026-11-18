@@ -585,7 +585,7 @@ async function cmdBrowser(argv) {
   const [sub, ...rest] = argv;
   const args = parseArgs(rest);
   if (!sub) {
-    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | click-named | reload | eval");
+    die("browser requires a subcommand: click | fill | press | snapshot | screenshot | wait | filter | open-add | add-url | open-detail | pause-named | click-named | reload | eval | viewport");
   }
 
   if (sub === "reload") {
@@ -722,6 +722,33 @@ async function cmdBrowser(argv) {
       mkdirSync(dirname(path), { recursive: true });
       await page.screenshot({ path, fullPage: Boolean(args.fullPage) });
       console.log(JSON.stringify({ ok: true, path }, null, 2));
+    });
+    return;
+  }
+
+  if (sub === "viewport") {
+    // Resizes the real Chromium window (not a per-connection emulation), so
+    // the size survives into later `browser` calls — e.g. a short tiled
+    // window for menu-placement checks. One correction pass absorbs window
+    // chrome so innerWidth/innerHeight land on the requested size.
+    const width = Number(args.width);
+    const height = Number(args.height);
+    if (!(width > 0) || !(height > 0)) die("viewport requires --width and --height");
+    await withPage(async (page) => {
+      const cdp = await page.context().newCDPSession(page);
+      const { windowId } = await cdp.send("Browser.getWindowForTarget");
+      await cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
+      let outer = { width, height };
+      let inner = { width: 0, height: 0 };
+      for (let pass = 0; pass < 2; pass++) {
+        await cdp.send("Browser.setWindowBounds", { windowId, bounds: outer });
+        await sleep(150);
+        inner = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+        if (inner.width === width && inner.height === height) break;
+        outer = { width: outer.width + width - inner.width, height: outer.height + height - inner.height };
+      }
+      await cdp.detach().catch(() => {});
+      console.log(JSON.stringify({ ok: inner.width === width && inner.height === height, action: "viewport", requested: { width, height }, inner }, null, 2));
     });
     return;
   }

@@ -97,6 +97,7 @@ Examples:
 ./helpers/control-garia browser pause-named --name 'Ubuntu 24.04 Desktop.iso'
 ./helpers/control-garia browser click-named --name 'Ubuntu 24.04 Desktop.iso' --action resume
 ./helpers/control-garia browser click --css '#open-modal-btn'
+./helpers/control-garia browser viewport --width 900 --height 300   # short tiled window; persists across calls
 ./helpers/control-garia browser reload --tauri-stub
 ./helpers/control-garia browser fill --css '#modal-url-input' --value 'https://example.com/a.zip'
 ./helpers/control-garia browser snapshot --path browse-library/active.aria.txt
