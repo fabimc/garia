@@ -36,6 +36,12 @@ export function isTorrentDownload(dl) {
   return Boolean(dl.bittorrent || dl.infoHash);
 }
 
+// aria2 can still report the last speed for a moment after a pause. Only a
+// running download has a download speed worth showing.
+export function rowDownloadSpeed(dl) {
+  return dl?.status === "active" ? Number(dl.downloadSpeed) || 0 : 0;
+}
+
 export function fileDone(file) {
   const length = Number(file?.length) || 0;
   const got = Number(file?.completedLength) || 0;
@@ -334,7 +340,7 @@ export function formatEmptyQueueState({
   filter = "all",
   hasAnyDownloads = false,
   connError = false,
-  modNHint = "⌘N",
+  modNHint = "Ctrl+N",
   hasSearch = false,
   queueStopped = false,
 } = {}) {
@@ -1080,7 +1086,7 @@ export function splitNameForDisplay(raw, { minSplit = 20, tail = 12, extPad = 6 
 
 // Housekeeping that is about the whole queue, not only the rows under the
 // pointer. Retry All stays hidden when the selection already is the only
-// failure — Retry covers that. Labels match Download menu / dock verbs when
+// failure — Retry covers that. Labels match Download menu / tray verbs when
 // menuAligned is set, so the status bar and the menu say the same thing.
 export function housekeepingActions({
   failed = 0,
@@ -1648,18 +1654,6 @@ export async function revealPath(path, reveal, onFailure) {
   }
   try {
     await reveal(path);
-  } catch (err) {
-    onFailure(err);
-  }
-}
-
-export async function openConfiguredFolder(invoke, onFailure) {
-  if (typeof invoke !== "function") {
-    onFailure(new Error("The system file manager is unavailable."));
-    return;
-  }
-  try {
-    await invoke("open_download_folder");
   } catch (err) {
     onFailure(err);
   }
@@ -2305,6 +2299,16 @@ export function collapseMagnetDownloads(downloads) {
   return { rows, hidden: [...hidden], handoffs, forget };
 }
 
+// Finished rows from Garia's history that aria2 no longer knows, in front of
+// aria2's own stopped rows: they finished earlier. A gid aria2 still has, live
+// or stopped, is aria2's row and newer.
+export function withHistory(stopped, live, history) {
+  if (!Array.isArray(history) || !history.length) return stopped;
+  const known = new Set([...live, ...stopped].map((dl) => dl.gid));
+  const old = history.filter((dl) => dl?.gid && !known.has(dl.gid));
+  return old.length ? [...old, ...stopped] : stopped;
+}
+
 export function quietCaptureDir({
   quietMode = false,
   quietCategoryId = "",
@@ -2321,4 +2325,17 @@ export function quietCaptureDir({
   if (!folder) return base || fallback;
   if (folder.startsWith("/")) return folder.replace(/\/+$/, "");
   return base ? `${base}/${folder}` : folder;
+}
+
+export function purgeFailures(gids, answers, removed, finalAttempt) {
+  const left = [];
+  let reason = "";
+  gids.forEach((gid, i) => {
+    const error = answers[i]?.error;
+    if (!error) return;
+    if (finalAttempt && removed.has(gid) && error === `GID ${gid} is not found`) return;
+    left.push(gid);
+    if (!reason) reason = error;
+  });
+  return { left, reason };
 }

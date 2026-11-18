@@ -1,6 +1,6 @@
 # JDownloader parity review
 
-This is a product review and implementation plan, not a claim that Garia should copy every JDownloader detail exactly. Garia is a smaller, cross-platform desktop download manager built on aria2, and the goal is to match the features users expect from a modern multi-source download client where they are valuable to Garia's workflow.
+This is a product review and implementation plan, not a claim that Garia should copy every JDownloader detail exactly. Garia is a smaller Linux desktop download manager built on aria2, and the goal is to match the features users expect from a modern multi-source download client where they are valuable to Garia's workflow.
 
 ## Current Garia coverage
 
@@ -16,7 +16,7 @@ Garia already covers a large share of the core download-manager experience that 
 - Optional checksum verification while a file is downloading
 - Video downloads through yt-dlp and ffmpeg
 - Remote control for the aria2 JSON-RPC port and QR pairing flow
-- Notification, status, and tray/dock integrations
+- Notification, status, and tray integrations
 
 That means Garia is already strong on the core “download manager” experience. The remaining work below was the batch, packaging, site-rule, automation, and export depth that JDownloader users expect on top of basic downloading.
 

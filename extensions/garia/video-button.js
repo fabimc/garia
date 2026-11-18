@@ -159,7 +159,7 @@ style.textContent = `
     display: flex;
     align-items: stretch;
     pointer-events: auto;
-    font: 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font: 13px/1.2 system-ui, sans-serif;
     color: #f5f5f7;
     -webkit-font-smoothing: antialiased;
     user-select: none;
