@@ -1,0 +1,55 @@
+{
+  "before": [
+    {
+      "gid": "bbbb1111",
+      "status": "waiting",
+      "name": "Xcode_16.2.xip"
+    },
+    {
+      "gid": "bbbb2222",
+      "status": "waiting",
+      "name": "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz"
+    },
+    {
+      "gid": "bbbb3333",
+      "status": "waiting",
+      "name": "node-v24.4.0-darwin-arm64.tar.gz"
+    },
+    {
+      "gid": "bbbb4444",
+      "status": "waiting",
+      "name": "Sintel (2010) 4K.mkv"
+    },
+    {
+      "gid": "bbbb5555",
+      "status": "waiting",
+      "name": "postgresql-18.1-macos.dmg"
+    }
+  ],
+  "after": [
+    {
+      "gid": "bbbb2222",
+      "status": "waiting",
+      "name": "an-extremely-long-file-name-that-should-be-truncated-with-an-ellipsis-rather-than-wrapping-across-lines.tar.gz"
+    },
+    {
+      "gid": "bbbb3333",
+      "status": "waiting",
+      "name": "node-v24.4.0-darwin-arm64.tar.gz"
+    },
+    {
+      "gid": "bbbb4444",
+      "status": "waiting",
+      "name": "Sintel (2010) 4K.mkv"
+    },
+    {
+      "gid": "bbbb5555",
+      "status": "waiting",
+      "name": "postgresql-18.1-macos.dmg"
+    }
+  ],
+  "banner": {
+    "hidden": true,
+    "text": "Dismiss"
+  }
+}

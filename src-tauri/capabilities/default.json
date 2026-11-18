@@ -14,7 +14,6 @@
     "notification:default",
     "deep-link:default",
     "window-state:default",
-    "autostart:default",
     "updater:default",
     "core:tray:default"
   ]
