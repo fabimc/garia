@@ -1,0 +1,58 @@
+- dialog "Garia Help":
+  - heading "Garia Help" [level=2]
+  - button "Close": ✕
+  - region "Help topics":
+    - term: Add a download
+    - definition:
+      - text: File → New Download (Ctrl+N), Open Torrent (Ctrl+O), or drop a torrent on the window. A magnet or
+      - code: .torrent
+      - text: the system opens is queued, not offered. The browser extension in Settings (Ctrl+,) → Browser takes a clicked file, and the bookmarklet sends the page you are on.
+    - term: The window is not the app
+    - definition: The close button and Ctrl+W hide the list. Downloads keep going. Ctrl+Q quits, and Tray → Quit stops downloads.
+    - term: The list
+    - definition: Click selects. Arrows move the selection; Ctrl+A selects all. Double-click or Enter opens detail. Space pauses or resumes while the list has focus. Ctrl+C copies the URL. Ctrl+Backspace removes. Alt+↑ / Alt+↓ reorder a queued row — hold Shift for either end. Right-click also moves a selection to the top or the end, copies the file path, or removes the row and keeps the file. Download → Retry Failed and Clear Completed cover the whole list. Ctrl+F finds. Ctrl+? opens this sheet. Escape closes the topmost dialog, then the inspector.
+    - term: Show in folder
+    - definition: Show in folder opens the download's containing folder and selects the file.
+    - term: Keyboard-only path
+    - definition: Ctrl+N opens New Download (or Tab to Add download and press Enter); paste a URL and press Enter (Ctrl+Enter submits several). Tab to the sidebar, use ↑ / ↓ to choose a filter such as Active or Queued, then Enter. Focus the list for Space / Enter / Ctrl+C / Ctrl+Backspace — those keys stay with the focused control when the list is not focused. In the list, ↑ / ↓ selects a row; Space pauses or resumes it, and Enter opens details. A focused row button runs on Enter or Space. Ctrl+C copies the URL; Ctrl+Backspace removes the selected row. Ctrl+I opens details; Tab to Show in folder. Ctrl+F finds. Escape closes the topmost dialog, then the inspector. Close the window to hide downloads; reopen Garia from the tray or app launcher. Ctrl+Q quits.
+    - term: Video downloads
+    - definition:
+      - text: Paste a video page and pick a quality.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Video-Downloads.md
+    - term: FTP
+    - definition:
+      - text: Paste an
+      - code: ftp://
+      - text: folder and tick what to queue.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/FTP.md
+    - term: Checksums
+    - definition:
+      - text: Paste a hash beside the URL; aria2 checks as bytes arrive.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Checksums.md
+    - term: Torrents
+    - definition:
+      - text: The Torrents filter is every magnet and
+      - code: .torrent
+      - text: . Open a row for tracker status, peer health, per-file priority, and Seed until. A row that says Stalled has the metadata and no peers.
+    - term: Schedule
+    - definition:
+      - text: A daily window in Settings, or a start time on one row. Stop Queue / Start Queue are in the menu and the header.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/How-It-Works.md
+    - term: Video button
+    - definition:
+      - text: On a watch page the extension draws Download on the player; it sends the page, not the stream.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md
+    - term: Leave with the browser
+    - definition:
+      - text: Hold Alt while clicking a file link to leave that download with the browser.
+      - link "Docs":
+        - /url: https://github.com/fabimc/garia/blob/master/docs/Browser-Capture.md
+    - paragraph: Licenses for the bundled tools are under Help → Licenses.
+    - paragraph:
+      - button "Set up Garia again"
+  - button "Done"
