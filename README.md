@@ -20,7 +20,7 @@ Grab the `.AppImage` (run anywhere) or the `.deb` (Debian/Ubuntu — preferred i
 
 The release also includes `garia-<version>-linux-x86_64.tar.gz`, a portable payload for Arch-based distributions.
 
-On Omarchy, the recommended package will be `garia-bin` from OPR:
+On Omarchy, the recommended package will be `garia-bin` from OPR. It is proposed in [omacom/omarchy-pkgs#2449](https://github.com/omacom/omarchy-pkgs/pull/2449) and is not published yet. Once it is, install it with:
 
 ```sh
 omarchy pkg add garia-bin
