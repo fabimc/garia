@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  # Manual run from master: tauri-action drafts the v<version> release itself.
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -106,6 +104,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json')).version")"
-          gh release upload "v${version}" "dist/garia-${version}-linux-x86_64.tar.gz" \
+          gh release upload "$GITHUB_REF_NAME" "dist/garia-${version}-linux-x86_64.tar.gz" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

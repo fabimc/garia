@@ -65,7 +65,7 @@ Keep that file out of Git and back it up. Set the key contents in the GitHub Act
 ## Releasing
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
-2. Tag the release as `v<version>` and push the tag, or run the Release workflow manually on `master` (Actions → Release → Run workflow).
+2. Tag the release as `v<version>` and push the tag.
 3. The Release workflow builds the Linux AppImage, `.deb`, and Arch-compatible tarball, and drafts a GitHub release. When the updater key is present it also signs the update payload and publishes `latest.json`.
 4. Garia → Check for Updates reads `latest.json`.
 
