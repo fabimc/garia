@@ -64,10 +64,11 @@ Keep that file out of Git and back it up. Set the key contents in the GitHub Act
 
 ## Releasing
 
-1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
+1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json`, and `src-tauri/Cargo.toml` (and the `garia` entry in `src-tauri/Cargo.lock`), and merge to `master`.
 2. Tag the release as `v<version>` and push the tag.
-3. The Release workflow builds the Linux AppImage, `.deb`, and Arch-compatible tarball, and drafts a GitHub release. When the updater key is present it also signs the update payload and publishes `latest.json`.
-4. Garia → Check for Updates reads `latest.json`.
+3. The Release workflow builds the Linux AppImage, `.deb`, and Arch-compatible tarball, and drafts a GitHub release. When the updater key is present it also signs the update payload and uploads `latest.json`.
+4. Publish the draft from the Releases page (drafts are only visible when signed in with write access). When generating release notes, set the previous tag to the last *published* release, so the notes cover everything users are upgrading from.
+5. Garia → Check for Updates reads `latest.json` from the latest published release. A release without `latest.json` is invisible to it.
 
 The first published release is what makes Check for Updates have something to find. Until then the menu says it could not check, and a quiet launch check stays quiet.
 
